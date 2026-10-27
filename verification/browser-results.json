@@ -1,6 +1,6 @@
 {
-  "scope": "Actual distributable, Edge headless, sandbox+CSP, mocked API. No live RisuBard/LLM verification.",
-  "passed": 6,
+  "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
+  "passed": 9,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -12,12 +12,63 @@
       }
     },
     {
+      "name": "opaque full-frame manuscript after hidden bootstrap, resize and reopen",
+      "passed": true,
+      "layouts": 18
+    },
+    {
+      "name": "neutral charcoal dark surfaces and controls",
+      "passed": true
+    },
+    {
       "name": "system dark mode and persistent explicit theme selection",
       "passed": true
     },
     {
       "name": "single-click model request without confirmation dialog",
       "passed": true
+    },
+    {
+      "name": "prompt dialog body scrolls while footer remains inside the frame",
+      "passed": true,
+      "layouts": [
+        {
+          "viewport": [
+            1024,
+            576
+          ],
+          "left": 82,
+          "right": 942,
+          "top": 20,
+          "bottom": 556,
+          "footerBottom": 555,
+          "bodyHeight": 402
+        },
+        {
+          "viewport": [
+            640,
+            480
+          ],
+          "left": 10,
+          "right": 630,
+          "top": 10,
+          "bottom": 470,
+          "footerBottom": 469,
+          "bodyHeight": 326
+        },
+        {
+          "viewport": [
+            390,
+            568
+          ],
+          "left": 10,
+          "right": 380,
+          "top": 10,
+          "bottom": 558,
+          "footerBottom": 557,
+          "bodyHeight": 414
+        }
+      ]
     },
     {
       "name": "explicit proposal apply updates manuscript",
@@ -30,6 +81,980 @@
     {
       "name": "mobile pane switch without horizontal overflow",
       "passed": true
+    }
+  ],
+  "layouts": [
+    {
+      "label": "hidden srcdoc frame opened",
+      "viewport": [
+        1440,
+        1000
+      ],
+      "pageHeight": 1000,
+      "pageWidth": 1440,
+      "root": {
+        "top": 0,
+        "bottom": 1000,
+        "left": 0,
+        "right": 1440,
+        "width": 1440,
+        "height": 1000
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 134,
+        "bottom": 1000,
+        "left": 0,
+        "right": 1440,
+        "width": 1440,
+        "height": 866
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 134,
+        "bottom": 1000,
+        "left": 172,
+        "right": 1020,
+        "width": 848,
+        "height": 866
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 134,
+        "bottom": 1000,
+        "left": 1020,
+        "right": 1440,
+        "width": 420,
+        "height": 866
+      },
+      "send": {
+        "top": 884.203125,
+        "bottom": 920.203125,
+        "left": 1039,
+        "right": 1332,
+        "width": 293,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "1920x1080 editor",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "pageHeight": 1080,
+      "pageWidth": 1920,
+      "root": {
+        "top": 0,
+        "bottom": 1080,
+        "left": 0,
+        "right": 1920,
+        "width": 1920,
+        "height": 1080
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 134,
+        "bottom": 1080,
+        "left": 0,
+        "right": 1920,
+        "width": 1920,
+        "height": 946
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 134,
+        "bottom": 1080,
+        "left": 190,
+        "right": 1440,
+        "width": 1250,
+        "height": 946
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 134,
+        "bottom": 1080,
+        "left": 1440,
+        "right": 1920,
+        "width": 480,
+        "height": 946
+      },
+      "send": {
+        "top": 964.203125,
+        "bottom": 1000.203125,
+        "left": 1459,
+        "right": 1812,
+        "width": 353,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "1440x900 editor",
+      "viewport": [
+        1440,
+        900
+      ],
+      "pageHeight": 900,
+      "pageWidth": 1440,
+      "root": {
+        "top": 0,
+        "bottom": 900,
+        "left": 0,
+        "right": 1440,
+        "width": 1440,
+        "height": 900
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 134,
+        "bottom": 900,
+        "left": 0,
+        "right": 1440,
+        "width": 1440,
+        "height": 766
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 134,
+        "bottom": 900,
+        "left": 172,
+        "right": 1020,
+        "width": 848,
+        "height": 766
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 134,
+        "bottom": 900,
+        "left": 1020,
+        "right": 1440,
+        "width": 420,
+        "height": 766
+      },
+      "send": {
+        "top": 784.203125,
+        "bottom": 820.203125,
+        "left": 1039,
+        "right": 1332,
+        "width": 293,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "1366x768 editor",
+      "viewport": [
+        1366,
+        768
+      ],
+      "pageHeight": 768,
+      "pageWidth": 1366,
+      "root": {
+        "top": 0,
+        "bottom": 768,
+        "left": 0,
+        "right": 1366,
+        "width": 1366,
+        "height": 768
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 134,
+        "bottom": 768,
+        "left": 0,
+        "right": 1366,
+        "width": 1366,
+        "height": 634
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 134,
+        "bottom": 768,
+        "left": 172,
+        "right": 946,
+        "width": 774,
+        "height": 634
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 134,
+        "bottom": 768,
+        "left": 946,
+        "right": 1366,
+        "width": 420,
+        "height": 634
+      },
+      "send": {
+        "top": 652.203125,
+        "bottom": 688.203125,
+        "left": 965,
+        "right": 1258,
+        "width": 293,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "1280x720 editor",
+      "viewport": [
+        1280,
+        720
+      ],
+      "pageHeight": 720,
+      "pageWidth": 1280,
+      "root": {
+        "top": 0,
+        "bottom": 720,
+        "left": 0,
+        "right": 1280,
+        "width": 1280,
+        "height": 720
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 134,
+        "bottom": 720,
+        "left": 0,
+        "right": 1280,
+        "width": 1280,
+        "height": 586
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 134,
+        "bottom": 720,
+        "left": 172,
+        "right": 860,
+        "width": 688,
+        "height": 586
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 134,
+        "bottom": 720,
+        "left": 860,
+        "right": 1280,
+        "width": 420,
+        "height": 586
+      },
+      "send": {
+        "top": 604.203125,
+        "bottom": 640.203125,
+        "left": 879,
+        "right": 1172,
+        "width": 293,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "1093x614 editor",
+      "viewport": [
+        1093,
+        614
+      ],
+      "pageHeight": 614,
+      "pageWidth": 1093,
+      "root": {
+        "top": 0,
+        "bottom": 614,
+        "left": 0,
+        "right": 1093,
+        "width": 1093,
+        "height": 614
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 109,
+        "bottom": 614,
+        "left": 0,
+        "right": 1093,
+        "width": 1093,
+        "height": 505
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 109,
+        "bottom": 614,
+        "left": 132,
+        "right": 773,
+        "width": 641,
+        "height": 505
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 109,
+        "bottom": 614,
+        "left": 773,
+        "right": 1093,
+        "width": 320,
+        "height": 505
+      },
+      "send": {
+        "top": 541,
+        "bottom": 577,
+        "left": 786,
+        "right": 991,
+        "width": 205,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "1024x576 editor",
+      "viewport": [
+        1024,
+        576
+      ],
+      "pageHeight": 576,
+      "pageWidth": 1024,
+      "root": {
+        "top": 0,
+        "bottom": 576,
+        "left": 0,
+        "right": 1024,
+        "width": 1024,
+        "height": 576
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 109,
+        "bottom": 576,
+        "left": 0,
+        "right": 1024,
+        "width": 1024,
+        "height": 467
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 109,
+        "bottom": 576,
+        "left": 132,
+        "right": 704,
+        "width": 572,
+        "height": 467
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 109,
+        "bottom": 576,
+        "left": 704,
+        "right": 1024,
+        "width": 320,
+        "height": 467
+      },
+      "send": {
+        "top": 503,
+        "bottom": 539,
+        "left": 717,
+        "right": 922,
+        "width": 205,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "900x600 editor",
+      "viewport": [
+        900,
+        600
+      ],
+      "pageHeight": 600,
+      "pageWidth": 900,
+      "root": {
+        "top": 0,
+        "bottom": 600,
+        "left": 0,
+        "right": 900,
+        "width": 900,
+        "height": 600
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 109,
+        "bottom": 600,
+        "left": 0,
+        "right": 900,
+        "width": 900,
+        "height": 491
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 109,
+        "bottom": 600,
+        "left": 132,
+        "right": 580,
+        "width": 448,
+        "height": 491
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 109,
+        "bottom": 600,
+        "left": 580,
+        "right": 900,
+        "width": 320,
+        "height": 491
+      },
+      "send": {
+        "top": 527,
+        "bottom": 563,
+        "left": 593,
+        "right": 798,
+        "width": 205,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "841x600 editor",
+      "viewport": [
+        841,
+        600
+      ],
+      "pageHeight": 600,
+      "pageWidth": 841,
+      "root": {
+        "top": 0,
+        "bottom": 600,
+        "left": 0,
+        "right": 841,
+        "width": 841,
+        "height": 600
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 151,
+        "bottom": 600,
+        "left": 0,
+        "right": 841,
+        "width": 841,
+        "height": 449
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 151,
+        "bottom": 600,
+        "left": 132,
+        "right": 521,
+        "width": 389,
+        "height": 449
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 151,
+        "bottom": 600,
+        "left": 521,
+        "right": 841,
+        "width": 320,
+        "height": 449
+      },
+      "send": {
+        "top": 527,
+        "bottom": 563,
+        "left": 534,
+        "right": 739,
+        "width": 205,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "768x600 editor",
+      "viewport": [
+        768,
+        600
+      ],
+      "pageHeight": 600,
+      "pageWidth": 768,
+      "root": {
+        "top": 0,
+        "bottom": 600,
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "height": 600
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 147,
+        "bottom": 600,
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "height": 453
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 197,
+        "bottom": 600,
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "height": 403
+      },
+      "chatVisible": false,
+      "chat": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "send": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "sendVisible": false,
+      "inputVisible": false
+    },
+    {
+      "label": "768x600 chat",
+      "viewport": [
+        768,
+        600
+      ],
+      "pageHeight": 600,
+      "pageWidth": 768,
+      "root": {
+        "top": 0,
+        "bottom": 600,
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "height": 600
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 147,
+        "bottom": 600,
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "height": 453
+      },
+      "editorVisible": false,
+      "editor": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 147,
+        "bottom": 600,
+        "left": 0,
+        "right": 768,
+        "width": 768,
+        "height": 453
+      },
+      "send": {
+        "top": 527,
+        "bottom": 563,
+        "left": 12,
+        "right": 666,
+        "width": 654,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "640x480 editor",
+      "viewport": [
+        640,
+        480
+      ],
+      "pageHeight": 480,
+      "pageWidth": 640,
+      "root": {
+        "top": 0,
+        "bottom": 480,
+        "left": 0,
+        "right": 640,
+        "width": 640,
+        "height": 480
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 147,
+        "bottom": 480,
+        "left": 0,
+        "right": 640,
+        "width": 640,
+        "height": 333
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 197,
+        "bottom": 480,
+        "left": 0,
+        "right": 640,
+        "width": 640,
+        "height": 283
+      },
+      "chatVisible": false,
+      "chat": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "send": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "sendVisible": false,
+      "inputVisible": false
+    },
+    {
+      "label": "640x480 chat",
+      "viewport": [
+        640,
+        480
+      ],
+      "pageHeight": 480,
+      "pageWidth": 640,
+      "root": {
+        "top": 0,
+        "bottom": 480,
+        "left": 0,
+        "right": 640,
+        "width": 640,
+        "height": 480
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 147,
+        "bottom": 480,
+        "left": 0,
+        "right": 640,
+        "width": 640,
+        "height": 333
+      },
+      "editorVisible": false,
+      "editor": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 147,
+        "bottom": 480,
+        "left": 0,
+        "right": 640,
+        "width": 640,
+        "height": 333
+      },
+      "send": {
+        "top": 407,
+        "bottom": 443,
+        "left": 12,
+        "right": 538,
+        "width": 526,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "390x568 editor",
+      "viewport": [
+        390,
+        568
+      ],
+      "pageHeight": 568,
+      "pageWidth": 390,
+      "root": {
+        "top": 0,
+        "bottom": 568,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 568
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 262,
+        "bottom": 568,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 306
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 312,
+        "bottom": 568,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 256
+      },
+      "chatVisible": false,
+      "chat": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "send": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "sendVisible": false,
+      "inputVisible": false
+    },
+    {
+      "label": "390x568 chat",
+      "viewport": [
+        390,
+        568
+      ],
+      "pageHeight": 568,
+      "pageWidth": 390,
+      "root": {
+        "top": 0,
+        "bottom": 568,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 568
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 262,
+        "bottom": 568,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 306
+      },
+      "editorVisible": false,
+      "editor": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 262,
+        "bottom": 568,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 306
+      },
+      "send": {
+        "top": 495.59375,
+        "bottom": 531.59375,
+        "left": 12,
+        "right": 288,
+        "width": 276,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "390x844 editor",
+      "viewport": [
+        390,
+        844
+      ],
+      "pageHeight": 844,
+      "pageWidth": 390,
+      "root": {
+        "top": 0,
+        "bottom": 844,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 844
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 282,
+        "bottom": 844,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 562
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 332,
+        "bottom": 844,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 512
+      },
+      "chatVisible": false,
+      "chat": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "send": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "sendVisible": false,
+      "inputVisible": false
+    },
+    {
+      "label": "390x844 chat",
+      "viewport": [
+        390,
+        844
+      ],
+      "pageHeight": 844,
+      "pageWidth": 390,
+      "root": {
+        "top": 0,
+        "bottom": 844,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 844
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 282,
+        "bottom": 844,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 562
+      },
+      "editorVisible": false,
+      "editor": {
+        "top": 0,
+        "bottom": 0,
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "height": 0
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 282,
+        "bottom": 844,
+        "left": 0,
+        "right": 390,
+        "width": 390,
+        "height": 562
+      },
+      "send": {
+        "top": 728.203125,
+        "bottom": 764.203125,
+        "left": 18,
+        "right": 282,
+        "width": 264,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
+    },
+    {
+      "label": "frame reopened",
+      "viewport": [
+        1440,
+        1000
+      ],
+      "pageHeight": 1000,
+      "pageWidth": 1440,
+      "root": {
+        "top": 0,
+        "bottom": 1000,
+        "left": 0,
+        "right": 1440,
+        "width": 1440,
+        "height": 1000
+      },
+      "background": "rgb(244, 242, 237)",
+      "workspace": {
+        "top": 134,
+        "bottom": 1000,
+        "left": 0,
+        "right": 1440,
+        "width": 1440,
+        "height": 866
+      },
+      "editorVisible": true,
+      "editor": {
+        "top": 134,
+        "bottom": 1000,
+        "left": 172,
+        "right": 1020,
+        "width": 848,
+        "height": 866
+      },
+      "chatVisible": true,
+      "chat": {
+        "top": 134,
+        "bottom": 1000,
+        "left": 1020,
+        "right": 1440,
+        "width": 420,
+        "height": 866
+      },
+      "send": {
+        "top": 884.203125,
+        "bottom": 920.203125,
+        "left": 1039,
+        "right": 1332,
+        "width": 293,
+        "height": 36
+      },
+      "sendVisible": true,
+      "inputVisible": true
     }
   ],
   "errors": []
