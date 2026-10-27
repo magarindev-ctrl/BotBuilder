@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 13,
+  "passed": 16,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -92,6 +92,50 @@
     },
     {
       "name": "reported if_pure/infix syntax responds to OOC toggles under CSP and cachePoint reaches the model API",
+      "passed": true
+    },
+    {
+      "name": "installed module selection dialog retains its footer and scrollable body at small sizes",
+      "passed": true,
+      "layouts": [
+        {
+          "width": 1024,
+          "height": 576,
+          "left": 82,
+          "right": 942,
+          "bottom": 556,
+          "footerBottom": 555,
+          "bodyHeight": 402,
+          "overflow": false
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "left": 10,
+          "right": 630,
+          "bottom": 470,
+          "footerBottom": 469,
+          "bodyHeight": 326,
+          "overflow": false
+        },
+        {
+          "width": 390,
+          "height": 568,
+          "left": 10,
+          "right": 380,
+          "bottom": 558,
+          "footerBottom": 557,
+          "bodyHeight": 414,
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "installed modules are selected read-only by preset namespace; module toggles and CBS lore reach model messages",
+      "passed": true
+    },
+    {
+      "name": "module runtime features block dispatch until explicitly excluded; exclusions persist and no module JS executes",
       "passed": true
     },
     {

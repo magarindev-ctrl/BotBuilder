@@ -5,20 +5,23 @@ import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import { blankCharacter } from '../src/core.js';
 import { samplePreset, encodePreset } from '../tests/preset-fixture.mjs';
+import { installedModules, modulePreset } from '../tests/modules-fixture.mjs';
 
 await mkdir('artifacts', { recursive: true });
 const bundle = await readFile('dist/risu_story_workshop.js', 'utf8');
 const c = blankCharacter(); c.name = '브라우저 검증용 캐릭터'; c.desc = '원래 설명';
+const moduleFixture=JSON.stringify(installedModules()).split('<').join(String.fromCharCode(92)+'u003c');
 const setup = `
 const store = new Map(); let chars = ${JSON.stringify([c])};
-window.__calls = [];
+const installedModules=${moduleFixture};window.__moduleSource=JSON.stringify(installedModules);
+window.__calls = [];window.__dbReads=[];window.__hostWrites=[];
 window.risuai = {
  pluginStorage:{getItem:async k=>store.get(k)??null,setItem:async(k,v)=>store.set(k,v),removeItem:async k=>store.delete(k)},
  registerSetting:async(n,cb)=>{window.__open=cb;},registerButton:async()=>({id:'mock'}),onUnload:async cb=>window.__unload=cb,
  showContainer:async()=>{parent.postMessage({workshopFrame:'show'},'*');},hideContainer:async()=>{parent.postMessage({workshopFrame:'hide'},'*');},getCharacter:async()=>structuredClone(chars[0]),
- getDatabase:async()=>({characters:structuredClone(chars),characterOrder:chars.map(c=>c.chaId)}),
- getCharacterFromIndex:async i=>structuredClone(chars[i]),setCharacterToIndex:async(i,c)=>{chars[i]=structuredClone(c);},
- setDatabaseLite:async db=>{chars=structuredClone(db.characters);},
+ getDatabase:async keys=>{window.__dbReads.push(keys);return keys?.includes('modules')?{modules:structuredClone(installedModules)}:{characters:structuredClone(chars),characterOrder:chars.map(c=>c.chaId)};},
+ getCharacterFromIndex:async i=>structuredClone(chars[i]),setCharacterToIndex:async(i,c)=>{window.__hostWrites.push('setCharacter');chars[i]=structuredClone(c);},
+ setDatabaseLite:async db=>{window.__hostWrites.push('setDatabase');chars=structuredClone(db.characters);},
  runLLMModel:async o=>{window.__calls.push(o);await new Promise(r=>setTimeout(r,60));
  const task = o.messages.findLast(m=>m.role==='user').content.split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
  const data = task==='workshop'?{reply:'기억을 거래하는 항구 도시를 배경으로 시작해볼까요? 사용자의 역할부터 함께 정해보면 좋겠습니다.',changes:[]}:{text:'기억을 거래하는 항구 도시의 기록관. 사람들의 사라진 과거를 찾아주며, 자신의 기억만은 되찾지 못하고 있다.'};
@@ -220,6 +223,51 @@ try {
   await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   assert.doesNotMatch(await frame.locator('.editor').innerText(),/What Cattleya have to respond!/);
   results.push({name:'reported if_pure/infix syntax responds to OOC toggles under CSP and cachePoint reaches the model API',passed:true});
+  const moduleChooser=page.waitForEvent('filechooser');await frame.locator('[data-action="import-preset"]').click();
+  await (await moduleChooser).setFiles({name:'module-preset.risup',mimeType:'application/octet-stream',buffer:Buffer.from(await encodePreset(modulePreset()))});
+  await frame.waitForFunction(()=>document.querySelector('[aria-label="프리셋 이름"]')?.value==='모듈 연결 프리셋');
+  await frame.locator('[data-action="select-modules"]').click();
+  await frame.getByRole('dialog',{name:'설치 모듈 선택'}).waitFor();
+  const moduleDialogLayouts=[];
+  for(const [width,height] of [[1024,576],[640,480],[390,568]]) {
+    await page.setViewportSize({width,height});await frame.waitForFunction(({width,height})=>innerWidth===width&&innerHeight===height,{width,height});
+    const layout=await frame.evaluate(()=>{const d=document.querySelector('.modal').getBoundingClientRect(),f=document.querySelector('.modalfoot').getBoundingClientRect(),b=document.querySelector('.modalbody');return {width:innerWidth,height:innerHeight,left:d.left,right:d.right,bottom:d.bottom,footerBottom:f.bottom,bodyHeight:b.clientHeight,overflow:b.scrollWidth>b.clientWidth};});
+    assert.ok(layout.left>=0&&layout.right<=width+1&&layout.bottom<=height+1&&layout.footerBottom<=height+1&&layout.bodyHeight>0&&!layout.overflow);moduleDialogLayouts.push(layout);
+  }
+  await page.setViewportSize({width:1440,height:1000});await frame.waitForFunction(()=>innerWidth===1440&&innerHeight===1000);
+  results.push({name:'installed module selection dialog retains its footer and scrollable body at small sizes',passed:true,layouts:moduleDialogLayouts});
+  await frame.getByRole('button',{name:'프리셋 참조 모듈 선택',exact:true}).click();
+  await frame.getByRole('button',{name:'선택 모듈 적용',exact:true}).click();
+  await frame.getByText('모듈 로어북 포함 항목 확인',{exact:true}).waitFor();
+  await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
+  await frame.getByRole('combobox',{name:'모듈 집중',exact:true}).selectOption('1');
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  assert.match(await frame.locator('.editor').innerText(),/모듈 연결=1/);assert.match(await frame.locator('.editor').innerText(),/상세 모드/);
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===5&&!document.querySelector('[data-action="send-request"]').disabled);
+  assert.ok(await frame.evaluate(()=>window.__calls[4].messages.some(m=>m.content.includes('모듈 자료:')&&m.content.includes('상세 모드'))));
+  assert.deepEqual(await frame.evaluate(()=>window.__hostWrites),[]);assert.deepEqual(await frame.evaluate(()=>window.__dbReads),[['modules']]);
+  assert.equal(await frame.evaluate(()=>JSON.stringify(installedModules)===window.__moduleSource),true);
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-module-preview.png',animations:'disabled'});
+  results.push({name:'installed modules are selected read-only by preset namespace; module toggles and CBS lore reach model messages',passed:true});
+  await frame.locator('[data-action="select-modules"]').click();
+  await frame.getByRole('checkbox',{name:'실행 모듈 · script-id',exact:true}).check();
+  await frame.getByRole('button',{name:'선택 모듈 적용',exact:true}).click();
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await frame.getByText('전송할 수 없는 항목:',{exact:false}).waitFor();
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.getByRole('alert').filter({hasText:'실행은 지원하지 않습니다'}).waitFor();
+  assert.equal(await frame.evaluate(()=>window.__calls.length),5);assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);
+  await frame.getByRole('button',{name:'모듈',exact:true}).click();
+  await frame.getByRole('checkbox',{name:'이 모듈의 정규식·트리거·JS·MCP·배경 처리를 제외',exact:true}).check();
+  await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
+  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['script-id'].skipRuntime===true);
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===6&&!document.querySelector('[data-action="send-request"]').disabled);
+  assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);assert.deepEqual(await frame.evaluate(()=>window.__hostWrites),[]);
+  results.push({name:'module runtime features block dispatch until explicitly excluded; exclusions persist and no module JS executes',passed:true});
   await frame.getByRole('combobox',{name:'요청 구성'}).selectOption('direct');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -229,6 +277,6 @@ try {
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 10, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 11, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

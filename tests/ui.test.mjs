@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Workshop } from '../src/ui.js';
 import { PREFIX, newSession, snapshot } from '../src/core.js';
-import { applyImportedPreset, savePresetWorkspace } from '../src/preset-ui.js';
+import { applyImportedPreset, savePresetWorkspace, selectModules } from '../src/preset-ui.js';
 import { samplePreset, encodePreset } from './preset-fixture.mjs';
+import { installedModules, modulePreset } from './modules-fixture.mjs';
+import { selectInstalledModules } from '../src/modules.js';
 
 const wait = () => new Promise(resolve => setTimeout(resolve, 12));
 async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop', data: { reply: '세계관부터 함께 정해보죠.', changes: [] } }, systemDark = false) {
@@ -16,6 +18,43 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
   const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
+test('installed-module dialog selects referenced modules read-only and persists modules/toggles through import and recovery',async()=>{
+  const x=await make();let y;try {
+    const modules=installedModules(),before=JSON.stringify(modules),reads=[];
+    x.app.api.getDatabase=async keys=>{reads.push(keys);return {modules};};
+    x.app.api.setDatabaseLite=()=>{throw new Error('Host must stay unchanged');};
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(modulePreset())),'p.json');
+    const pending=selectModules(x.app);await wait();button(x.dom,'프리셋 참조 모듈 선택').click();await wait();button(x.dom,'선택 모듈 적용').click();await pending;
+    assert.deepEqual(reads,[['modules']]);assert.equal(x.app.s.preset.modules.length,1);assert.equal(JSON.stringify(modules),before);
+    x.app.s.preset.values.toggle_focus='1';x.app.presetChanged();await savePresetWorkspace(x.app);await x.app.saveSlot('manual');await x.app.autosave();
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(modulePreset())),'new.json');
+    assert.equal(x.app.s.preset.modules[0].id,'world-id');assert.equal(x.app.s.preset.values.toggle_focus,'1');
+    y=await make(Object.fromEntries(x.store));assert.equal(y.app.s.preset.modules[0].namespace,'world');assert.equal(y.app.s.preset.values.toggle_focus,'1');
+    assert.equal(y.app.slots.manual.session.preset.modules.length,1);assert.equal(y.app.slots.autosave.session.preset.modules.length,1);
+    x.app.s.requests.workshop='모듈 사용';await x.app.sendRequest();assert.match(JSON.stringify(x.calls[0].messages),/상세 모드/);
+    x.app.s.preset.mode='direct';await x.app.sendRequest();assert.doesNotMatch(JSON.stringify(x.calls[1].messages),/모듈 자료|모듈 원문 자료/);
+  }finally{y?.close();x.close();}
+});
+test('module selection cancellation, permission refusal and a session change preserve the current selection',async()=>{
+  const x=await make();try {
+    const before=JSON.stringify(x.app.s.preset);x.app.api.getDatabase=async()=>({modules:installedModules()});
+    const cancelled=selectModules(x.app);await wait();button(x.dom,'취소').click();await cancelled;assert.equal(JSON.stringify(x.app.s.preset),before);
+    x.app.api.getDatabase=async()=>null;await assert.rejects(selectModules(x.app),/권한/);assert.equal(JSON.stringify(x.app.s.preset),before);
+    let resolve;x.app.api.getDatabase=()=>new Promise(done=>resolve=done);const stale=selectModules(x.app);
+    await x.app.replaceSession(newSession());resolve({modules:installedModules()});await assert.rejects(stale,/작업이 바뀌어/);assert.equal(x.app.s.preset.modules.length,0);
+  }finally{x.close();}
+});
+test('runtime exclusion controls block dispatch until explicitly changed and persist their choice',async()=>{
+  const x=await make();try {
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify({...modulePreset(),moduleIntergration:'script'})),'p.json');
+    x.app.s.preset=selectInstalledModules(x.app.s.preset,installedModules(),['script-id']);x.app.s.preset.pane='modules';x.app.s.tab='preset';x.app.render();
+    x.app.s.requests.workshop='검토';await assert.rejects(x.app.sendRequest(),/실행은 지원하지/);assert.equal(x.calls.length,0);
+    const row=[...x.dom.window.document.querySelectorAll('label')].find(label=>label.textContent.includes('이 모듈의 정규식'));
+    const revision=x.app.s.promptRevision,checkbox=row.querySelector('input');checkbox.checked=true;checkbox.dispatchEvent(new x.dom.window.Event('change'));
+    assert.ok(x.app.s.promptRevision>revision);await x.app.sendRequest();assert.equal(x.calls.length,1);assert.equal(globalThis.__moduleExecuted,undefined);
+    await savePresetWorkspace(x.app);assert.equal(JSON.parse(x.store.get(PREFIX+'preset-workspace')).moduleOptions['script-id'].skipRuntime,true);
+  }finally{x.close();}
+});
 test('binary preset import, local save, reload and both recovery slots preserve editable toggles',async()=>{
   const x=await make();let y;
   try {

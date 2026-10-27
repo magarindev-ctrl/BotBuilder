@@ -4,6 +4,8 @@ import { clone, assert, tick } from './core.js';
 import { decodePreset, normalizePreset } from './preset-format.js';
 import { newPresetState, validatePresetState, toggleDefinitions, BLOCK_TYPES, moduleReferences } from './preset-engine.js';
 import { parseV2, compileV2, toggleDefault } from './preset-v2.js';
+import { activeModules } from './modules.js';
+import { chooseInstalledModules, renderModules } from './modules-ui.js';
 
 export async function importPresetFile(app) {
   const file=await app.file('.risup,.risupreset,.json,.preset'); if(!file)return;
@@ -16,8 +18,10 @@ export async function applyImportedPreset(app,data,name) {
   const id=app.s.sessionId;
   await tick(); const preset=decodePreset(data,name);
   assert(app.s.sessionId===id,'작업이 바뀌어 프리셋 가져오기를 중단했습니다.');
-  toggleDefinitions(preset);
-  const next={...newPresetState(),mode:'preset',preset};
+  const previous=app.s.preset,modules=clone(previous.modules??[]),moduleOptions=clone(previous.moduleOptions??{});
+  const values=Object.fromEntries(toggleDefinitions(null,modules).definitions.filter(d=>Object.hasOwn(previous.values,d.key)).map(d=>[d.key,previous.values[d.key]]));
+  const next={...newPresetState(),mode:'preset',preset,modules,moduleOptions,values};
+  toggleDefinitions(preset,modules);
   app.s.preset=next; app.presetChanged();
   await savePresetWorkspace(app);
   app.s.tab='preset'; app.view='editor'; app.render();
@@ -26,6 +30,9 @@ export async function applyImportedPreset(app,data,name) {
 export async function savePresetWorkspace(app) {
   const value=validatePresetState(app.s.preset);
   await app.store('preset-workspace',value); app.savedPreset=clone(value);
+}
+export function selectModules(app) {
+  return chooseInstalledModules(app,{references:moduleReferences,save:savePresetWorkspace,validate:state=>{const next=validatePresetState(state);toggleDefinitions(next.preset,activeModules(next));return next;}});
 }
 function exportJson(app) {
   const data=normalizePreset(app.s.preset.preset);
@@ -39,12 +46,12 @@ export function renderPresetEditor(app,host) {
   const h=app.h.bind(app),state=app.s.preset,p=state.preset;
   const change=()=>app.presetChanged();
   const redraw=()=>app.renderEditor();
-  host.append(h('div',{class:'row'},app.b('프리셋 가져오기',()=>importPresetFile(app),'primary',{'data-action':'import-preset'}),app.b('프리셋 설정 저장',async()=>{await savePresetWorkspace(app);app.toast('프리셋·토글 설정을 저장했습니다.');},'',{disabled:!p}),app.b('JSON 내보내기',()=>exportJson(app),'',{disabled:!p})));
-  if(!p) {host.append(h('div',{class:'empty'},'.risup / .risupreset / JSON 파일을 가져오세요.','\n프롬프트와 토글은 공방 안에서 관리하며 본체 프리셋은 변경하지 않습니다.'));return;}
+  host.append(h('div',{class:'row'},app.b('프리셋 가져오기',()=>importPresetFile(app),'primary',{'data-action':'import-preset'}),app.b('설치 모듈 선택',()=>selectModules(app),'',{'data-action':'select-modules'}),app.b('프리셋 설정 저장',async()=>{await savePresetWorkspace(app);app.toast('프리셋·모듈·토글 설정을 저장했습니다.');}),app.b('JSON 내보내기',()=>exportJson(app),'',{disabled:!p})));
+  if(!p) {host.append(h('div',{class:'empty'},'.risup / .risupreset / JSON 파일을 가져오세요.','\n프롬프트와 토글은 공방 안에서 관리하며 본체 프리셋은 변경하지 않습니다.'));if(state.modules?.length)renderModules(app,host);return;}
   host.append(app.field('프리셋 이름',p.name,v=>{p.name=v;change();},{tag:'input'}),h('p',{class:'muted'},'파일에서 가져온 사본입니다. 본체와 자동 동기화하지 않습니다. 모델·접속 정보는 가져오지 않으며 기존 메인·보조 모델 설정을 사용합니다.'),
-    h('div',{class:'row'},[['blocks','프롬프트 블록'],['toggles','토글 설정'],['context','참고자료'],['preview','전송 내용']].map(([key,label])=>app.b(label,()=>{state.pane=key;app.touch(false);redraw();},state.pane===key?'primary small':'small'))));
+    h('div',{class:'row'},[['blocks','프롬프트 블록'],['toggles','토글 설정'],['modules','모듈'],['context','참고자료'],['preview','전송 내용']].map(([key,label])=>app.b(label,()=>{state.pane=key;app.touch(false);redraw();},state.pane===key?'primary small':'small'))));
   if(state.pane==='toggles') {
-    let tree; try{tree=toggleDefinitions(p);}catch(error){host.append(h('p',{class:'warn'},error.message));tree={items:[],definitions:[]};}
+    let tree; try{tree=toggleDefinitions(p,activeModules(state));}catch(error){host.append(h('p',{class:'warn'},error.message));tree={items:[],definitions:[]};}
     const draw=items=>items.map(item=>{
       if(item.type==='group')return h('details',{class:'card',open:''},h('summary',{},item.label||'그룹'),h('div',{class:'stack',style:'margin-top:12px'},draw(item.children)));
       if(item.type==='caption')return h('p',{class:'muted'},item.label);
@@ -55,16 +62,18 @@ export function renderPresetEditor(app,host) {
       else if(d.type==='select')control=h('label',{class:'field'},h('span',{},d.label),app.select(value,d.options.map((label,i)=>[String(i),label]),v=>{state.values[d.key]=v;change();},d.label));
       else control=app.field(d.label,value,v=>{state.values[d.key]=v;change();},{tag:d.type==='text'?'input':'textarea'});
       const usages=p.promptTemplate.filter(b=>(b.text??b.innerFormat??'').includes(d.key)).map(b=>b.name||b.type);
-      return h('div',{class:'card stack'},control,h('p',{class:'muted'},d.key+(usages.length?' · 사용: '+usages.join(', '):' · 참조 블록 없음')));
+      for(const module of activeModules(state))if(module.lorebook.some(l=>l.content.includes(d.key)))usages.push(module.name+' 로어북');
+      return h('div',{class:'card stack'},control,h('p',{class:'muted'},d.key+' · 정의: '+d.sources.join(', ')+(usages.length?' · 사용: '+usages.join(', '):' · 참조 블록 없음')));
     });
     host.append(h('p',{class:'muted'},'토글 정의는 파일에서 읽고, 선택값은 공방에 별도로 저장합니다. 선택형 값은 본체와 같이 선택지의 번호(0부터)로 처리합니다.'),...draw(tree.items),
-      h('details',{},h('summary',{},'토글 정의 원문 편집'),h('div',{class:'stack'},app.field('토글 정의',p.customPromptTemplateToggle,v=>{p.customPromptTemplateToggle=v;change();},{class:'code',placeholder:'tone=말투=select=차분함,활기참\nextra=추가 설정\nnote=메모=textarea'}),app.b('토글 목록 갱신',()=>{toggleDefinitions(p);redraw();},'small'))));
-  } else if(state.pane==='context') {
+      h('details',{},h('summary',{},'토글 정의 원문 편집'),h('div',{class:'stack'},app.field('토글 정의',p.customPromptTemplateToggle,v=>{p.customPromptTemplateToggle=v;change();},{class:'code',placeholder:'tone=말투=select=차분함,활기참\nextra=추가 설정\nnote=메모=textarea'}),app.b('토글 목록 갱신',()=>{toggleDefinitions(p,activeModules(state));redraw();},'small'))));
+  } else if(state.pane==='modules')renderModules(app,host);
+  else if(state.pane==='context') {
     const env=state.environment;
     host.append(app.field('사용자 이름',env.userName,v=>{env.userName=v;change();},{tag:'input'}),app.field('페르소나 블록 입력',env.persona,v=>{env.persona=v;change();}),app.field('작가 노트 블록 입력',env.authorNote,v=>{env.authorNote=v;change();}),app.field('메모리 블록 입력 · 본체 메모리와 별도',env.memory,v=>{env.memory=v;change();}),h('p',{class:'muted'},'캐릭터 설명·로어북은 공방 현재안을 사용합니다. 로어북 블록에는 전체 항목을 넣으며 본체의 활성화 조건·메모리 검색은 실행하지 않습니다.'));
     let globals=JSON.stringify(env.globals,null,2);
     host.append(app.field('추가 전역 변수 JSON · 문자열 값',globals,v=>globals=v,{class:'code'}),app.b('추가 변수 적용',()=>{const values=JSON.parse(globals);validatePresetState({...state,environment:{...env,globals:values}});env.globals=values;change();app.toast('추가 변수를 적용했습니다.');},'small'));
-    if(moduleReferences(p).length)host.append(h('p',{class:'muted'},'외부 모듈 참조: '+moduleReferences(p).join(', ')),app.check('파일 밖 모듈 연동을 제외하고 사용',state.excluded.modules,v=>{state.excluded.modules=v;change();}),h('p',{class:'muted'},'모듈 연동은 아직 지원하지 않습니다. 제외하면 원본 프리셋에서 모듈이 추가하던 내용이 빠집니다.'));
+    if(moduleReferences(p).length)host.append(h('p',{class:'muted'},'모듈 참조: '+moduleReferences(p).join(', ')+' · 설치 모듈 선택에서 일치하는 ID·namespace를 선택하세요.'),app.check('모듈 연동 전체 제외',state.excluded.modules,v=>{state.excluded.modules=v;change();}),h('p',{class:'muted'},'전체 제외를 선택하면 선택한 모듈의 로어북·토글도 요청에 적용하지 않습니다.'));
     if(p.regex?.length)host.append(app.check('프리셋 정규식을 제외하고 사용',state.excluded.regex,v=>{state.excluded.regex=v;change();}));
     if(p.promptBlockOverlay?.enabled)host.append(app.check('보조 프롬프트 오버레이를 제외하고 사용',state.excluded.overlay,v=>{state.excluded.overlay=v;change();}));
     if(p.promptTemplate.some(b=>b.type==='jailbreak'))host.append(app.check('구형 추가 프롬프트 블록 사용',p.jailbreakToggle!==false,v=>{p.jailbreakToggle=v;change();}));
@@ -74,10 +83,11 @@ export function renderPresetEditor(app,host) {
     const output=h('div',{class:'stack'});
     const preview=()=>{
       try {
-        const report=app.previewRequest(app.task,true);
+        const report=app.previewRequest(app.task);
         output.replaceChildren(report.issues.length?h('div',{class:'warn'},'전송할 수 없는 항목: ',h('ul',{},report.issues.map(x=>h('li',{},x)))):h('p',{class:'pill'},'조립 검사 통과 · '+report.messages.length+'개 메시지'),
-          h('p',{class:'muted'},'현재 요청: '+app.task+' · '+report.messages.reduce((n,m)=>n+m.content.length,0).toLocaleString()+'자'),
+          h('p',{class:'muted'},'현재 요청: '+app.task+' · '+(state.mode==='preset'?'프리셋 요청':'직접 요청')+' · '+report.messages.reduce((n,m)=>n+m.content.length,0).toLocaleString()+'자'),
           h('details',{},h('summary',{},'블록별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.trace,null,2))),
+          h('details',{},h('summary',{},'모듈별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.moduleTrace??[],null,2))),
           ...report.messages.map((m,i)=>h('section',{class:'card stack'},h('h3',{},`${i+1}. ${m.role}`),m.cachePoint?h('span',{class:'pill'},'캐시 지점'):null,h('pre',{class:'diff'},m.content))),
           h('p',{class:'muted'},report.notes.join('\n')));
       }catch(error){output.replaceChildren(h('p',{class:'warn'},error.message));}
@@ -131,7 +141,7 @@ function renderText(app,host,block,key) {
       box.append(app.select(parsed.activation.join,[['and','모두 충족 (AND)'],['or','하나 이상 충족 (OR)']],v=>{parsed.activation.join=v;commit();},'조건 결합'));
       for(const [i,c] of parsed.activation.conditions.entries())box.append(h('div',{class:'card stack'},app.field('조건 변수 키',c.key,v=>{c.key=v;try{commit();}catch(error){app.toast(error.message,true);}},{tag:'input'}),app.select(c.operator,[['is','같음'],['isnot','다름'],['greater','초과'],['greaterequal','이상'],['less','미만'],['lessequal','이하']],v=>{c.operator=v;commit();},'조건 비교'),app.field('비교 값',c.value,v=>{c.value=v;try{commit();}catch(error){app.toast(error.message,true);}},{tag:'input'}),app.b('조건 삭제',()=>{parsed.activation.conditions.splice(i,1);if(!parsed.activation.conditions.length)parsed.activation=null;commit();draw();},'small danger')));
     }
-    box.append(app.b('조건 추가',()=>{parsed.activation??={join:'and',conditions:[]};const defs=toggleDefinitions(app.s.preset.preset).definitions;parsed.activation.conditions.push({key:defs[0]?.key??'toggle_example',operator:'is',value:'1'});commit();draw();},'small'));
+    box.append(app.b('조건 추가',()=>{parsed.activation??={join:'and',conditions:[]};const defs=toggleDefinitions(app.s.preset.preset,activeModules(app.s.preset)).definitions;parsed.activation.conditions.push({key:defs[0]?.key??'toggle_example',operator:'is',value:'1'});commit();draw();},'small'));
   };draw();host.append(box);
   const raw=app.field('전체 CBS 원문',source,v=>source=v,{class:'code'});rawInput=raw.querySelector('textarea');
   host.append(h('details',{},h('summary',{},'전체 CBS 원문 편집'),h('div',{class:'stack'},raw,app.b('원문 적용',()=>{block[key]=source;delete block.workshopError;delete block.workshopDraft;app.presetChanged();app.renderEditor();},'small'))));

@@ -4,9 +4,10 @@ import { assert, clone, bytes, parseVariables } from './core.js';
 import { normalizePreset, PRESET_LIMIT } from './preset-format.js';
 import { parseToggleTree, toggleDefault } from './preset-v2.js';
 import { calculatePreset } from './preset-calc.js';
+import { normalizeModules, validateModuleOptions, activeModules, moduleMatches, moduleOptions, runtimeFeatures } from './modules.js';
 
 export function newPresetState() {
-  return { schemaVersion: 1, mode: 'direct', preset: null, values: {}, selected: 0, pane: 'blocks', environment: { userName: '사용자', persona: '', authorNote: '', memory: '', globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
+  return { schemaVersion: 1, mode: 'direct', preset: null, modules: [], moduleOptions: {}, values: {}, selected: 0, pane: 'blocks', environment: { userName: '사용자', persona: '', authorNote: '', memory: '', globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
 }
 export function validatePresetState(raw) {
   assert(raw?.schemaVersion === 1 && ['direct','preset'].includes(raw.mode), '지원하지 않는 공방 프리셋 설정입니다.');
@@ -21,22 +22,31 @@ export function validatePresetState(raw) {
   }
   result.excluded = { ...newPresetState().excluded, ...result.excluded };
   for(const key of ['regex','modules','overlay'])assert(typeof result.excluded[key]==='boolean','제외 설정은 참/거짓이어야 합니다: '+key);
+  result.modules=normalizeModules(result.modules??[]);result.moduleOptions??={};result.moduleOptions=validateModuleOptions(result);
   assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT * 2, '프리셋 작업 상태가 너무 큽니다.');
   return result;
 }
-export function toggleDefinitions(preset) {
-  const tree = parseToggleTree(preset?.customPromptTemplateToggle ?? '');
-  assert(tree.definitions.length <= 300, '토글은 300개 이하만 지원합니다.');
-  const names = new Set();
-  for (const d of tree.definitions) {
-    assert(!names.has(d.key), '중복 토글 키: ' + d.rawKey); names.add(d.key);
-    assert(!/[{}\r\n]/.test(d.key) && !d.key.includes('::'), '토글 키에 중괄호·줄바꿈·::를 사용할 수 없습니다.');
+export function toggleDefinitions(preset,modules=[]) {
+  const items=[],definitions=[],known=new Map();
+  for(const source of [{name:'프리셋',text:preset?.customPromptTemplateToggle??'',preset:true},...modules.map(m=>({name:m.name,text:m.customModuleToggle}))]) {
+    const tree=parseToggleTree(source.text),names=new Set(),duplicates=new Set();
+    for(const d of tree.definitions) {
+      assert(!names.has(d.key),'중복 토글 키: '+d.rawKey+' ('+source.name+')');names.add(d.key);
+      assert(!/[{}\r\n]/.test(d.key)&&!d.key.includes('::'),'토글 키에 중괄호·줄바꿈·::를 사용할 수 없습니다.');
+      const previous=known.get(d.key);
+      if(previous){assert(previous.type===d.type&&JSON.stringify(previous.options)===JSON.stringify(d.options),'프리셋·모듈 간 토글 형식 충돌: '+d.rawKey);previous.sources.push(source.name);duplicates.add(d);}
+      else{d.sources=[source.name];known.set(d.key,d);definitions.push(d);}
+    }
+    const filter=nodes=>nodes.filter(node=>node.type!=='toggle'||!duplicates.has(node.definition)).map(node=>node.type==='group'?{...node,children:filter(node.children)}:node);
+    const children=filter(tree.items);
+    if(source.preset)items.push(...children);else if(children.length)items.push({type:'group',label:'모듈 · '+source.name,children});
   }
-  return tree;
+  assert(definitions.length<=300,'프리셋과 모듈을 합쳐 토글은 300개 이하만 지원합니다.');
+  return {items,definitions};
 }
 export function presetValues(state) {
   const r = { ...state.environment.globals };
-  for (const d of toggleDefinitions(state.preset).definitions) {
+  for (const d of toggleDefinitions(state.preset,activeModules(state)).definitions) {
     const value = state.values[d.key] ?? toggleDefault(d);
     if (d.type === 'switch') assert(['0','1'].includes(value), '스위치 토글 값은 0/1이어야 합니다: ' + d.rawKey);
     if (d.type === 'select') assert(/^\d+$/.test(value) && Number(value) < d.options.length, '선택형 토글 값이 올바르지 않습니다: ' + d.rawKey);
@@ -139,7 +149,9 @@ function evaluate(nodes, context) {
     if(head.startsWith('? '))return calculatePreset(head.slice(2),context);
     if(name==='calc'){assert(args.length===1,'calc 인자 오류');return calculatePreset(args[0],context);}
     if(head.startsWith('//') || head.startsWith('!'))return '';
-    if(Object.hasOwn(context.fields,name)) { assert(!args.length,'인자 없는 CBS 표기입니다: '+head); return context.fields[name]; }
+    if(Object.hasOwn(context.fields,name)) { assert(!args.length,'인자 없는 CBS 표기입니다: '+head);if(name==='lorebook'&&context.loreUsage)context.loreUsage.used=true;return context.fields[name]; }
+    if(['moduleenabled','module_enabled'].includes(name)){assert(args.length===1,'moduleenabled 인자 오류');return (context.modules??[]).some(m=>m.namespace===args[0])?'1':'0';}
+    if(['moduleassetlist','module_assetlist'].includes(name)){assert(args.length===1,'moduleassetlist 인자 오류');const module=(context.modules??[]).find(m=>m.namespace===args[0]);return module?JSON.stringify(module.assets.map(a=>a[0].replace(/::/g,'\\u003A\\u003A'))):'';}
     if(name==='getglobalvar') { assert(args.length===1,'getglobalvar 인자 오류'); assert(Object.hasOwn(context.globals,args[0]),'값이 없는 전역 변수: '+args[0]+' (토글 또는 추가 전역 변수에서 설정하세요)'); return context.globals[args[0]]; }
     if(name==='getvar') { assert(args.length===1,'getvar 인자 오류'); return Object.hasOwn(context.variables,args[0])?context.variables[args[0]]:'null'; }
     if(['equal','notequal','greater','greater_equal','less','less_equal'].includes(name)) {
@@ -180,14 +192,31 @@ export function assemblePreset(rawState,session,task,directMessages) {
   assert(p,'먼저 프리셋 파일을 가져오세요.');
   const globals=presetValues(state), variables={...parseVariables(p.templateDefaultVariables),...parseVariables(session.draft.defaultVariables??'')};
   const d=session.draft, env=state.environment;
-  const lore=(d.globalLore??[]).map(l=>'['+(l.comment||l.key)+']\n'+l.content).join('\n\n');
+  let lore=(d.globalLore??[]).map(l=>'['+(l.comment||l.key)+']\n'+l.content).join('\n\n');
   const currentUser={role:'user',content:'[공방 작업 지침]\n'+directMessages[0].content+'\n\n'+directMessages[1].content};
   const history=session.thread.filter(m=>!m.error&&['user','assistant'].includes(m.role)).map(m=>({role:m.role,content:m.content}));
   const chats=[...history,currentUser];
   const context={globals,variables,fields:{char:d.name??'',user:env.userName,description:d.desc??'',personality:d.personality??'',scenario:d.scenario??'',persona:env.persona,firstmessage:d.firstMessage??'',first_message:d.firstMessage??'',systemprompt:d.systemPrompt??'',lorebook:lore,chatindex:String(chats.length-1),lastusermessage:currentUser.content,lastcharmessage:history.findLast(m=>m.role==='assistant')?.content??'',original:p.mainPrompt,slot:''}};
-  const messages=[], trace=[], issues=[]; let userCount=0;
-  const modules=moduleReferences(p);
-  if(modules.length&&!state.excluded.modules)issues.push('외부 모듈 연동은 아직 지원하지 않습니다 ('+modules.join(', ')+'). 제외하려면 프롬프트 프리셋 → 참고자료 → 파일 밖 모듈 연동을 제외하고 사용을 선택하세요. 제외하면 모듈 내용은 요청에 포함되지 않습니다.');
+  const messages=[],trace=[],issues=[],moduleTrace=[],selectedModules=activeModules(state);let userCount=0;
+  const missing=moduleReferences(p).filter(ref=>!selectedModules.some(module=>moduleMatches(module,ref)));
+  if(missing.length&&!state.excluded.modules)issues.push('프리셋 참조 모듈이 선택되지 않았습니다 ('+missing.join(', ')+'). 설치 모듈 선택에서 불러오거나 참고자료에서 모듈 연동 전체 제외를 선택하세요. 제외한 모듈은 요청에 포함되지 않습니다.');
+  context.modules=selectedModules;context.loreUsage={used:false};
+  const moduleLore=[];let moduleSize=0;
+  for(const module of state.modules) {
+    const options=moduleOptions(state,module),features=runtimeFeatures(module);
+    if(state.excluded.modules){moduleTrace.push({module:module.name,status:'excluded',reason:'모듈 연동 전체 제외'});continue;}
+    if(features.length){const status=options.skipRuntime?'excluded':'error';moduleTrace.push({module:module.name,type:'runtime',status,features});if(!options.skipRuntime)issues.push(module.name+': '+features.join(', ')+' 실행은 지원하지 않습니다. 모듈 탭에서 해당 처리를 명시적으로 제외하세요.');}
+    for(const [index,entry] of module.lorebook.entries()) {
+      const record={module:module.name,index,name:entry.comment||entry.key||'로어북',status:'excluded'};moduleTrace.push(record);
+      if(options.excludedLore.includes(index))continue;
+      let text;
+      try{assert(!/(?:^|\n)\s*@@/.test(entry.content),'@@ 위치·활성화 지시 처리는 미지원입니다. 모듈 탭에서 이 항목을 제외하세요.');text=renderPresetText(entry.content,context);record.status=text?'prepared':'empty';}
+      catch(error){record.status='error';record.error=error.message;issues.push(module.name+' / '+record.name+': '+error.message);continue;}
+      moduleSize+=bytes(text);assert(moduleSize<=4*1024*1024,'모듈 로어북 조립 결과가 4MiB를 초과했습니다.');
+      if(text)moduleLore.push('[모듈 '+module.name+' · '+record.name+']\n'+text);
+    }
+  }
+  lore=[lore,...moduleLore].filter(Boolean).join('\n\n');context.fields.lorebook=lore;context.loreUsage.used=false;
   if(p.regex?.length&&!state.excluded.regex)issues.push('프리셋 정규식 파이프라인은 미지원입니다. 제외 여부를 설정하세요.');
   if(p.promptBlockOverlay?.enabled&&!state.excluded.overlay)issues.push('보조 프롬프트 오버레이는 미지원입니다. 제외 여부를 설정하세요.');
   for(const option of ['sendChatAsSystem','sendName','utilOverride','customChainOfThought']) if(p.promptSettings?.[option])issues.push('미지원 프롬프트 옵션: '+option+' (고급 JSON에서 해제하세요)');
@@ -216,6 +245,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
         if(text && (b.type==='postEverything'||(b.type==='authornote'&&!env.authorNote)))text=renderPresetText(text,context);
         if(text && b.innerFormat) { assert(b.innerFormat.includes('{{slot}}'),'감싸는 서식에 {{slot}}이 없습니다.'); text=renderPresetText(b.innerFormat,{...context,fields:{...context.fields,slot:text}}); }
         push(b.role2??'system',text,i);
+        if(b.type==='lorebook'&&text)context.loreUsage.used=true;
       } else if(b.type==='chatML') {
         const text=renderPresetText(b.text??'',context), regex=/<\|im_start\|>(system|user|assistant)\r?\n([\s\S]*?)(?:<\|im_end\|>|$)/g;
         let match,position=0;
@@ -237,5 +267,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
     try {push('assistant',renderPresetText(p.promptSettings.assistantPrefill,context),-1);}catch(error){issues.push('Assistant prefill: '+error.message);}
   }
   if(userCount!==1)issues.push('이번 공방 요청을 포함하는 채팅 블록이 정확히 1개여야 합니다. 현재 '+userCount+'회 포함됐습니다.');
-  return {messages,trace,issues,globals,notes:['로어북 블록은 공방 현재안의 전체 항목을 사용합니다. 본체의 활성화·토큰 예산 계산은 실행하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.']};
+  if(moduleLore.length&&!context.loreUsage.used)issues.push('선택 모듈의 로어북을 포함하는 블록이 없습니다. 로어북 블록 또는 {{lorebook}}을 사용하는 블록을 추가하세요.');
+  for(const record of moduleTrace)if(record.status==='prepared')record.status=context.loreUsage.used?'included':'not-included';
+  return {messages,trace,moduleTrace,issues,globals,notes:['로어북 블록은 공방 현재안과 선택 모듈의 전체 포함 항목을 사용합니다. 본체의 키워드 활성화·토큰 예산 계산은 실행하지 않습니다.','모듈 토글은 공방 값이며 선택한 모듈의 사본을 사용합니다. 본체 모듈 활성화와 자동 동기화하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.']};
 }

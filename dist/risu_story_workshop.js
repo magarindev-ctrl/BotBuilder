@@ -1,7 +1,7 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.2.2
+//@version 0.3.0
 
 /*
 봇빌더 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
@@ -9992,7 +9992,7 @@ details[open] > summary { margin-bottom: 9px; }
   };
 
   // src/core.js
-  var VERSION = "0.2.2";
+  var VERSION = "0.3.0";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
@@ -12978,9 +12978,90 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     return String(execute(depth.join("")));
   }
 
+  // src/modules.js
+  var MODULE_LIMIT = 8 * 1024 * 1024;
+  var badKeys = ["__proto__", "constructor", "prototype"];
+  function tree(value, depth = 0, count = { n: 0 }) {
+    assert(depth < 70 && ++count.n < 2e5, "\uBAA8\uB4C8 \uB370\uC774\uD130 \uAD6C\uC870\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4.");
+    if (value && typeof value === "object") for (const [key2, item] of Object.entries(value)) {
+      assert(!badKeys.includes(key2), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uBAA8\uB4C8 \uD0A4: " + key2);
+      tree(item, depth + 1, count);
+    }
+  }
+  function normalizeModule(raw) {
+    assert(raw && typeof raw === "object" && !Array.isArray(raw), "\uC124\uCE58 \uBAA8\uB4C8 \uAC1D\uCCB4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
+    assert(typeof raw.id === "string" && raw.id.trim() && !badKeys.includes(raw.id), "\uBAA8\uB4C8 ID\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const result = {};
+    for (const key2 of ["id", "name", "namespace", "description", "customModuleToggle", "cjs", "backgroundEmbedding"]) {
+      const value = raw[key2] ?? "";
+      assert(typeof value === "string", "\uBAA8\uB4C8 \uBB38\uC790\uC5F4 \uD615\uC2DD \uC624\uB958: " + key2);
+      result[key2] = value;
+    }
+    result.name ||= result.id;
+    for (const key2 of ["lorebook", "regex", "trigger", "assets"]) {
+      const value = raw[key2] ?? [];
+      assert(Array.isArray(value) && value.length <= 3e3, "\uBAA8\uB4C8 \uBC30\uC5F4 \uD615\uC2DD \uB610\uB294 \uAC1C\uC218 \uC624\uB958: " + key2);
+      result[key2] = value;
+    }
+    if (raw.mcp != null) result.mcp = raw.mcp;
+    tree(result);
+    assert(bytes(JSON.stringify(result)) <= MODULE_LIMIT, "\uBAA8\uB4C8 \uD55C \uAC1C\uC758 \uB370\uC774\uD130\uAC00 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    for (const entry of result.lorebook) assert(entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.content === "string", "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uBCF8\uBB38\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    for (const asset of result.assets) assert(Array.isArray(asset) && typeof asset[0] === "string", "\uBAA8\uB4C8 \uC5D0\uC14B \uC774\uB984 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return clone(result);
+  }
+  function normalizeModules(raw = []) {
+    assert(Array.isArray(raw) && raw.length <= 100, "\uC120\uD0DD \uBAA8\uB4C8\uC740 100\uAC1C \uC774\uD558 \uBC30\uC5F4\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.");
+    const modules = raw.map(normalizeModule), ids = /* @__PURE__ */ new Set();
+    for (const module of modules) {
+      assert(!ids.has(module.id), "\uC120\uD0DD \uBAA8\uB4C8 ID\uAC00 \uC911\uBCF5\uB429\uB2C8\uB2E4: " + module.id);
+      ids.add(module.id);
+    }
+    assert(modules.reduce((n, module) => n + module.lorebook.length, 0) <= 3e3, "\uC120\uD0DD \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81 \uD569\uACC4\uB294 3,000\uAC1C \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    assert(bytes(JSON.stringify(modules)) <= MODULE_LIMIT, "\uC120\uD0DD \uBAA8\uB4C8 \uD569\uACC4\uAC00 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    return modules;
+  }
+  function moduleOptions(state, module) {
+    const own = Object.hasOwn(state.moduleOptions ?? {}, module.id) ? state.moduleOptions[module.id] : {};
+    return { skipRuntime: false, excludedLore: [], ...own };
+  }
+  function validateModuleOptions(state) {
+    assert(state.moduleOptions && typeof state.moduleOptions === "object" && !Array.isArray(state.moduleOptions), "\uBAA8\uB4C8 \uC801\uC6A9 \uC124\uC815\uC740 \uAC1D\uCCB4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    tree(state.moduleOptions);
+    const result = {};
+    for (const module of state.modules) {
+      const value = moduleOptions(state, module);
+      assert(typeof value.skipRuntime === "boolean" && Array.isArray(value.excludedLore) && value.excludedLore.every((i) => Number.isInteger(i) && i >= 0 && i < module.lorebook.length), "\uBAA8\uB4C8 \uC801\uC6A9 \uC124\uC815\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: " + module.name);
+      result[module.id] = { skipRuntime: value.skipRuntime, excludedLore: [...new Set(value.excludedLore)] };
+    }
+    return result;
+  }
+  var activeModules = (state) => state.excluded?.modules ? [] : state.modules ?? [];
+  var moduleMatches = (module, reference) => module.id === reference || Boolean(module.namespace && module.namespace === reference);
+  function runtimeFeatures(module) {
+    return [module.regex.length ? "\uC815\uADDC\uC2DD " + module.regex.length + "\uAC1C" : "", module.trigger.length ? "\uD2B8\uB9AC\uAC70 " + module.trigger.length + "\uAC1C" : "", module.cjs.trim() ? "JS" : "", module.mcp ? "MCP" : "", module.backgroundEmbedding.trim() ? "\uBC30\uACBD \uCF54\uB4DC" : ""].filter(Boolean);
+  }
+  async function readInstalledModules(api2) {
+    assert(typeof api2.getDatabase === "function", "\uC774 \uD638\uC2A4\uD2B8\uC5D0\uB294 \uC124\uCE58 \uBAA8\uB4C8 \uC870\uD68C API\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const db = await api2.getDatabase(["modules"]);
+    assert(db && Array.isArray(db.modules), "\uC124\uCE58 \uBAA8\uB4C8 \uC870\uD68C \uAD8C\uD55C\uC774 \uD544\uC694\uD558\uAC70\uB098 \uD638\uC2A4\uD2B8\uAC00 modules \uC870\uD68C\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const seen = /* @__PURE__ */ new Set();
+    return db.modules.filter((module) => module && typeof module.id === "string" && !seen.has(module.id) && seen.add(module.id));
+  }
+  function selectInstalledModules(state, catalog, ids) {
+    const wanted = new Set(ids);
+    assert([...wanted].every((id) => catalog.some((m) => m.id === id)), "\uC124\uCE58 \uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uBAA8\uB4C8\uC744 \uC120\uD0DD\uD588\uC2B5\uB2C8\uB2E4.");
+    const modules = normalizeModules(catalog.filter((module) => wanted.has(module.id))), options = {};
+    for (const module of modules) {
+      const previous = (state.modules ?? []).find((old) => old.id === module.id);
+      options[module.id] = previous && equal(previous, module) ? moduleOptions(state, module) : { skipRuntime: false, excludedLore: [] };
+    }
+    return { ...state, modules, moduleOptions: options, excluded: { ...state.excluded, modules: false } };
+  }
+
   // src/preset-engine.js
   function newPresetState() {
-    return { schemaVersion: 1, mode: "direct", preset: null, values: {}, selected: 0, pane: "blocks", environment: { userName: "\uC0AC\uC6A9\uC790", persona: "", authorNote: "", memory: "", globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
+    return { schemaVersion: 1, mode: "direct", preset: null, modules: [], moduleOptions: {}, values: {}, selected: 0, pane: "blocks", environment: { userName: "\uC0AC\uC6A9\uC790", persona: "", authorNote: "", memory: "", globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
   }
   function validatePresetState(raw) {
     assert(raw?.schemaVersion === 1 && ["direct", "preset"].includes(raw.mode), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uACF5\uBC29 \uD504\uB9AC\uC14B \uC124\uC815\uC785\uB2C8\uB2E4.");
@@ -12995,23 +13076,42 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     }
     result.excluded = { ...newPresetState().excluded, ...result.excluded };
     for (const key2 of ["regex", "modules", "overlay"]) assert(typeof result.excluded[key2] === "boolean", "\uC81C\uC678 \uC124\uC815\uC740 \uCC38/\uAC70\uC9D3\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4: " + key2);
+    result.modules = normalizeModules(result.modules ?? []);
+    result.moduleOptions ??= {};
+    result.moduleOptions = validateModuleOptions(result);
     assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT * 2, "\uD504\uB9AC\uC14B \uC791\uC5C5 \uC0C1\uD0DC\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4.");
     return result;
   }
-  function toggleDefinitions(preset) {
-    const tree = parseToggleTree(preset?.customPromptTemplateToggle ?? "");
-    assert(tree.definitions.length <= 300, "\uD1A0\uAE00\uC740 300\uAC1C \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
-    const names = /* @__PURE__ */ new Set();
-    for (const d of tree.definitions) {
-      assert(!names.has(d.key), "\uC911\uBCF5 \uD1A0\uAE00 \uD0A4: " + d.rawKey);
-      names.add(d.key);
-      assert(!/[{}\r\n]/.test(d.key) && !d.key.includes("::"), "\uD1A0\uAE00 \uD0A4\uC5D0 \uC911\uAD04\uD638\xB7\uC904\uBC14\uAFC8\xB7::\uB97C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  function toggleDefinitions(preset, modules = []) {
+    const items = [], definitions = [], known = /* @__PURE__ */ new Map();
+    for (const source of [{ name: "\uD504\uB9AC\uC14B", text: preset?.customPromptTemplateToggle ?? "", preset: true }, ...modules.map((m) => ({ name: m.name, text: m.customModuleToggle }))]) {
+      const tree2 = parseToggleTree(source.text), names = /* @__PURE__ */ new Set(), duplicates = /* @__PURE__ */ new Set();
+      for (const d of tree2.definitions) {
+        assert(!names.has(d.key), "\uC911\uBCF5 \uD1A0\uAE00 \uD0A4: " + d.rawKey + " (" + source.name + ")");
+        names.add(d.key);
+        assert(!/[{}\r\n]/.test(d.key) && !d.key.includes("::"), "\uD1A0\uAE00 \uD0A4\uC5D0 \uC911\uAD04\uD638\xB7\uC904\uBC14\uAFC8\xB7::\uB97C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+        const previous = known.get(d.key);
+        if (previous) {
+          assert(previous.type === d.type && JSON.stringify(previous.options) === JSON.stringify(d.options), "\uD504\uB9AC\uC14B\xB7\uBAA8\uB4C8 \uAC04 \uD1A0\uAE00 \uD615\uC2DD \uCDA9\uB3CC: " + d.rawKey);
+          previous.sources.push(source.name);
+          duplicates.add(d);
+        } else {
+          d.sources = [source.name];
+          known.set(d.key, d);
+          definitions.push(d);
+        }
+      }
+      const filter = (nodes) => nodes.filter((node) => node.type !== "toggle" || !duplicates.has(node.definition)).map((node) => node.type === "group" ? { ...node, children: filter(node.children) } : node);
+      const children = filter(tree2.items);
+      if (source.preset) items.push(...children);
+      else if (children.length) items.push({ type: "group", label: "\uBAA8\uB4C8 \xB7 " + source.name, children });
     }
-    return tree;
+    assert(definitions.length <= 300, "\uD504\uB9AC\uC14B\uACFC \uBAA8\uB4C8\uC744 \uD569\uCCD0 \uD1A0\uAE00\uC740 300\uAC1C \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    return { items, definitions };
   }
   function presetValues(state) {
     const r = { ...state.environment.globals };
-    for (const d of toggleDefinitions(state.preset).definitions) {
+    for (const d of toggleDefinitions(state.preset, activeModules(state)).definitions) {
       const value = state.values[d.key] ?? toggleDefault(d);
       if (d.type === "switch") assert(["0", "1"].includes(value), "\uC2A4\uC704\uCE58 \uD1A0\uAE00 \uAC12\uC740 0/1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4: " + d.rawKey);
       if (d.type === "select") assert(/^\d+$/.test(value) && Number(value) < d.options.length, "\uC120\uD0DD\uD615 \uD1A0\uAE00 \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: " + d.rawKey);
@@ -13196,7 +13296,17 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       if (head.startsWith("//") || head.startsWith("!")) return "";
       if (Object.hasOwn(context.fields, name)) {
         assert(!args.length, "\uC778\uC790 \uC5C6\uB294 CBS \uD45C\uAE30\uC785\uB2C8\uB2E4: " + head);
+        if (name === "lorebook" && context.loreUsage) context.loreUsage.used = true;
         return context.fields[name];
+      }
+      if (["moduleenabled", "module_enabled"].includes(name)) {
+        assert(args.length === 1, "moduleenabled \uC778\uC790 \uC624\uB958");
+        return (context.modules ?? []).some((m) => m.namespace === args[0]) ? "1" : "0";
+      }
+      if (["moduleassetlist", "module_assetlist"].includes(name)) {
+        assert(args.length === 1, "moduleassetlist \uC778\uC790 \uC624\uB958");
+        const module = (context.modules ?? []).find((m) => m.namespace === args[0]);
+        return module ? JSON.stringify(module.assets.map((a) => a[0].replace(/::/g, "\\u003A\\u003A"))) : "";
       }
       if (name === "getglobalvar") {
         assert(args.length === 1, "getglobalvar \uC778\uC790 \uC624\uB958");
@@ -13263,15 +13373,53 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     assert(p, "\uBA3C\uC800 \uD504\uB9AC\uC14B \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.");
     const globals = presetValues(state), variables2 = { ...parseVariables(p.templateDefaultVariables), ...parseVariables(session.draft.defaultVariables ?? "") };
     const d = session.draft, env = state.environment;
-    const lore = (d.globalLore ?? []).map((l) => "[" + (l.comment || l.key) + "]\n" + l.content).join("\n\n");
+    let lore = (d.globalLore ?? []).map((l) => "[" + (l.comment || l.key) + "]\n" + l.content).join("\n\n");
     const currentUser = { role: "user", content: "[\uACF5\uBC29 \uC791\uC5C5 \uC9C0\uCE68]\n" + directMessages[0].content + "\n\n" + directMessages[1].content };
     const history = session.thread.filter((m) => !m.error && ["user", "assistant"].includes(m.role)).map((m) => ({ role: m.role, content: m.content }));
     const chats = [...history, currentUser];
     const context = { globals, variables: variables2, fields: { char: d.name ?? "", user: env.userName, description: d.desc ?? "", personality: d.personality ?? "", scenario: d.scenario ?? "", persona: env.persona, firstmessage: d.firstMessage ?? "", first_message: d.firstMessage ?? "", systemprompt: d.systemPrompt ?? "", lorebook: lore, chatindex: String(chats.length - 1), lastusermessage: currentUser.content, lastcharmessage: history.findLast((m) => m.role === "assistant")?.content ?? "", original: p.mainPrompt, slot: "" } };
-    const messages = [], trace = [], issues = [];
+    const messages = [], trace = [], issues = [], moduleTrace = [], selectedModules = activeModules(state);
     let userCount = 0;
-    const modules = moduleReferences(p);
-    if (modules.length && !state.excluded.modules) issues.push("\uC678\uBD80 \uBAA8\uB4C8 \uC5F0\uB3D9\uC740 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (" + modules.join(", ") + "). \uC81C\uC678\uD558\uB824\uBA74 \uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B \u2192 \uCC38\uACE0\uC790\uB8CC \u2192 \uD30C\uC77C \uBC16 \uBAA8\uB4C8 \uC5F0\uB3D9\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9\uC744 \uC120\uD0DD\uD558\uC138\uC694. \uC81C\uC678\uD558\uBA74 \uBAA8\uB4C8 \uB0B4\uC6A9\uC740 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const missing = moduleReferences(p).filter((ref) => !selectedModules.some((module) => moduleMatches(module, ref)));
+    if (missing.length && !state.excluded.modules) issues.push("\uD504\uB9AC\uC14B \uCC38\uC870 \uBAA8\uB4C8\uC774 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 (" + missing.join(", ") + "). \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uBD88\uB7EC\uC624\uAC70\uB098 \uCC38\uACE0\uC790\uB8CC\uC5D0\uC11C \uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678\uB97C \uC120\uD0DD\uD558\uC138\uC694. \uC81C\uC678\uD55C \uBAA8\uB4C8\uC740 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    context.modules = selectedModules;
+    context.loreUsage = { used: false };
+    const moduleLore = [];
+    let moduleSize = 0;
+    for (const module of state.modules) {
+      const options = moduleOptions(state, module), features = runtimeFeatures(module);
+      if (state.excluded.modules) {
+        moduleTrace.push({ module: module.name, status: "excluded", reason: "\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678" });
+        continue;
+      }
+      if (features.length) {
+        const status = options.skipRuntime ? "excluded" : "error";
+        moduleTrace.push({ module: module.name, type: "runtime", status, features });
+        if (!options.skipRuntime) issues.push(module.name + ": " + features.join(", ") + " \uC2E4\uD589\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uD574\uB2F9 \uCC98\uB9AC\uB97C \uBA85\uC2DC\uC801\uC73C\uB85C \uC81C\uC678\uD558\uC138\uC694.");
+      }
+      for (const [index, entry] of module.lorebook.entries()) {
+        const record = { module: module.name, index, name: entry.comment || entry.key || "\uB85C\uC5B4\uBD81", status: "excluded" };
+        moduleTrace.push(record);
+        if (options.excludedLore.includes(index)) continue;
+        let text;
+        try {
+          assert(!/(?:^|\n)\s*@@/.test(entry.content), "@@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uCC98\uB9AC\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uC774 \uD56D\uBAA9\uC744 \uC81C\uC678\uD558\uC138\uC694.");
+          text = renderPresetText(entry.content, context);
+          record.status = text ? "prepared" : "empty";
+        } catch (error) {
+          record.status = "error";
+          record.error = error.message;
+          issues.push(module.name + " / " + record.name + ": " + error.message);
+          continue;
+        }
+        moduleSize += bytes(text);
+        assert(moduleSize <= 4 * 1024 * 1024, "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uC870\uB9BD \uACB0\uACFC\uAC00 4MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+        if (text) moduleLore.push("[\uBAA8\uB4C8 " + module.name + " \xB7 " + record.name + "]\n" + text);
+      }
+    }
+    lore = [lore, ...moduleLore].filter(Boolean).join("\n\n");
+    context.fields.lorebook = lore;
+    context.loreUsage.used = false;
     if (p.regex?.length && !state.excluded.regex) issues.push("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uD30C\uC774\uD504\uB77C\uC778\uC740 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
     if (p.promptBlockOverlay?.enabled && !state.excluded.overlay) issues.push("\uBCF4\uC870 \uD504\uB86C\uD504\uD2B8 \uC624\uBC84\uB808\uC774\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
     for (const option of ["sendChatAsSystem", "sendName", "utilOverride", "customChainOfThought"]) if (p.promptSettings?.[option]) issues.push("\uBBF8\uC9C0\uC6D0 \uD504\uB86C\uD504\uD2B8 \uC635\uC158: " + option + " (\uACE0\uAE09 JSON\uC5D0\uC11C \uD574\uC81C\uD558\uC138\uC694)");
@@ -13308,6 +13456,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
             text = renderPresetText(b.innerFormat, { ...context, fields: { ...context.fields, slot: text } });
           }
           push(b.role2 ?? "system", text, i);
+          if (b.type === "lorebook" && text) context.loreUsage.used = true;
         } else if (b.type === "chatML") {
           const text = renderPresetText(b.text ?? "", context), regex = /<\|im_start\|>(system|user|assistant)\r?\n([\s\S]*?)(?:<\|im_end\|>|$)/g;
           let match, position = 0;
@@ -13346,7 +13495,84 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       }
     }
     if (userCount !== 1) issues.push("\uC774\uBC88 \uACF5\uBC29 \uC694\uCCAD\uC744 \uD3EC\uD568\uD558\uB294 \uCC44\uD305 \uBE14\uB85D\uC774 \uC815\uD655\uD788 1\uAC1C\uC5EC\uC57C \uD569\uB2C8\uB2E4. \uD604\uC7AC " + userCount + "\uD68C \uD3EC\uD568\uB410\uC2B5\uB2C8\uB2E4.");
-    return { messages, trace, issues, globals, notes: ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uC758 \uC804\uCCB4 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."] };
+    if (moduleLore.length && !context.loreUsage.used) issues.push("\uC120\uD0DD \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC744 \uD3EC\uD568\uD558\uB294 \uBE14\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uBE14\uB85D \uB610\uB294 {{lorebook}}\uC744 \uC0AC\uC6A9\uD558\uB294 \uBE14\uB85D\uC744 \uCD94\uAC00\uD558\uC138\uC694.");
+    for (const record of moduleTrace) if (record.status === "prepared") record.status = context.loreUsage.used ? "included" : "not-included";
+    return { messages, trace, moduleTrace, issues, globals, notes: ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uACFC \uC120\uD0DD \uBAA8\uB4C8\uC758 \uC804\uCCB4 \uD3EC\uD568 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uBAA8\uB4C8 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uAC12\uC774\uBA70 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uC0AC\uBCF8\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uBAA8\uB4C8 \uD65C\uC131\uD654\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."] };
+  }
+
+  // src/modules-ui.js
+  async function chooseInstalledModules(app, { references, validate, save }) {
+    const session = app.s.sessionId, catalog = await readInstalledModules(app.api);
+    assert(app.s.sessionId === session, "\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uBAA8\uB4C8 \uC870\uD68C\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+    const selected = new Set((app.s.preset.modules ?? []).filter((m) => catalog.some((item) => item.id === m.id)).map((m) => m.id));
+    let query = "";
+    const refs = references(app.s.preset.preset);
+    const accepted = await app.dialog("\uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD", (body) => {
+      const h = app.h.bind(app), results = h("div", { class: "stack" }), count = h("p", { class: "muted" });
+      const draw = () => {
+        count.textContent = `\uC124\uCE58 ${catalog.length}\uAC1C \xB7 \uC120\uD0DD ${selected.size}\uAC1C`;
+        results.replaceChildren(...catalog.filter((m) => [m.name, m.id, m.namespace].join(" ").toLowerCase().includes(query.toLowerCase())).map((m) => h("div", { class: "card stack", style: "overflow-wrap:anywhere" }, app.check((m.name || m.id) + " \xB7 " + m.id, selected.has(m.id), (checked) => {
+          checked ? selected.add(m.id) : selected.delete(m.id);
+          count.textContent = `\uC124\uCE58 ${catalog.length}\uAC1C \xB7 \uC120\uD0DD ${selected.size}\uAC1C`;
+        }), h("p", { class: "muted" }, (m.namespace ? "namespace: " + m.namespace + " \xB7 " : "") + "\uB85C\uC5B4\uBD81 " + (m.lorebook?.length ?? 0) + "\uAC1C \xB7 " + (refs.some((ref) => moduleMatches(m, ref)) ? "\uD504\uB9AC\uC14B \uCC38\uC870 \uBAA8\uB4C8" : "\uCD94\uAC00 \uC120\uD0DD \uAC00\uB2A5")))));
+      };
+      body.append(h("p", { class: "muted" }, "\uB9AC\uC2A4\uC5D0 \uC124\uCE58\uB41C \uBAA8\uB4C8\uC744 \uC870\uD68C\uD574 \uC120\uD0DD \uC2DC\uC810\uC758 \uC0AC\uBCF8\uC744 \uAC00\uC838\uC635\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD65C\uC131\uD654\xB7\uCE90\uB9AD\uD130\xB7\uBAA8\uB4C8 \uB0B4\uC6A9\uC740 \uBCC0\uACBD\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."), app.field("\uC124\uCE58 \uBAA8\uB4C8 \uAC80\uC0C9", "", (value) => {
+        query = value;
+        draw();
+      }, { tag: "input" }), h("div", { class: "row" }, app.b("\uD504\uB9AC\uC14B \uCC38\uC870 \uBAA8\uB4C8 \uC120\uD0DD", () => {
+        for (const m of catalog) if (refs.some((ref) => moduleMatches(m, ref))) selected.add(m.id);
+        draw();
+      }, "small"), app.b("\uBAA8\uB450 \uC120\uD0DD \uD574\uC81C", () => {
+        selected.clear();
+        draw();
+      }, "small")), count, results);
+      if (!catalog.length) body.append(h("p", { class: "empty" }, "\uB9AC\uC2A4\uC5D0 \uC124\uCE58\uB41C \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uBCF8\uCCB4\uC5D0\uC11C \uBA3C\uC800 \uC124\uCE58\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD558\uC138\uC694."));
+      const removed = (app.s.preset.modules ?? []).filter((m) => !catalog.some((item) => item.id === m.id));
+      if (removed.length) body.append(h("p", { class: "warn" }, "\uAE30\uC874 \uC0AC\uBCF8 \uC911 \uD604\uC7AC \uC124\uCE58 \uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uBAA8\uB4C8: " + removed.map((m) => m.name).join(", ") + ". \uC120\uD0DD\uC744 \uC801\uC6A9\uD558\uBA74 \uC774 \uC0AC\uBCF8\uC740 \uC81C\uAC70\uB429\uB2C8\uB2E4."));
+      const missing = refs.filter((ref) => !catalog.some((m) => moduleMatches(m, ref)));
+      if (missing.length) body.append(h("p", { class: "warn" }, "\uC124\uCE58 \uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uD504\uB9AC\uC14B \uCC38\uC870: " + missing.join(", ")));
+      draw();
+    }, [{ label: "\uCDE8\uC18C", value: false }, { label: "\uC120\uD0DD \uBAA8\uB4C8 \uC801\uC6A9", value: true, kind: "primary" }]);
+    if (!accepted) return;
+    assert(app.s.sessionId === session, "\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uBAA8\uB4C8 \uC120\uD0DD\uC744 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+    const next = validate(selectInstalledModules(app.s.preset, catalog, [...selected]));
+    app.s.preset = next;
+    app.presetChanged();
+    app.s.tab = "preset";
+    app.s.preset.pane = "modules";
+    app.view = "editor";
+    app.render();
+    await save(app);
+    app.toast("\uC124\uCE58 \uBAA8\uB4C8 " + next.modules.length + "\uAC1C\uB97C \uAC00\uC838\uC654\uC2B5\uB2C8\uB2E4. \uC801\uC6A9 \uD56D\uBAA9\uACFC \uC804\uC1A1 \uB0B4\uC6A9\uC744 \uD655\uC778\uD558\uC138\uC694.");
+  }
+  function renderModules(app, host) {
+    const h = app.h.bind(app), state = app.s.preset, modules = state.modules ?? [];
+    const change = () => app.presetChanged();
+    host.append(h("p", { class: "muted" }, "\uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uACFC \uD1A0\uAE00\uC744 \uD504\uB9AC\uC14B \uC694\uCCAD\uC5D0 \uC5F0\uACB0\uD569\uB2C8\uB2E4. \uB85C\uC5B4\uBD81\uC740 \uC804\uCCB4 \uC81C\uC791 \uC790\uB8CC\uB85C \uCDE8\uAE09\uD558\uBA70 \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0\uC740 \uACC4\uC0B0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. @@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC\uAC00 \uC788\uB294 \uD56D\uBAA9\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC73C\uBBC0\uB85C \uC804\uC1A1 \uC624\uB958\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uC81C\uC678\uD574\uC57C \uD569\uB2C8\uB2E4. \uC9C1\uC811 \uC694\uCCAD \uBAA8\uB4DC\uC5D0\uB294 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."), app.check("\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678", !!state.excluded.modules, (value) => {
+      state.excluded.modules = value;
+      change();
+    }));
+    if (!modules.length) {
+      host.append(h("p", { class: "empty" }, "\uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD \uBC84\uD2BC\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uBAA8\uB4C8\uC744 \uC120\uD0DD\uD558\uC138\uC694."));
+      return;
+    }
+    host.append(h("p", { class: "muted" }, "\uC120\uD0DD \uC2DC\uC810\uC758 \uC0AC\uBCF8\uC785\uB2C8\uB2E4. \uBCF8\uCCB4\uC5D0\uC11C \uBAA8\uB4C8\uC744 \uC218\uC815\uD588\uB2E4\uBA74 \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694. \uBC14\uB010 \uBAA8\uB4C8\uC758 \uC81C\uC678 \uC124\uC815\uC740 \uCD08\uAE30\uD654\uB429\uB2C8\uB2E4."));
+    for (const module of modules) {
+      const option = state.moduleOptions[module.id] ??= { skipRuntime: false, excludedLore: [] }, features = runtimeFeatures(module);
+      const card = h("section", { class: "card stack", style: "overflow-wrap:anywhere" }, h("h3", {}, module.name), h("p", { class: "muted" }, module.id + (module.namespace ? " \xB7 " + module.namespace : "")), h("p", {}, module.description), h("p", { class: "muted" }, "\uB85C\uC5B4\uBD81 " + module.lorebook.length + "\uAC1C \xB7 \uD1A0\uAE00 \uC815\uC758 " + (module.customModuleToggle ? "\uC788\uC74C" : "\uC5C6\uC74C") + " \xB7 \uC5D0\uC14B \uC774\uB984 " + module.assets.length + "\uAC1C"));
+      if (features.length) card.append(h("p", { class: "warn" }, "\uBCC4\uB3C4 \uCC98\uB9AC\uAC00 \uD544\uC694\uD55C \uD56D\uBAA9: " + features.join(", ")), app.check("\uC774 \uBAA8\uB4C8\uC758 \uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70\xB7JS\xB7MCP\xB7\uBC30\uACBD \uCC98\uB9AC\uB97C \uC81C\uC678", option.skipRuntime, (value) => {
+        option.skipRuntime = value;
+        change();
+      }), h("p", { class: "muted" }, "\uC81C\uC678\uB97C \uC120\uD0DD\uD574\uC57C \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB9CC \uC0AC\uC6A9\uD574 \uC804\uC1A1\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD574\uB2F9 \uAE30\uB2A5\uC740 \uC2E4\uD589\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      const details = h("details", {}, h("summary", {}, "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uD3EC\uD568 \uD56D\uBAA9 \uD655\uC778"));
+      for (const [i, entry] of module.lorebook.entries()) details.append(h("div", { class: "card stack" }, app.check(i + 1 + ". " + (entry.comment || entry.key || "\uB85C\uC5B4\uBD81"), !option.excludedLore.includes(i), (value) => {
+        option.excludedLore = option.excludedLore.filter((index) => index !== i);
+        if (!value) option.excludedLore.push(i);
+        change();
+      }), h("pre", { class: "diff" }, entry.content)));
+      card.append(details);
+      host.append(card);
+    }
   }
 
   // src/preset-ui.js
@@ -13363,8 +13589,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     await tick();
     const preset = decodePreset(data, name);
     assert(app.s.sessionId === id, "\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
-    toggleDefinitions(preset);
-    const next = { ...newPresetState(), mode: "preset", preset };
+    const previous = app.s.preset, modules = clone(previous.modules ?? []), moduleOptions2 = clone(previous.moduleOptions ?? {});
+    const values = Object.fromEntries(toggleDefinitions(null, modules).definitions.filter((d) => Object.hasOwn(previous.values, d.key)).map((d) => [d.key, previous.values[d.key]]));
+    const next = { ...newPresetState(), mode: "preset", preset, modules, moduleOptions: moduleOptions2, values };
+    toggleDefinitions(preset, modules);
     app.s.preset = next;
     app.presetChanged();
     await savePresetWorkspace(app);
@@ -13377,6 +13605,13 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     const value = validatePresetState(app.s.preset);
     await app.store("preset-workspace", value);
     app.savedPreset = clone(value);
+  }
+  function selectModules(app) {
+    return chooseInstalledModules(app, { references: moduleReferences, save: savePresetWorkspace, validate: (state) => {
+      const next = validatePresetState(state);
+      toggleDefinitions(next.preset, activeModules(next));
+      return next;
+    } });
   }
   function exportJson(app) {
     const data = normalizePreset(app.s.preset.preset);
@@ -13398,12 +13633,13 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     const h = app.h.bind(app), state = app.s.preset, p = state.preset;
     const change = () => app.presetChanged();
     const redraw = () => app.renderEditor();
-    host.append(h("div", { class: "row" }, app.b("\uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30", () => importPresetFile(app), "primary", { "data-action": "import-preset" }), app.b("\uD504\uB9AC\uC14B \uC124\uC815 \uC800\uC7A5", async () => {
+    host.append(h("div", { class: "row" }, app.b("\uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30", () => importPresetFile(app), "primary", { "data-action": "import-preset" }), app.b("\uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD", () => selectModules(app), "", { "data-action": "select-modules" }), app.b("\uD504\uB9AC\uC14B \uC124\uC815 \uC800\uC7A5", async () => {
       await savePresetWorkspace(app);
-      app.toast("\uD504\uB9AC\uC14B\xB7\uD1A0\uAE00 \uC124\uC815\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.");
-    }, "", { disabled: !p }), app.b("JSON \uB0B4\uBCF4\uB0B4\uAE30", () => exportJson(app), "", { disabled: !p })));
+      app.toast("\uD504\uB9AC\uC14B\xB7\uBAA8\uB4C8\xB7\uD1A0\uAE00 \uC124\uC815\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.");
+    }), app.b("JSON \uB0B4\uBCF4\uB0B4\uAE30", () => exportJson(app), "", { disabled: !p })));
     if (!p) {
       host.append(h("div", { class: "empty" }, ".risup / .risupreset / JSON \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.", "\n\uD504\uB86C\uD504\uD2B8\uC640 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uC548\uC5D0\uC11C \uAD00\uB9AC\uD558\uBA70 \uBCF8\uCCB4 \uD504\uB9AC\uC14B\uC740 \uBCC0\uACBD\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      if (state.modules?.length) renderModules(app, host);
       return;
     }
     host.append(
@@ -13412,19 +13648,19 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         change();
       }, { tag: "input" }),
       h("p", { class: "muted" }, "\uD30C\uC77C\uC5D0\uC11C \uAC00\uC838\uC628 \uC0AC\uBCF8\uC785\uB2C8\uB2E4. \uBCF8\uCCB4\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB378\xB7\uC811\uC18D \uC815\uBCF4\uB294 \uAC00\uC838\uC624\uC9C0 \uC54A\uC73C\uBA70 \uAE30\uC874 \uBA54\uC778\xB7\uBCF4\uC870 \uBAA8\uB378 \uC124\uC815\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4."),
-      h("div", { class: "row" }, [["blocks", "\uD504\uB86C\uD504\uD2B8 \uBE14\uB85D"], ["toggles", "\uD1A0\uAE00 \uC124\uC815"], ["context", "\uCC38\uACE0\uC790\uB8CC"], ["preview", "\uC804\uC1A1 \uB0B4\uC6A9"]].map(([key2, label]) => app.b(label, () => {
+      h("div", { class: "row" }, [["blocks", "\uD504\uB86C\uD504\uD2B8 \uBE14\uB85D"], ["toggles", "\uD1A0\uAE00 \uC124\uC815"], ["modules", "\uBAA8\uB4C8"], ["context", "\uCC38\uACE0\uC790\uB8CC"], ["preview", "\uC804\uC1A1 \uB0B4\uC6A9"]].map(([key2, label]) => app.b(label, () => {
         state.pane = key2;
         app.touch(false);
         redraw();
       }, state.pane === key2 ? "primary small" : "small")))
     );
     if (state.pane === "toggles") {
-      let tree;
+      let tree2;
       try {
-        tree = toggleDefinitions(p);
+        tree2 = toggleDefinitions(p, activeModules(state));
       } catch (error) {
         host.append(h("p", { class: "warn" }, error.message));
-        tree = { items: [], definitions: [] };
+        tree2 = { items: [], definitions: [] };
       }
       const draw = (items) => items.map((item) => {
         if (item.type === "group") return h("details", { class: "card", open: "" }, h("summary", {}, item.label || "\uADF8\uB8F9"), h("div", { class: "stack", style: "margin-top:12px" }, draw(item.children)));
@@ -13445,20 +13681,22 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
           change();
         }, { tag: d.type === "text" ? "input" : "textarea" });
         const usages = p.promptTemplate.filter((b) => (b.text ?? b.innerFormat ?? "").includes(d.key)).map((b) => b.name || b.type);
-        return h("div", { class: "card stack" }, control, h("p", { class: "muted" }, d.key + (usages.length ? " \xB7 \uC0AC\uC6A9: " + usages.join(", ") : " \xB7 \uCC38\uC870 \uBE14\uB85D \uC5C6\uC74C")));
+        for (const module of activeModules(state)) if (module.lorebook.some((l) => l.content.includes(d.key))) usages.push(module.name + " \uB85C\uC5B4\uBD81");
+        return h("div", { class: "card stack" }, control, h("p", { class: "muted" }, d.key + " \xB7 \uC815\uC758: " + d.sources.join(", ") + (usages.length ? " \xB7 \uC0AC\uC6A9: " + usages.join(", ") : " \xB7 \uCC38\uC870 \uBE14\uB85D \uC5C6\uC74C")));
       });
       host.append(
         h("p", { class: "muted" }, "\uD1A0\uAE00 \uC815\uC758\uB294 \uD30C\uC77C\uC5D0\uC11C \uC77D\uACE0, \uC120\uD0DD\uAC12\uC740 \uACF5\uBC29\uC5D0 \uBCC4\uB3C4\uB85C \uC800\uC7A5\uD569\uB2C8\uB2E4. \uC120\uD0DD\uD615 \uAC12\uC740 \uBCF8\uCCB4\uC640 \uAC19\uC774 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638(0\uBD80\uD130)\uB85C \uCC98\uB9AC\uD569\uB2C8\uB2E4."),
-        ...draw(tree.items),
+        ...draw(tree2.items),
         h("details", {}, h("summary", {}, "\uD1A0\uAE00 \uC815\uC758 \uC6D0\uBB38 \uD3B8\uC9D1"), h("div", { class: "stack" }, app.field("\uD1A0\uAE00 \uC815\uC758", p.customPromptTemplateToggle, (v) => {
           p.customPromptTemplateToggle = v;
           change();
         }, { class: "code", placeholder: "tone=\uB9D0\uD22C=select=\uCC28\uBD84\uD568,\uD65C\uAE30\uCC38\nextra=\uCD94\uAC00 \uC124\uC815\nnote=\uBA54\uBAA8=textarea" }), app.b("\uD1A0\uAE00 \uBAA9\uB85D \uAC31\uC2E0", () => {
-          toggleDefinitions(p);
+          toggleDefinitions(p, activeModules(state));
           redraw();
         }, "small")))
       );
-    } else if (state.pane === "context") {
+    } else if (state.pane === "modules") renderModules(app, host);
+    else if (state.pane === "context") {
       const env = state.environment;
       host.append(app.field("\uC0AC\uC6A9\uC790 \uC774\uB984", env.userName, (v) => {
         env.userName = v;
@@ -13481,10 +13719,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         change();
         app.toast("\uCD94\uAC00 \uBCC0\uC218\uB97C \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.");
       }, "small"));
-      if (moduleReferences(p).length) host.append(h("p", { class: "muted" }, "\uC678\uBD80 \uBAA8\uB4C8 \uCC38\uC870: " + moduleReferences(p).join(", ")), app.check("\uD30C\uC77C \uBC16 \uBAA8\uB4C8 \uC5F0\uB3D9\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.modules, (v) => {
+      if (moduleReferences(p).length) host.append(h("p", { class: "muted" }, "\uBAA8\uB4C8 \uCC38\uC870: " + moduleReferences(p).join(", ") + " \xB7 \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uC77C\uCE58\uD558\uB294 ID\xB7namespace\uB97C \uC120\uD0DD\uD558\uC138\uC694."), app.check("\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678", state.excluded.modules, (v) => {
         state.excluded.modules = v;
         change();
-      }), h("p", { class: "muted" }, "\uBAA8\uB4C8 \uC5F0\uB3D9\uC740 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC81C\uC678\uD558\uBA74 \uC6D0\uBCF8 \uD504\uB9AC\uC14B\uC5D0\uC11C \uBAA8\uB4C8\uC774 \uCD94\uAC00\uD558\uB358 \uB0B4\uC6A9\uC774 \uBE60\uC9D1\uB2C8\uB2E4."));
+      }), h("p", { class: "muted" }, "\uC804\uCCB4 \uC81C\uC678\uB97C \uC120\uD0DD\uD558\uBA74 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB3C4 \uC694\uCCAD\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
       if (p.regex?.length) host.append(app.check("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.regex, (v) => {
         state.excluded.regex = v;
         change();
@@ -13512,11 +13750,12 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const output = h("div", { class: "stack" });
       const preview = () => {
         try {
-          const report = app.previewRequest(app.task, true);
+          const report = app.previewRequest(app.task);
           output.replaceChildren(
             report.issues.length ? h("div", { class: "warn" }, "\uC804\uC1A1\uD560 \uC218 \uC5C6\uB294 \uD56D\uBAA9: ", h("ul", {}, report.issues.map((x) => h("li", {}, x)))) : h("p", { class: "pill" }, "\uC870\uB9BD \uAC80\uC0AC \uD1B5\uACFC \xB7 " + report.messages.length + "\uAC1C \uBA54\uC2DC\uC9C0"),
-            h("p", { class: "muted" }, "\uD604\uC7AC \uC694\uCCAD: " + app.task + " \xB7 " + report.messages.reduce((n, m) => n + m.content.length, 0).toLocaleString() + "\uC790"),
+            h("p", { class: "muted" }, "\uD604\uC7AC \uC694\uCCAD: " + app.task + " \xB7 " + (state.mode === "preset" ? "\uD504\uB9AC\uC14B \uC694\uCCAD" : "\uC9C1\uC811 \uC694\uCCAD") + " \xB7 " + report.messages.reduce((n, m) => n + m.content.length, 0).toLocaleString() + "\uC790"),
             h("details", {}, h("summary", {}, "\uBE14\uB85D\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.trace, null, 2))),
+            h("details", {}, h("summary", {}, "\uBAA8\uB4C8\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.moduleTrace ?? [], null, 2))),
             ...report.messages.map((m, i) => h("section", { class: "card stack" }, h("h3", {}, `${i + 1}. ${m.role}`), m.cachePoint ? h("span", { class: "pill" }, "\uCE90\uC2DC \uC9C0\uC810") : null, h("pre", { class: "diff" }, m.content))),
             h("p", { class: "muted" }, report.notes.join("\n"))
           );
@@ -13674,7 +13913,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       }
       box.append(app.b("\uC870\uAC74 \uCD94\uAC00", () => {
         parsed.activation ??= { join: "and", conditions: [] };
-        const defs = toggleDefinitions(app.s.preset.preset).definitions;
+        const defs = toggleDefinitions(app.s.preset.preset, activeModules(app.s.preset)).definitions;
         parsed.activation.conditions.push({ key: defs[0]?.key ?? "toggle_example", operator: "is", value: "1" });
         commit();
         draw();
