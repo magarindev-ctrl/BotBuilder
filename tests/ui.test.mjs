@@ -5,11 +5,13 @@ import { Workshop } from '../src/ui.js';
 import { PREFIX, newSession, snapshot } from '../src/core.js';
 
 const wait = () => new Promise(resolve => setTimeout(resolve, 12));
-async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop', data: { reply: '세계관부터 함께 정해보죠.', changes: [] } }) {
+async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop', data: { reply: '세계관부터 함께 정해보죠.', changes: [] } }, systemDark = false) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://local.test/' });
+  const media = new dom.window.EventTarget(); media.matches = systemDark;
+  dom.window.matchMedia = () => media;
   const store = new Map(Object.entries(initial)), calls = [], regs = {};
   const api = { pluginStorage: { getItem: async k => store.get(k) ?? null, setItem: async (k, v) => store.set(k, v), removeItem: async k => store.delete(k) }, registerSetting: async (name, callback) => regs.open = callback, registerButton: async () => ({}), onUnload: async fn => regs.unload = fn, showContainer: async () => {}, hideContainer: async () => {}, runLLMModel: async options => { calls.push(options); return { type: 'success', result: JSON.stringify(response) }; } };
-  const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, close: () => { app.destroy(); dom.window.close(); } };
+  const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
 test('workshop renders manuscript + persistent chat, with prompt beside every send action', async () => {
@@ -30,11 +32,11 @@ test('autosave does not overwrite initial recovery data and two slots are indepe
     assert.equal(JSON.parse(x.store.get(PREFIX + 'manual')).name, 'manual draft'); assert.equal(JSON.parse(x.store.get(PREFIX + 'autosave')).name, 'auto draft');
   } finally { x.close(); }
 });
-test('actual send requires review, records conversation and does not change draft', async () => {
+test('send dispatches once without a confirmation dialog and preserves the manuscript', async () => {
   const x = await make(); try {
     x.app.s.requests.workshop = '판타지 시뮬레이션을 구상해보자'; const before = x.app.s.draft.desc;
-    const sending = x.app.sendRequest(); await wait(); assert.equal(x.calls.length, 0);
-    button(x.dom, '이 내용으로 요청').click(); await sending;
+    x.app.dialog = () => { throw new Error('Request must not open a confirmation dialog'); };
+    await x.app.sendRequest();
     assert.equal(x.calls.length, 1); assert.equal(x.calls[0].mode, 'submodel'); assert.equal(x.app.s.thread.length, 2); assert.equal(x.app.s.draft.desc, before); assert.equal(x.app.s.thread[1].content, '세계관부터 함께 정해보죠.');
   } finally { x.close(); }
 });
@@ -42,7 +44,7 @@ test('generated proposals require explicit apply and stale candidates cannot app
   const x = await make({}, { schemaVersion: 1, task: 'description', data: { text: 'A new character' } });
   try {
     x.app.task = 'description'; x.app.s.requests.description = 'write';
-    const sending = x.app.sendRequest(); await wait(); button(x.dom, '이 내용으로 요청').click(); await sending;
+    await x.app.sendRequest();
     assert.equal(x.app.s.draft.desc, ''); assert.equal(x.app.s.candidates.length, 1);
     await x.app.applyCandidate(x.app.s.candidates[0]); assert.equal(x.app.s.draft.desc, 'A new character');
     x.app.s.candidates[0].status = null; x.app.touch(); await assert.rejects(x.app.applyCandidate(x.app.s.candidates[0]), /다른 시점/);
@@ -77,10 +79,37 @@ test('late model result is discarded after manuscript changes', async () => {
     let resolve;
     x.app.api.runLLMModel = () => new Promise(done => resolve = done);
     x.app.task = 'description'; x.app.s.requests.description = 'write';
-    const pending = x.app.sendRequest(); await wait(); button(x.dom, '이 내용으로 요청').click(); await wait();
+    const pending = x.app.sendRequest(); await wait();
     x.app.setField('desc', 'typed while waiting');
     resolve({ type: 'success', result: JSON.stringify({ schemaVersion: 1, task: 'description', data: { text: 'late' } }) });
     await pending;
     assert.equal(x.app.s.draft.desc, 'typed while waiting'); assert.equal(x.app.s.candidates.length, 0); assert.equal(x.app.job, null); assert.equal(x.app.s.thread.at(-1).error, true);
   } finally { x.close(); }
+});
+test('direct send still blocks duplicate requests and over-limit input', async () => {
+  const x = await make();
+  try {
+    x.app.s.requests.workshop = 'draft';
+    x.app.settings.maxInputChars = 1;
+    await assert.rejects(x.app.sendRequest(), /한도를 초과/); assert.equal(x.calls.length, 0);
+    x.app.settings.maxInputChars = 100000;
+    let resolve;
+    x.app.api.runLLMModel = () => { x.calls.push('one'); return new Promise(done => resolve = done); };
+    const pending = x.app.sendRequest();
+    await assert.rejects(x.app.sendRequest(), /진행 중/); await wait(); assert.equal(x.calls.length, 1);
+    resolve({ type: 'success', result: JSON.stringify({ schemaVersion: 1, task: 'workshop', data: { reply: 'done', changes: [] } }) }); await pending;
+  } finally { x.close(); }
+});
+test('theme follows system changes until a saved explicit preference overrides them', async () => {
+  const x = await make(); let y;
+  try {
+    assert.equal(x.dom.window.document.documentElement.dataset.theme, 'light');
+    x.setSystemDark(true); assert.equal(x.dom.window.document.documentElement.dataset.theme, 'dark');
+    const settings = x.app.showSettings(); await wait();
+    const select = x.dom.window.document.querySelector('[aria-label="화면 테마"]'); select.value = 'light'; select.dispatchEvent(new x.dom.window.Event('change'));
+    button(x.dom, '저장').click(); await settings;
+    x.setSystemDark(false); x.setSystemDark(true); assert.equal(x.dom.window.document.documentElement.dataset.theme, 'light');
+    y = await make(Object.fromEntries(x.store), undefined, true);
+    assert.equal(y.app.settings.theme, 'light'); assert.equal(y.dom.window.document.documentElement.dataset.theme, 'light');
+  } finally { y?.close(); x.close(); }
 });

@@ -2,171 +2,183 @@ TAP version 13
 # Subtest: templates expand only once and include complete working context + conversation
 ok 1 - templates expand only once and include complete working context + conversation
   ---
-  duration_ms: 3.2133
+  duration_ms: 3.3668
   type: 'test'
   ...
 # Subtest: responses reject arbitrary keys, wrong task, code fences, invalid range, prototype keys
 ok 2 - responses reject arbitrary keys, wrong task, code fences, invalid range, prototype keys
   ---
-  duration_ms: 0.5571
+  duration_ms: 0.6022
   type: 'test'
   ...
 # Subtest: proposal validation and apply preserve unrelated native fields
 ok 3 - proposal validation and apply preserve unrelated native fields
   ---
-  duration_ms: 0.8193
+  duration_ms: 0.824
   type: 'test'
   ...
 # Subtest: Lua apply retains trigger conditions, other effects, variable names and untouched raw lines
 ok 4 - Lua apply retains trigger conditions, other effects, variable names and untouched raw lines
   ---
-  duration_ms: 0.4783
+  duration_ms: 0.5134
   type: 'test'
   ...
 # Subtest: bad multi-task changes fail without any partial mutation
 ok 5 - bad multi-task changes fail without any partial mutation
   ---
-  duration_ms: 0.2253
+  duration_ms: 0.2385
   type: 'test'
   ...
 # Subtest: choice bundle checks button/handler/content + existing handler conflicts
 ok 6 - choice bundle checks button/handler/content + existing handler conflicts
   ---
-  duration_ms: 0.3994
+  duration_ms: 0.3865
   type: 'test'
   ...
 # Subtest: three-way save preserves fresh chats and unedited fields, rejects same-field conflicts
 ok 7 - three-way save preserves fresh chats and unedited fields, rejects same-field conflicts
   ---
-  duration_ms: 0.4756
+  duration_ms: 0.4738
   type: 'test'
   ...
 # Subtest: item merge keeps external edits to a different lore item and external additions
 ok 8 - item merge keeps external edits to a different lore item and external additions
   ---
-  duration_ms: 0.39
+  duration_ms: 0.4
   type: 'test'
   ...
 # Subtest: ambiguous duplicate arrays and external edits to a modified item conflict
 ok 9 - ambiguous duplicate arrays and external edits to a modified item conflict
   ---
-  duration_ms: 0.5696
+  duration_ms: 0.5471
   type: 'test'
   ...
 # Subtest: indexed save resolves stable character ID after reorder and checks readback
 ok 10 - indexed save resolves stable character ID after reorder and checks readback
   ---
-  duration_ms: 0.5416
+  duration_ms: 0.5246
   type: 'test'
   ...
 # Subtest: snapshot excludes chats, keeps full draft state, candidates and unsaved prompt edits
 ok 11 - snapshot excludes chats, keeps full draft state, candidates and unsaved prompt edits
   ---
-  duration_ms: 1.2778
+  duration_ms: 1.1344
   type: 'test'
   ...
 # Subtest: model mode, plugin-provider permission and successful response use one request
 ok 12 - model mode, plugin-provider permission and successful response use one request
   ---
-  duration_ms: 0.366
+  duration_ms: 0.3359
   type: 'test'
   ...
 # Subtest: waiting can stop even if provider never resolves, with no automatic retry
 ok 13 - waiting can stop even if provider never resolves, with no automatic retry
   ---
-  duration_ms: 0.2484
+  duration_ms: 0.4112
   type: 'test'
   ...
 # Subtest: cumulative host stream is read as snapshots rather than concatenated
 ok 14 - cumulative host stream is read as snapshots rather than concatenated
   ---
-  duration_ms: 1.3417
+  duration_ms: 1.3274
   type: 'test'
   ...
 # Subtest: regex text test captures, global/first, HTML-as-text and Risu replacement syntax
 ok 15 - regex text test captures, global/first, HTML-as-text and Risu replacement syntax
   ---
-  duration_ms: 4.4985
+  duration_ms: 4.2778
   type: 'test'
   ...
 # Subtest: regex rejects unsupported constructs, flags, over-limit input and obeys stop
 ok 16 - regex rejects unsupported constructs, flags, over-limit input and obeys stop
   ---
-  duration_ms: 0.5275
+  duration_ms: 0.5704
   type: 'test'
   ...
 # Subtest: regex zero-width matches terminate and match limit is clearly partial
 ok 17 - regex zero-width matches terminate and match limit is clearly partial
   ---
-  duration_ms: 592.7123
+  duration_ms: 591.366
   type: 'test'
   ...
 # Subtest: charx module codec preserves native regex, Lua effects and lore extensions
 ok 18 - charx module codec preserves native regex, Lua effects and lore extensions
   ---
-  duration_ms: 0.8317
+  duration_ms: 0.8767
   type: 'test'
   ...
 # Subtest: CCv3 conversion retains extension data and never grants imported low-level permissions
 ok 19 - CCv3 conversion retains extension data and never grants imported low-level permissions
   ---
-  duration_ms: 0.361
+  duration_ms: 0.4499
   type: 'test'
   ...
 # Subtest: charx full roundtrip embeds referenced image bytes and preserves native Lua/lore
 ok 20 - charx full roundtrip embeds referenced image bytes and preserves native Lua/lore
   ---
-  duration_ms: 30.6506
+  duration_ms: 29.5503
   type: 'test'
   ...
 # Subtest: workshop renders manuscript + persistent chat, with prompt beside every send action
 ok 21 - workshop renders manuscript + persistent chat, with prompt beside every send action
   ---
-  duration_ms: 55.2078
+  duration_ms: 56.0519
   type: 'test'
   ...
 # Subtest: autosave does not overwrite initial recovery data and two slots are independent
 ok 22 - autosave does not overwrite initial recovery data and two slots are independent
   ---
-  duration_ms: 22.3515
+  duration_ms: 21.3688
   type: 'test'
   ...
-# Subtest: actual send requires review, records conversation and does not change draft
-ok 23 - actual send requires review, records conversation and does not change draft
+# Subtest: send dispatches once without a confirmation dialog and preserves the manuscript
+ok 23 - send dispatches once without a confirmation dialog and preserves the manuscript
   ---
-  duration_ms: 51.9041
+  duration_ms: 18.0153
   type: 'test'
   ...
 # Subtest: generated proposals require explicit apply and stale candidates cannot apply
 ok 24 - generated proposals require explicit apply and stale candidates cannot apply
   ---
-  duration_ms: 49.0555
+  duration_ms: 15.416
   type: 'test'
   ...
 # Subtest: prompt save and reset affect only selected task
 ok 25 - prompt save and reset affect only selected task
   ---
-  duration_ms: 55.2483
+  duration_ms: 66.0135
   type: 'test'
   ...
 # Subtest: saved prompt survives reload while unsaved prompt edits remain drafts
 ok 26 - saved prompt survives reload while unsaved prompt edits remain drafts
   ---
-  duration_ms: 13.7096
+  duration_ms: 16.3815
   type: 'test'
   ...
 # Subtest: late model result is discarded after manuscript changes
 ok 27 - late model result is discarded after manuscript changes
   ---
-  duration_ms: 49.729
+  duration_ms: 29.8327
   type: 'test'
   ...
-1..27
-# tests 27
+# Subtest: direct send still blocks duplicate requests and over-limit input
+ok 28 - direct send still blocks duplicate requests and over-limit input
+  ---
+  duration_ms: 30.5177
+  type: 'test'
+  ...
+# Subtest: theme follows system changes until a saved explicit preference overrides them
+ok 29 - theme follows system changes until a saved explicit preference overrides them
+  ---
+  duration_ms: 54.1775
+  type: 'test'
+  ...
+1..29
+# tests 29
 # suites 0
-# pass 27
+# pass 29
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 710.1431
+# duration_ms 711.7227

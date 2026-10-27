@@ -1,10 +1,10 @@
 import { CSS } from './style.js';
-import { VERSION, PREFIX, FIELDS, TASKS, clone, equal, uid, bytes, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록']];
 const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록' };
-const SETTINGS = { model: 'submodel', timeout: 300, maxInputChars: 100000 };
+const SETTINGS = { model: 'submodel', timeout: 300, maxInputChars: 100000, theme: 'system' };
 
 export class Workshop {
   constructor(api, doc) {
@@ -70,6 +70,11 @@ export class Workshop {
     if (!['model', 'submodel'].includes(this.settings.model)) this.settings.model = 'submodel';
     if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 300;
     if (!Number.isFinite(this.settings.maxInputChars) || this.settings.maxInputChars < 1000 || this.settings.maxInputChars > 1000000) this.settings.maxInputChars = 100000;
+    if (!['system', 'light', 'dark'].includes(this.settings.theme)) this.settings.theme = 'system';
+    this.themeMedia = this.doc.defaultView?.matchMedia?.('(prefers-color-scheme: dark)');
+    this.themeListener = () => this.applyTheme();
+    this.themeMedia?.addEventListener('change', this.themeListener);
+    this.applyTheme();
     await Promise.all(Object.keys(TASKS).map(async task => {
       const raw = await this.api.pluginStorage.getItem(PREFIX + 'prompt:' + task);
       try { if (raw) { const p = JSON.parse(raw); if (typeof p.system === 'string' && typeof p.user === 'string') this.prompts[task] = p; } } catch { /* Do not overwrite unreadable overrides. */ }
@@ -83,7 +88,8 @@ export class Workshop {
     this.elapsedTimer = setInterval(() => this.jobStatus(), 1000);
     await this.api.onUnload(() => this.destroy());
   }
-  destroy() { clearInterval(this.autoTimer); clearInterval(this.elapsedTimer); clearTimeout(this.toastTimer); this.job?.stop?.(); this.activeModal?.close(null); }
+  destroy() { clearInterval(this.autoTimer); clearInterval(this.elapsedTimer); clearTimeout(this.toastTimer); this.themeMedia?.removeEventListener('change', this.themeListener); this.job?.stop?.(); this.activeModal?.close(null); }
+  applyTheme() { this.doc.documentElement.dataset.theme = this.settings.theme === 'system' ? this.themeMedia?.matches ? 'dark' : 'light' : this.settings.theme; }
   async readSlots() {
     for (const name of ['autosave', 'manual']) {
       const raw = await this.api.pluginStorage.getItem(PREFIX + name);
@@ -270,21 +276,19 @@ export class Workshop {
     assert(this.candidateValid(candidate), '원고가 바뀌었습니다.');
     this.s.draft = next; candidate.status = 'applied'; this.touch(); this.render(); this.toast('수정안을 원고에 적용했습니다. 실제 캐릭터 저장은 별도입니다.');
   }
+  requestWithScope(task) {
+    const s = this.s, request = (s.requests[task] ?? '').trim();
+    const scope = this.scopeOnly && ['lorebook', 'regex'].includes(task) && (s.draft[task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? (task === 'lorebook' ? 'l' : 'r') + (s.selected[task] ?? 0) : null;
+    return { request, scope, text: request + (scope ? '\n[허용 편집 범위] 기존 항목 ' + scope + '만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다.' : '') };
+  }
   async sendRequest() {
     assert(!this.job, '다른 LLM 요청이 진행 중입니다.');
-    const task = this.task, s = this.s, request = (s.requests[task] ?? '').trim();
+    const task = this.task, s = this.s, { request, scope, text } = this.requestWithScope(task);
     assert(request, 'LLM에게 전달할 요청을 적어 주세요.');
-    const scope = this.scopeOnly && ['lorebook', 'regex'].includes(task) && (s.draft[task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? (task === 'lorebook' ? 'l' : 'r') + (s.selected[task] ?? 0) : null;
-    const scopedRequest = request + (scope ? '\n[허용 편집 범위] 기존 항목 ' + scope + '만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다.' : '');
-    const messages = composeMessages(s, task, scopedRequest, this.prompts[task] ?? defaultPrompt(task));
+    const messages = composeMessages(s, task, text, this.prompts[task] ?? defaultPrompt(task));
     const chars = messages.reduce((n, m) => n + m.content.length, 0);
     assert(chars <= this.settings.maxInputChars, `전송 내용이 설정한 ${this.settings.maxInputChars.toLocaleString()}자 한도를 초과했습니다. 대화·참고자료·작업 범위를 직접 조정해 주세요. 자동으로 잘라 보내지 않습니다.`);
     const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
-    const approved = await this.dialog('LLM 요청 확인', body => {
-      body.append(this.h('p', {}, `${this.settings.model === 'model' ? '메인' : '보조'} 모델 · 전송 ${chars.toLocaleString()}자 (${bytes(JSON.stringify(messages)).toLocaleString()}바이트)`), this.h('p', { class: 'muted' }, '모델의 정확한 토큰 한도는 공개 API에서 확인할 수 없습니다. 아래 실제 전송 내용을 확인하고 요청하세요.'), this.h('details', {}, this.h('summary', {}, '실제 전송 메시지 전체'), this.h('pre', { class: 'diff' }, JSON.stringify(messages, null, 2))));
-    }, [{ label: '취소', value: false }, { label: '이 내용으로 요청', value: true, kind: 'primary' }]);
-    if (!approved) return;
-    assert(this.candidateValid(meta), '확인 도중 원고가 바뀌었습니다. 다시 요청하세요.');
     const before = clone(s.draft), job = { ...meta, id: uid(), start: Date.now(), label: TASKS[task].label + ' · 응답 대기', cancelled: false };
     this.job = job;
     s.thread.push({ id: uid(), role: 'user', content: request, task }); this.touch(false); this.render();
@@ -309,7 +313,7 @@ export class Workshop {
     await this.dialog(TASKS[task].label + ' · 프롬프트', body => {
       const saved = h('p', { class: 'muted' }, '저장한 템플릿이 다음 요청에 사용됩니다. 아래 편집 중인 내용은 저장 전까지 전송되지 않습니다.');
       const actual = h('pre', { class: 'diff' });
-      const preview = () => { try { actual.textContent = JSON.stringify(composeMessages(this.s, task, this.s.requests[task] ?? '', this.prompts[task] ?? defaultPrompt(task)), null, 2); } catch (e) { actual.textContent = e.message; } };
+      const preview = () => { try { actual.textContent = JSON.stringify(composeMessages(this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task)), null, 2); } catch (e) { actual.textContent = e.message; } };
       const system = this.field('시스템 프롬프트 전체', draft.system, v => { draft.system = v; this.touch(false); }, { class: 'code', style: 'min-height:220px' });
       const user = this.field('사용자 프롬프트 템플릿', draft.user, v => { draft.user = v; this.touch(false); }, { class: 'code', style: 'min-height:230px' });
       body.append(saved, system, user, h('div', { class: 'row' }, this.b('프롬프트 저장', async () => {
@@ -327,11 +331,11 @@ export class Workshop {
   async showSettings() {
     const next = clone(this.settings);
     const result = await this.dialog('작업 설정', body => {
-      body.append(this.field('LLM 대기 제한 · 초 (10~3,600)', next.timeout, v => next.timeout = Number(v), { tag: 'input', type: 'number', min: 10, max: 3600 }), this.field('전체 전송 문자 한도 (1,000~1,000,000)', next.maxInputChars, v => next.maxInputChars = Number(v), { tag: 'input', type: 'number', min: 1000, max: 1000000 }), this.h('p', { class: 'muted' }, '자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다.'));
+      body.append(this.h('label', { class: 'field' }, this.h('span', {}, '화면 테마'), this.select(next.theme, [['system', '시스템 설정 따르기'], ['light', '라이트 모드'], ['dark', '다크 모드']], v => next.theme = v, '화면 테마')), this.field('LLM 대기 제한 · 초 (10~3,600)', next.timeout, v => next.timeout = Number(v), { tag: 'input', type: 'number', min: 10, max: 3600 }), this.field('전체 전송 문자 한도 (1,000~1,000,000)', next.maxInputChars, v => next.maxInputChars = Number(v), { tag: 'input', type: 'number', min: 1000, max: 1000000 }), this.h('p', { class: 'muted' }, '자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다.'));
     }, [{ label: '취소', value: false }, { label: '저장', value: true, kind: 'primary' }]);
     if (result) {
       assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1000 && next.maxInputChars <= 1000000, '설정 범위를 확인하세요.');
-      await this.store('settings', next); this.settings = next; this.render(); this.toast('설정을 저장했습니다.');
+      await this.store('settings', next); this.settings = next; this.applyTheme(); this.render(); this.toast('설정을 저장했습니다.');
     }
   }
   async guardReplace() {
