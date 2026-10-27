@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 9,
+  "passed": 12,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -76,6 +76,18 @@
     },
     {
       "name": "RE2JS executes under CSP and displays HTML as text",
+      "passed": true
+    },
+    {
+      "name": "binary risup imported under CSP; v2 toggle condition controls assembled content",
+      "passed": true
+    },
+    {
+      "name": "block text, role and order edits match transmitted messages; local preset selections save",
+      "passed": true
+    },
+    {
+      "name": "unsupported preset syntax stops before model dispatch",
       "passed": true
     },
     {

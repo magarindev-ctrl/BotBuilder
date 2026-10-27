@@ -1,10 +1,10 @@
 //@name risu_story_workshop
 //@display-name 이야기 공방
 //@api 3.0
-//@version 0.1.2
+//@version 0.2.0
 
 /*
-이야기 공방 runtime dependencies: RE2JS 2.9.0 (MIT), fflate 0.8.2 (MIT).
+이야기 공방 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
 RPack mapping: RisuAI f50b5942ec6aa59aa3c56049ac687ca09667fec7, SHA256 428e939c41617140ef2fad0420d9163cc80ce7c9b2f5e620223a25acc8afd498. Used only within RisuAI-compatible plugin runtime under the RPack MIT option.
 
 RE2JS license:
@@ -76,8 +76,3031 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Preset adapters: adapted from RisuBard promptV2.ts, util.ts and preset wire format at commit e5412a4878ae3a0073ffce8e06aed8f288dd9c53.
+Upstream: https://github.com/rpaddict/RisuBard (copyright upstream contributors; GPL-3.0).
+Workshop distribution license: GPL-3.0-only. Corresponding source: src/, tools/build.mjs and package-lock.json in this project.
+Changes: independent DOM UI, local workshop context and bounded CBS subset; no host stores or Svelte components.
+
+msgpackr license:
+MIT License
+
+Copyright (c) 2020 Kris Zyp
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+@noble/ciphers license:
+The MIT License (MIT)
+
+Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+Copyright (c) 2016 Thomas Pornin <pornin@bolet.org>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+@noble/hashes license:
+The MIT License (MIT)
+
+Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the “Software”), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+GPL-3.0 license (upstream RisuBard LICENSE):
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2024 Kwaroran
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+                            Preamble
+
+  The GNU General Public License is a free, copyleft license for
+software and other kinds of works.
+
+  The licenses for most software and other practical works are designed
+to take away your freedom to share and change the works.  By contrast,
+the GNU General Public License is intended to guarantee your freedom to
+share and change all versions of a program--to make sure it remains free
+software for all its users.  We, the Free Software Foundation, use the
+GNU General Public License for most of our software; it applies also to
+any other work released this way by its authors.  You can apply it to
+your programs, too.
+
+  When we speak of free software, we are referring to freedom, not
+price.  Our General Public Licenses are designed to make sure that you
+have the freedom to distribute copies of free software (and charge for
+them if you wish), that you receive source code or can get it if you
+want it, that you can change the software or use pieces of it in new
+free programs, and that you know you can do these things.
+
+  To protect your rights, we need to prevent others from denying you
+these rights or asking you to surrender the rights.  Therefore, you have
+certain responsibilities if you distribute copies of the software, or if
+you modify it: responsibilities to respect the freedom of others.
+
+  For example, if you distribute copies of such a program, whether
+gratis or for a fee, you must pass on to the recipients the same
+freedoms that you received.  You must make sure that they, too, receive
+or can get the source code.  And you must show them these terms so they
+know their rights.
+
+  Developers that use the GNU GPL protect your rights with two steps:
+(1) assert copyright on the software, and (2) offer you this License
+giving you legal permission to copy, distribute and/or modify it.
+
+  For the developers' and authors' protection, the GPL clearly explains
+that there is no warranty for this free software.  For both users' and
+authors' sake, the GPL requires that modified versions be marked as
+changed, so that their problems will not be attributed erroneously to
+authors of previous versions.
+
+  Some devices are designed to deny users access to install or run
+modified versions of the software inside them, although the manufacturer
+can do so.  This is fundamentally incompatible with the aim of
+protecting users' freedom to change the software.  The systematic
+pattern of such abuse occurs in the area of products for individuals to
+use, which is precisely where it is most unacceptable.  Therefore, we
+have designed this version of the GPL to prohibit the practice for those
+products.  If such problems arise substantially in other domains, we
+stand ready to extend this provision to those domains in future versions
+of the GPL, as needed to protect the freedom of users.
+
+  Finally, every program is threatened constantly by software patents.
+States should not allow patents to restrict development and use of
+software on general-purpose computers, but in those that do, we wish to
+avoid the special danger that patents applied to a free program could
+make it effectively proprietary.  To prevent this, the GPL assures that
+patents cannot be used to render the program non-free.
+
+  The precise terms and conditions for copying, distribution and
+modification follow.
+
+                       TERMS AND CONDITIONS
+
+  0. Definitions.
+
+  "This License" refers to version 3 of the GNU General Public License.
+
+  "Copyright" also means copyright-like laws that apply to other kinds of
+works, such as semiconductor masks.
+
+  "The Program" refers to any copyrightable work licensed under this
+License.  Each licensee is addressed as "you".  "Licensees" and
+"recipients" may be individuals or organizations.
+
+  To "modify" a work means to copy from or adapt all or part of the work
+in a fashion requiring copyright permission, other than the making of an
+exact copy.  The resulting work is called a "modified version" of the
+earlier work or a work "based on" the earlier work.
+
+  A "covered work" means either the unmodified Program or a work based
+on the Program.
+
+  To "propagate" a work means to do anything with it that, without
+permission, would make you directly or secondarily liable for
+infringement under applicable copyright law, except executing it on a
+computer or modifying a private copy.  Propagation includes copying,
+distribution (with or without modification), making available to the
+public, and in some countries other activities as well.
+
+  To "convey" a work means any kind of propagation that enables other
+parties to make or receive copies.  Mere interaction with a user through
+a computer network, with no transfer of a copy, is not conveying.
+
+  An interactive user interface displays "Appropriate Legal Notices"
+to the extent that it includes a convenient and prominently visible
+feature that (1) displays an appropriate copyright notice, and (2)
+tells the user that there is no warranty for the work (except to the
+extent that warranties are provided), that licensees may convey the
+work under this License, and how to view a copy of this License.  If
+the interface presents a list of user commands or options, such as a
+menu, a prominent item in the list meets this criterion.
+
+  1. Source Code.
+
+  The "source code" for a work means the preferred form of the work
+for making modifications to it.  "Object code" means any non-source
+form of a work.
+
+  A "Standard Interface" means an interface that either is an official
+standard defined by a recognized standards body, or, in the case of
+interfaces specified for a particular programming language, one that
+is widely used among developers working in that language.
+
+  The "System Libraries" of an executable work include anything, other
+than the work as a whole, that (a) is included in the normal form of
+packaging a Major Component, but which is not part of that Major
+Component, and (b) serves only to enable use of the work with that
+Major Component, or to implement a Standard Interface for which an
+implementation is available to the public in source code form.  A
+"Major Component", in this context, means a major essential component
+(kernel, window system, and so on) of the specific operating system
+(if any) on which the executable work runs, or a compiler used to
+produce the work, or an object code interpreter used to run it.
+
+  The "Corresponding Source" for a work in object code form means all
+the source code needed to generate, install, and (for an executable
+work) run the object code and to modify the work, including scripts to
+control those activities.  However, it does not include the work's
+System Libraries, or general-purpose tools or generally available free
+programs which are used unmodified in performing those activities but
+which are not part of the work.  For example, Corresponding Source
+includes interface definition files associated with source files for
+the work, and the source code for shared libraries and dynamically
+linked subprograms that the work is specifically designed to require,
+such as by intimate data communication or control flow between those
+subprograms and other parts of the work.
+
+  The Corresponding Source need not include anything that users
+can regenerate automatically from other parts of the Corresponding
+Source.
+
+  The Corresponding Source for a work in source code form is that
+same work.
+
+  2. Basic Permissions.
+
+  All rights granted under this License are granted for the term of
+copyright on the Program, and are irrevocable provided the stated
+conditions are met.  This License explicitly affirms your unlimited
+permission to run the unmodified Program.  The output from running a
+covered work is covered by this License only if the output, given its
+content, constitutes a covered work.  This License acknowledges your
+rights of fair use or other equivalent, as provided by copyright law.
+
+  You may make, run and propagate covered works that you do not
+convey, without conditions so long as your license otherwise remains
+in force.  You may convey covered works to others for the sole purpose
+of having them make modifications exclusively for you, or provide you
+with facilities for running those works, provided that you comply with
+the terms of this License in conveying all material for which you do
+not control copyright.  Those thus making or running the covered works
+for you must do so exclusively on your behalf, under your direction
+and control, on terms that prohibit them from making any copies of
+your copyrighted material outside their relationship with you.
+
+  Conveying under any other circumstances is permitted solely under
+the conditions stated below.  Sublicensing is not allowed; section 10
+makes it unnecessary.
+
+  3. Protecting Users' Legal Rights From Anti-Circumvention Law.
+
+  No covered work shall be deemed part of an effective technological
+measure under any applicable law fulfilling obligations under article
+11 of the WIPO copyright treaty adopted on 20 December 1996, or
+similar laws prohibiting or restricting circumvention of such
+measures.
+
+  When you convey a covered work, you waive any legal power to forbid
+circumvention of technological measures to the extent such circumvention
+is effected by exercising rights under this License with respect to
+the covered work, and you disclaim any intention to limit operation or
+modification of the work as a means of enforcing, against the work's
+users, your or third parties' legal rights to forbid circumvention of
+technological measures.
+
+  4. Conveying Verbatim Copies.
+
+  You may convey verbatim copies of the Program's source code as you
+receive it, in any medium, provided that you conspicuously and
+appropriately publish on each copy an appropriate copyright notice;
+keep intact all notices stating that this License and any
+non-permissive terms added in accord with section 7 apply to the code;
+keep intact all notices of the absence of any warranty; and give all
+recipients a copy of this License along with the Program.
+
+  You may charge any price or no price for each copy that you convey,
+and you may offer support or warranty protection for a fee.
+
+  5. Conveying Modified Source Versions.
+
+  You may convey a work based on the Program, or the modifications to
+produce it from the Program, in the form of source code under the
+terms of section 4, provided that you also meet all of these conditions:
+
+    a) The work must carry prominent notices stating that you modified
+    it, and giving a relevant date.
+
+    b) The work must carry prominent notices stating that it is
+    released under this License and any conditions added under section
+    7.  This requirement modifies the requirement in section 4 to
+    "keep intact all notices".
+
+    c) You must license the entire work, as a whole, under this
+    License to anyone who comes into possession of a copy.  This
+    License will therefore apply, along with any applicable section 7
+    additional terms, to the whole of the work, and all its parts,
+    regardless of how they are packaged.  This License gives no
+    permission to license the work in any other way, but it does not
+    invalidate such permission if you have separately received it.
+
+    d) If the work has interactive user interfaces, each must display
+    Appropriate Legal Notices; however, if the Program has interactive
+    interfaces that do not display Appropriate Legal Notices, your
+    work need not make them do so.
+
+  A compilation of a covered work with other separate and independent
+works, which are not by their nature extensions of the covered work,
+and which are not combined with it such as to form a larger program,
+in or on a volume of a storage or distribution medium, is called an
+"aggregate" if the compilation and its resulting copyright are not
+used to limit the access or legal rights of the compilation's users
+beyond what the individual works permit.  Inclusion of a covered work
+in an aggregate does not cause this License to apply to the other
+parts of the aggregate.
+
+  6. Conveying Non-Source Forms.
+
+  You may convey a covered work in object code form under the terms
+of sections 4 and 5, provided that you also convey the
+machine-readable Corresponding Source under the terms of this License,
+in one of these ways:
+
+    a) Convey the object code in, or embodied in, a physical product
+    (including a physical distribution medium), accompanied by the
+    Corresponding Source fixed on a durable physical medium
+    customarily used for software interchange.
+
+    b) Convey the object code in, or embodied in, a physical product
+    (including a physical distribution medium), accompanied by a
+    written offer, valid for at least three years and valid for as
+    long as you offer spare parts or customer support for that product
+    model, to give anyone who possesses the object code either (1) a
+    copy of the Corresponding Source for all the software in the
+    product that is covered by this License, on a durable physical
+    medium customarily used for software interchange, for a price no
+    more than your reasonable cost of physically performing this
+    conveying of source, or (2) access to copy the
+    Corresponding Source from a network server at no charge.
+
+    c) Convey individual copies of the object code with a copy of the
+    written offer to provide the Corresponding Source.  This
+    alternative is allowed only occasionally and noncommercially, and
+    only if you received the object code with such an offer, in accord
+    with subsection 6b.
+
+    d) Convey the object code by offering access from a designated
+    place (gratis or for a charge), and offer equivalent access to the
+    Corresponding Source in the same way through the same place at no
+    further charge.  You need not require recipients to copy the
+    Corresponding Source along with the object code.  If the place to
+    copy the object code is a network server, the Corresponding Source
+    may be on a different server (operated by you or a third party)
+    that supports equivalent copying facilities, provided you maintain
+    clear directions next to the object code saying where to find the
+    Corresponding Source.  Regardless of what server hosts the
+    Corresponding Source, you remain obligated to ensure that it is
+    available for as long as needed to satisfy these requirements.
+
+    e) Convey the object code using peer-to-peer transmission, provided
+    you inform other peers where the object code and Corresponding
+    Source of the work are being offered to the general public at no
+    charge under subsection 6d.
+
+  A separable portion of the object code, whose source code is excluded
+from the Corresponding Source as a System Library, need not be
+included in conveying the object code work.
+
+  A "User Product" is either (1) a "consumer product", which means any
+tangible personal property which is normally used for personal, family,
+or household purposes, or (2) anything designed or sold for incorporation
+into a dwelling.  In determining whether a product is a consumer product,
+doubtful cases shall be resolved in favor of coverage.  For a particular
+product received by a particular user, "normally used" refers to a
+typical or common use of that class of product, regardless of the status
+of the particular user or of the way in which the particular user
+actually uses, or expects or is expected to use, the product.  A product
+is a consumer product regardless of whether the product has substantial
+commercial, industrial or non-consumer uses, unless such uses represent
+the only significant mode of use of the product.
+
+  "Installation Information" for a User Product means any methods,
+procedures, authorization keys, or other information required to install
+and execute modified versions of a covered work in that User Product from
+a modified version of its Corresponding Source.  The information must
+suffice to ensure that the continued functioning of the modified object
+code is in no case prevented or interfered with solely because
+modification has been made.
+
+  If you convey an object code work under this section in, or with, or
+specifically for use in, a User Product, and the conveying occurs as
+part of a transaction in which the right of possession and use of the
+User Product is transferred to the recipient in perpetuity or for a
+fixed term (regardless of how the transaction is characterized), the
+Corresponding Source conveyed under this section must be accompanied
+by the Installation Information.  But this requirement does not apply
+if neither you nor any third party retains the ability to install
+modified object code on the User Product (for example, the work has
+been installed in ROM).
+
+  The requirement to provide Installation Information does not include a
+requirement to continue to provide support service, warranty, or updates
+for a work that has been modified or installed by the recipient, or for
+the User Product in which it has been modified or installed.  Access to a
+network may be denied when the modification itself materially and
+adversely affects the operation of the network or violates the rules and
+protocols for communication across the network.
+
+  Corresponding Source conveyed, and Installation Information provided,
+in accord with this section must be in a format that is publicly
+documented (and with an implementation available to the public in
+source code form), and must require no special password or key for
+unpacking, reading or copying.
+
+  7. Additional Terms.
+
+  "Additional permissions" are terms that supplement the terms of this
+License by making exceptions from one or more of its conditions.
+Additional permissions that are applicable to the entire Program shall
+be treated as though they were included in this License, to the extent
+that they are valid under applicable law.  If additional permissions
+apply only to part of the Program, that part may be used separately
+under those permissions, but the entire Program remains governed by
+this License without regard to the additional permissions.
+
+  When you convey a copy of a covered work, you may at your option
+remove any additional permissions from that copy, or from any part of
+it.  (Additional permissions may be written to require their own
+removal in certain cases when you modify the work.)  You may place
+additional permissions on material, added by you to a covered work,
+for which you have or can give appropriate copyright permission.
+
+  Notwithstanding any other provision of this License, for material you
+add to a covered work, you may (if authorized by the copyright holders of
+that material) supplement the terms of this License with terms:
+
+    a) Disclaiming warranty or limiting liability differently from the
+    terms of sections 15 and 16 of this License; or
+
+    b) Requiring preservation of specified reasonable legal notices or
+    author attributions in that material or in the Appropriate Legal
+    Notices displayed by works containing it; or
+
+    c) Prohibiting misrepresentation of the origin of that material, or
+    requiring that modified versions of such material be marked in
+    reasonable ways as different from the original version; or
+
+    d) Limiting the use for publicity purposes of names of licensors or
+    authors of the material; or
+
+    e) Declining to grant rights under trademark law for use of some
+    trade names, trademarks, or service marks; or
+
+    f) Requiring indemnification of licensors and authors of that
+    material by anyone who conveys the material (or modified versions of
+    it) with contractual assumptions of liability to the recipient, for
+    any liability that these contractual assumptions directly impose on
+    those licensors and authors.
+
+  All other non-permissive additional terms are considered "further
+restrictions" within the meaning of section 10.  If the Program as you
+received it, or any part of it, contains a notice stating that it is
+governed by this License along with a term that is a further
+restriction, you may remove that term.  If a license document contains
+a further restriction but permits relicensing or conveying under this
+License, you may add to a covered work material governed by the terms
+of that license document, provided that the further restriction does
+not survive such relicensing or conveying.
+
+  If you add terms to a covered work in accord with this section, you
+must place, in the relevant source files, a statement of the
+additional terms that apply to those files, or a notice indicating
+where to find the applicable terms.
+
+  Additional terms, permissive or non-permissive, may be stated in the
+form of a separately written license, or stated as exceptions;
+the above requirements apply either way.
+
+  8. Termination.
+
+  You may not propagate or modify a covered work except as expressly
+provided under this License.  Any attempt otherwise to propagate or
+modify it is void, and will automatically terminate your rights under
+this License (including any patent licenses granted under the third
+paragraph of section 11).
+
+  However, if you cease all violation of this License, then your
+license from a particular copyright holder is reinstated (a)
+provisionally, unless and until the copyright holder explicitly and
+finally terminates your license, and (b) permanently, if the copyright
+holder fails to notify you of the violation by some reasonable means
+prior to 60 days after the cessation.
+
+  Moreover, your license from a particular copyright holder is
+reinstated permanently if the copyright holder notifies you of the
+violation by some reasonable means, this is the first time you have
+received notice of violation of this License (for any work) from that
+copyright holder, and you cure the violation prior to 30 days after
+your receipt of the notice.
+
+  Termination of your rights under this section does not terminate the
+licenses of parties who have received copies or rights from you under
+this License.  If your rights have been terminated and not permanently
+reinstated, you do not qualify to receive new licenses for the same
+material under section 10.
+
+  9. Acceptance Not Required for Having Copies.
+
+  You are not required to accept this License in order to receive or
+run a copy of the Program.  Ancillary propagation of a covered work
+occurring solely as a consequence of using peer-to-peer transmission
+to receive a copy likewise does not require acceptance.  However,
+nothing other than this License grants you permission to propagate or
+modify any covered work.  These actions infringe copyright if you do
+not accept this License.  Therefore, by modifying or propagating a
+covered work, you indicate your acceptance of this License to do so.
+
+  10. Automatic Licensing of Downstream Recipients.
+
+  Each time you convey a covered work, the recipient automatically
+receives a license from the original licensors, to run, modify and
+propagate that work, subject to this License.  You are not responsible
+for enforcing compliance by third parties with this License.
+
+  An "entity transaction" is a transaction transferring control of an
+organization, or substantially all assets of one, or subdividing an
+organization, or merging organizations.  If propagation of a covered
+work results from an entity transaction, each party to that
+transaction who receives a copy of the work also receives whatever
+licenses to the work the party's predecessor in interest had or could
+give under the previous paragraph, plus a right to possession of the
+Corresponding Source of the work from the predecessor in interest, if
+the predecessor has it or can get it with reasonable efforts.
+
+  You may not impose any further restrictions on the exercise of the
+rights granted or affirmed under this License.  For example, you may
+not impose a license fee, royalty, or other charge for exercise of
+rights granted under this License, and you may not initiate litigation
+(including a cross-claim or counterclaim in a lawsuit) alleging that
+any patent claim is infringed by making, using, selling, offering for
+sale, or importing the Program or any portion of it.
+
+  11. Patents.
+
+  A "contributor" is a copyright holder who authorizes use under this
+License of the Program or a work on which the Program is based.  The
+work thus licensed is called the contributor's "contributor version".
+
+  A contributor's "essential patent claims" are all patent claims
+owned or controlled by the contributor, whether already acquired or
+hereafter acquired, that would be infringed by some manner, permitted
+by this License, of making, using, or selling its contributor version,
+but do not include claims that would be infringed only as a
+consequence of further modification of the contributor version.  For
+purposes of this definition, "control" includes the right to grant
+patent sublicenses in a manner consistent with the requirements of
+this License.
+
+  Each contributor grants you a non-exclusive, worldwide, royalty-free
+patent license under the contributor's essential patent claims, to
+make, use, sell, offer for sale, import and otherwise run, modify and
+propagate the contents of its contributor version.
+
+  In the following three paragraphs, a "patent license" is any express
+agreement or commitment, however denominated, not to enforce a patent
+(such as an express permission to practice a patent or covenant not to
+sue for patent infringement).  To "grant" such a patent license to a
+party means to make such an agreement or commitment not to enforce a
+patent against the party.
+
+  If you convey a covered work, knowingly relying on a patent license,
+and the Corresponding Source of the work is not available for anyone
+to copy, free of charge and under the terms of this License, through a
+publicly available network server or other readily accessible means,
+then you must either (1) cause the Corresponding Source to be so
+available, or (2) arrange to deprive yourself of the benefit of the
+patent license for this particular work, or (3) arrange, in a manner
+consistent with the requirements of this License, to extend the patent
+license to downstream recipients.  "Knowingly relying" means you have
+actual knowledge that, but for the patent license, your conveying the
+covered work in a country, or your recipient's use of the covered work
+in a country, would infringe one or more identifiable patents in that
+country that you have reason to believe are valid.
+
+  If, pursuant to or in connection with a single transaction or
+arrangement, you convey, or propagate by procuring conveyance of, a
+covered work, and grant a patent license to some of the parties
+receiving the covered work authorizing them to use, propagate, modify
+or convey a specific copy of the covered work, then the patent license
+you grant is automatically extended to all recipients of the covered
+work and works based on it.
+
+  A patent license is "discriminatory" if it does not include within
+the scope of its coverage, prohibits the exercise of, or is
+conditioned on the non-exercise of one or more of the rights that are
+specifically granted under this License.  You may not convey a covered
+work if you are a party to an arrangement with a third party that is
+in the business of distributing software, under which you make payment
+to the third party based on the extent of your activity of conveying
+the work, and under which the third party grants, to any of the
+parties who would receive the covered work from you, a discriminatory
+patent license (a) in connection with copies of the covered work
+conveyed by you (or copies made from those copies), or (b) primarily
+for and in connection with specific products or compilations that
+contain the covered work, unless you entered into that arrangement,
+or that patent license was granted, prior to 28 March 2007.
+
+  Nothing in this License shall be construed as excluding or limiting
+any implied license or other defenses to infringement that may
+otherwise be available to you under applicable patent law.
+
+  12. No Surrender of Others' Freedom.
+
+  If conditions are imposed on you (whether by court order, agreement or
+otherwise) that contradict the conditions of this License, they do not
+excuse you from the conditions of this License.  If you cannot convey a
+covered work so as to satisfy simultaneously your obligations under this
+License and any other pertinent obligations, then as a consequence you may
+not convey it at all.  For example, if you agree to terms that obligate you
+to collect a royalty for further conveying from those to whom you convey
+the Program, the only way you could satisfy both those terms and this
+License would be to refrain entirely from conveying the Program.
+
+  13. Use with the GNU Affero General Public License.
+
+  Notwithstanding any other provision of this License, you have
+permission to link or combine any covered work with a work licensed
+under version 3 of the GNU Affero General Public License into a single
+combined work, and to convey the resulting work.  The terms of this
+License will continue to apply to the part which is the covered work,
+but the special requirements of the GNU Affero General Public License,
+section 13, concerning interaction through a network will apply to the
+combination as such.
+
+  14. Revised Versions of this License.
+
+  The Free Software Foundation may publish revised and/or new versions of
+the GNU General Public License from time to time.  Such new versions will
+be similar in spirit to the present version, but may differ in detail to
+address new problems or concerns.
+
+  Each version is given a distinguishing version number.  If the
+Program specifies that a certain numbered version of the GNU General
+Public License "or any later version" applies to it, you have the
+option of following the terms and conditions either of that numbered
+version or of any later version published by the Free Software
+Foundation.  If the Program does not specify a version number of the
+GNU General Public License, you may choose any version ever published
+by the Free Software Foundation.
+
+  If the Program specifies that a proxy can decide which future
+versions of the GNU General Public License can be used, that proxy's
+public statement of acceptance of a version permanently authorizes you
+to choose that version for the Program.
+
+  Later license versions may give you additional or different
+permissions.  However, no additional obligations are imposed on any
+author or copyright holder as a result of your choosing to follow a
+later version.
+
+  15. Disclaimer of Warranty.
+
+  THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY
+APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT
+HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY
+OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM
+IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF
+ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+
+  16. Limitation of Liability.
+
+  IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS
+THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY
+GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
+USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF
+DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD
+PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),
+EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
+
+  17. Interpretation of Sections 15 and 16.
+
+  If the disclaimer of warranty and limitation of liability provided
+above cannot be given local legal effect according to their terms,
+reviewing courts shall apply local law that most closely approximates
+an absolute waiver of all civil liability in connection with the
+Program, unless a warranty or assumption of liability accompanies a
+copy of the Program in return for a fee.
+
+                     END OF TERMS AND CONDITIONS
+
+            How to Apply These Terms to Your New Programs
+
+  If you develop a new program, and you want it to be of the greatest
+possible use to the public, the best way to achieve this is to make it
+free software which everyone can redistribute and change under these terms.
+
+  To do so, attach the following notices to the program.  It is safest
+to attach them to the start of each source file to most effectively
+state the exclusion of warranty; and each file should have at least
+the "copyright" line and a pointer to where the full notice is found.
+
+    <one line to give the program's name and a brief idea of what it does.>
+    Copyright (C) <year>  <name of author>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Also add information on how to contact you by electronic and paper mail.
+
+  If the program does terminal interaction, make it output a short
+notice like this when it starts in an interactive mode:
+
+    <program>  Copyright (C) <year>  <name of author>
+    This program comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
+    This is free software, and you are welcome to redistribute it
+    under certain conditions; type `show c' for details.
+
+The hypothetical commands `show w' and `show c' should show the appropriate
+parts of the General Public License.  Of course, your program's commands
+might be different; for a GUI interface, you would use an "about box".
+
+  You should also get your employer (if you work as a programmer) or school,
+if any, to sign a "copyright disclaimer" for the program, if necessary.
+For more information on this, and how to apply and follow the GNU GPL, see
+<https://www.gnu.org/licenses/>.
+
+  The GNU General Public License does not permit incorporating your program
+into proprietary programs.  If your program is a subroutine library, you
+may consider it more useful to permit linking proprietary applications with
+the library.  If this is what you want to do, use the GNU Lesser General
+Public License instead of this License.  But first, please read
+<https://www.gnu.org/licenses/why-not-lgpl.html>.
+
 */
 (() => {
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __commonJS = (cb, mod) => function __require() {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key2 of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key2) && key2 !== except)
+          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod
+  ));
+
+  // node_modules/msgpackr/dist/index-no-eval.cjs
+  var require_index_no_eval = __commonJS({
+    "node_modules/msgpackr/dist/index-no-eval.cjs"(exports, module) {
+      (function(global, factory) {
+        typeof exports === "object" && typeof module !== "undefined" ? factory(exports) : typeof define === "function" && define.amd ? define(["exports"], factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, factory(global.msgpackr = {}));
+      })(exports, (function(exports2) {
+        "use strict";
+        var decoder;
+        try {
+          decoder = new TextDecoder();
+        } catch (error) {
+        }
+        var src;
+        var srcEnd;
+        var position$1 = 0;
+        var currentUnpackr = {};
+        var currentStructures;
+        var srcString;
+        var srcStringStart = 0;
+        var srcStringEnd = 0;
+        var bundledStrings$1;
+        var referenceMap;
+        var currentExtensions = [];
+        var dataView;
+        var defaultOptions = {
+          useRecords: false,
+          mapsAsObjects: true
+        };
+        class C1Type {
+        }
+        const C1 = new C1Type();
+        C1.name = "MessagePack 0xC1";
+        var sequentialMode = false;
+        var inlineObjectReadThreshold = 2;
+        var readStruct;
+        var BlockedFunction;
+        try {
+          new BlockedFunction("");
+        } catch (error) {
+          inlineObjectReadThreshold = Infinity;
+        }
+        class Unpackr {
+          constructor(options) {
+            if (options) {
+              if (options.useRecords === false && options.mapsAsObjects === void 0)
+                options.mapsAsObjects = true;
+              if (options.sequential && options.trusted !== false) {
+                options.trusted = true;
+                if (!options.structures && options.useRecords != false) {
+                  options.structures = [];
+                  if (!options.maxSharedStructures)
+                    options.maxSharedStructures = 0;
+                }
+              }
+              if (options.structures)
+                options.structures.sharedLength = options.structures.length;
+              else if (options.getStructures) {
+                (options.structures = []).uninitialized = true;
+                options.structures.sharedLength = 0;
+              }
+              if (options.int64AsNumber) {
+                options.int64AsType = "number";
+              }
+            }
+            Object.assign(this, options);
+          }
+          unpack(source, options) {
+            if (src) {
+              return saveState(() => {
+                clearSource();
+                return this ? this.unpack(source, options) : Unpackr.prototype.unpack.call(defaultOptions, source, options);
+              });
+            }
+            if (!source.buffer && source.constructor === ArrayBuffer)
+              source = typeof Buffer !== "undefined" ? Buffer.from(source) : new Uint8Array(source);
+            if (typeof options === "object") {
+              srcEnd = options.end || source.length;
+              position$1 = options.start || 0;
+            } else {
+              position$1 = 0;
+              srcEnd = options > -1 ? options : source.length;
+            }
+            srcStringEnd = 0;
+            srcString = null;
+            bundledStrings$1 = null;
+            src = source;
+            try {
+              dataView = source.dataView || (source.dataView = new DataView(source.buffer, source.byteOffset, source.byteLength));
+            } catch (error) {
+              src = null;
+              if (source instanceof Uint8Array)
+                throw error;
+              throw new Error("Source must be a Uint8Array or Buffer but was a " + (source && typeof source == "object" ? source.constructor.name : typeof source));
+            }
+            if (this instanceof Unpackr) {
+              currentUnpackr = this;
+              if (this.structures) {
+                currentStructures = this.structures;
+                return checkedRead(options);
+              } else if (!currentStructures || currentStructures.length > 0) {
+                currentStructures = [];
+              }
+            } else {
+              currentUnpackr = defaultOptions;
+              if (!currentStructures || currentStructures.length > 0)
+                currentStructures = [];
+            }
+            return checkedRead(options);
+          }
+          unpackMultiple(source, forEach) {
+            let values, lastPosition = 0;
+            try {
+              sequentialMode = true;
+              let size = source.length;
+              let value = this ? this.unpack(source, size) : defaultUnpackr.unpack(source, size);
+              if (forEach) {
+                if (forEach(value, lastPosition, position$1) === false) return;
+                while (position$1 < size) {
+                  lastPosition = position$1;
+                  if (forEach(checkedRead(), lastPosition, position$1) === false) {
+                    return;
+                  }
+                }
+              } else {
+                values = [value];
+                while (position$1 < size) {
+                  lastPosition = position$1;
+                  values.push(checkedRead());
+                }
+                return values;
+              }
+            } catch (error) {
+              error.lastPosition = lastPosition;
+              error.values = values;
+              throw error;
+            } finally {
+              sequentialMode = false;
+              clearSource();
+            }
+          }
+          _mergeStructures(loadedStructures, existingStructures) {
+            loadedStructures = loadedStructures || [];
+            if (Object.isFrozen(loadedStructures))
+              loadedStructures = loadedStructures.map((structure) => structure.slice(0));
+            for (let i = 0, l = loadedStructures.length; i < l; i++) {
+              let structure = loadedStructures[i];
+              if (structure) {
+                structure.isShared = true;
+                if (i >= 32)
+                  structure.highByte = i - 32 >> 5;
+              }
+            }
+            loadedStructures.sharedLength = loadedStructures.length;
+            for (let id in existingStructures || []) {
+              if (id >= 0) {
+                let structure = loadedStructures[id];
+                let existing = existingStructures[id];
+                if (existing) {
+                  if (structure)
+                    (loadedStructures.restoreStructures || (loadedStructures.restoreStructures = []))[id] = structure;
+                  loadedStructures[id] = existing;
+                }
+              }
+            }
+            return this.structures = loadedStructures;
+          }
+          decode(source, options) {
+            return this.unpack(source, options);
+          }
+        }
+        function checkedRead(options) {
+          try {
+            if (!currentUnpackr.trusted && !sequentialMode) {
+              let sharedLength = currentStructures.sharedLength || 0;
+              if (sharedLength < currentStructures.length)
+                currentStructures.length = sharedLength;
+            }
+            let result;
+            if (currentUnpackr.randomAccessStructure && src[position$1] < 64 && src[position$1] >= 32 && readStruct) {
+              result = readStruct(src, position$1, srcEnd, currentUnpackr);
+              src = null;
+              if (!(options && options.lazy) && result)
+                result = result.toJSON();
+              position$1 = srcEnd;
+            } else
+              result = read();
+            if (bundledStrings$1) {
+              position$1 = bundledStrings$1.postBundlePosition;
+              bundledStrings$1 = null;
+            }
+            if (sequentialMode)
+              currentStructures.restoreStructures = null;
+            if (position$1 == srcEnd) {
+              if (currentStructures && currentStructures.restoreStructures)
+                restoreStructures();
+              currentStructures = null;
+              src = null;
+              if (referenceMap)
+                referenceMap = null;
+            } else if (position$1 > srcEnd) {
+              throw new Error("Unexpected end of MessagePack data");
+            } else if (!sequentialMode) {
+              let jsonView;
+              try {
+                jsonView = JSON.stringify(result, (_, value) => typeof value === "bigint" ? `${value}n` : value).slice(0, 100);
+              } catch (error) {
+                jsonView = "(JSON view not available " + error + ")";
+              }
+              throw new Error("Data read, but end of buffer not reached " + jsonView);
+            }
+            return result;
+          } catch (error) {
+            if (currentStructures && currentStructures.restoreStructures)
+              restoreStructures();
+            clearSource();
+            if (error instanceof RangeError || error.message.startsWith("Unexpected end of buffer") || position$1 > srcEnd) {
+              error.incomplete = true;
+            }
+            throw error;
+          }
+        }
+        function restoreStructures() {
+          for (let id in currentStructures.restoreStructures) {
+            currentStructures[id] = currentStructures.restoreStructures[id];
+          }
+          currentStructures.restoreStructures = null;
+        }
+        function read() {
+          let token = src[position$1++];
+          if (token < 160) {
+            if (token < 128) {
+              if (token < 64)
+                return token;
+              else {
+                let structure = currentStructures[token & 63] || currentUnpackr.getStructures && loadStructures()[token & 63];
+                if (structure) {
+                  if (!structure.read) {
+                    structure.read = createStructureReader(structure, token & 63);
+                  }
+                  return structure.read();
+                } else
+                  return token;
+              }
+            } else if (token < 144) {
+              token -= 128;
+              if (currentUnpackr.mapsAsObjects) {
+                let object2 = {};
+                for (let i = 0; i < token; i++) {
+                  let key2 = readKey();
+                  if (key2 === "__proto__")
+                    key2 = "__proto_";
+                  object2[key2] = read();
+                }
+                return object2;
+              } else {
+                let map = /* @__PURE__ */ new Map();
+                for (let i = 0; i < token; i++) {
+                  map.set(read(), read());
+                }
+                return map;
+              }
+            } else {
+              token -= 144;
+              let array2 = new Array(token);
+              for (let i = 0; i < token; i++) {
+                array2[i] = read();
+              }
+              if (currentUnpackr.freezeData)
+                return Object.freeze(array2);
+              return array2;
+            }
+          } else if (token < 192) {
+            let length = token - 160;
+            if (srcStringEnd >= position$1) {
+              return srcString.slice(position$1 - srcStringStart, (position$1 += length) - srcStringStart);
+            }
+            if (srcStringEnd == 0 && srcEnd < 140) {
+              let string = length < 16 ? shortStringInJS(length) : longStringInJS(length);
+              if (string != null)
+                return string;
+            }
+            return readFixedString(length);
+          } else {
+            let value;
+            switch (token) {
+              case 192:
+                return null;
+              case 193:
+                if (bundledStrings$1) {
+                  value = read();
+                  if (value > 0)
+                    return bundledStrings$1[1].slice(bundledStrings$1.position1, bundledStrings$1.position1 += value);
+                  else
+                    return bundledStrings$1[0].slice(bundledStrings$1.position0, bundledStrings$1.position0 -= value);
+                }
+                return C1;
+              // "never-used", return special object to denote that
+              case 194:
+                return false;
+              case 195:
+                return true;
+              case 196:
+                value = src[position$1++];
+                if (value === void 0)
+                  throw new Error("Unexpected end of buffer");
+                return readBin(value);
+              case 197:
+                value = dataView.getUint16(position$1);
+                position$1 += 2;
+                return readBin(value);
+              case 198:
+                value = dataView.getUint32(position$1);
+                position$1 += 4;
+                return readBin(value);
+              case 199:
+                return readExt(src[position$1++]);
+              case 200:
+                value = dataView.getUint16(position$1);
+                position$1 += 2;
+                return readExt(value);
+              case 201:
+                value = dataView.getUint32(position$1);
+                position$1 += 4;
+                return readExt(value);
+              case 202:
+                value = dataView.getFloat32(position$1);
+                if (currentUnpackr.useFloat32 > 2) {
+                  let multiplier = mult10[(src[position$1] & 127) << 1 | src[position$1 + 1] >> 7];
+                  position$1 += 4;
+                  return (multiplier * value + (value > 0 ? 0.5 : -0.5) >> 0) / multiplier;
+                }
+                position$1 += 4;
+                return value;
+              case 203:
+                value = dataView.getFloat64(position$1);
+                position$1 += 8;
+                return value;
+              // uint handlers
+              case 204:
+                return src[position$1++];
+              case 205:
+                value = dataView.getUint16(position$1);
+                position$1 += 2;
+                return value;
+              case 206:
+                value = dataView.getUint32(position$1);
+                position$1 += 4;
+                return value;
+              case 207:
+                if (currentUnpackr.int64AsType === "number") {
+                  value = dataView.getUint32(position$1) * 4294967296;
+                  value += dataView.getUint32(position$1 + 4);
+                } else if (currentUnpackr.int64AsType === "string") {
+                  value = dataView.getBigUint64(position$1).toString();
+                } else if (currentUnpackr.int64AsType === "auto") {
+                  value = dataView.getBigUint64(position$1);
+                  if (value <= BigInt(2) << BigInt(52)) value = Number(value);
+                } else
+                  value = dataView.getBigUint64(position$1);
+                position$1 += 8;
+                return value;
+              // int handlers
+              case 208:
+                return dataView.getInt8(position$1++);
+              case 209:
+                value = dataView.getInt16(position$1);
+                position$1 += 2;
+                return value;
+              case 210:
+                value = dataView.getInt32(position$1);
+                position$1 += 4;
+                return value;
+              case 211:
+                if (currentUnpackr.int64AsType === "number") {
+                  value = dataView.getInt32(position$1) * 4294967296;
+                  value += dataView.getUint32(position$1 + 4);
+                } else if (currentUnpackr.int64AsType === "string") {
+                  value = dataView.getBigInt64(position$1).toString();
+                } else if (currentUnpackr.int64AsType === "auto") {
+                  value = dataView.getBigInt64(position$1);
+                  if (value >= BigInt(-2) << BigInt(52) && value <= BigInt(2) << BigInt(52)) value = Number(value);
+                } else
+                  value = dataView.getBigInt64(position$1);
+                position$1 += 8;
+                return value;
+              case 212:
+                value = src[position$1++];
+                if (value == 114) {
+                  return recordDefinition(src[position$1++] & 63);
+                } else {
+                  let extension = currentExtensions[value];
+                  if (extension) {
+                    if (extension.read) {
+                      position$1++;
+                      return extension.read(read());
+                    } else if (extension.noBuffer) {
+                      position$1++;
+                      return extension();
+                    } else
+                      return extension(src.subarray(position$1, ++position$1));
+                  } else
+                    throw new Error("Unknown extension " + value);
+                }
+              case 213:
+                value = src[position$1];
+                if (value == 114) {
+                  position$1++;
+                  return recordDefinition(src[position$1++] & 63, src[position$1++]);
+                } else
+                  return readExt(2);
+              case 214:
+                return readExt(4);
+              case 215:
+                return readExt(8);
+              case 216:
+                return readExt(16);
+              case 217:
+                value = src[position$1++];
+                if (srcStringEnd >= position$1) {
+                  return srcString.slice(position$1 - srcStringStart, (position$1 += value) - srcStringStart);
+                }
+                return readString8(value);
+              case 218:
+                value = dataView.getUint16(position$1);
+                position$1 += 2;
+                if (srcStringEnd >= position$1) {
+                  return srcString.slice(position$1 - srcStringStart, (position$1 += value) - srcStringStart);
+                }
+                return readString16(value);
+              case 219:
+                value = dataView.getUint32(position$1);
+                position$1 += 4;
+                if (srcStringEnd >= position$1) {
+                  return srcString.slice(position$1 - srcStringStart, (position$1 += value) - srcStringStart);
+                }
+                return readString32(value);
+              case 220:
+                value = dataView.getUint16(position$1);
+                position$1 += 2;
+                return readArray(value);
+              case 221:
+                value = dataView.getUint32(position$1);
+                position$1 += 4;
+                return readArray(value);
+              case 222:
+                value = dataView.getUint16(position$1);
+                position$1 += 2;
+                return readMap(value);
+              case 223:
+                value = dataView.getUint32(position$1);
+                position$1 += 4;
+                return readMap(value);
+              default:
+                if (token >= 224)
+                  return token - 256;
+                if (token === void 0) {
+                  let error = new Error("Unexpected end of MessagePack data");
+                  error.incomplete = true;
+                  throw error;
+                }
+                throw new Error("Unknown MessagePack token " + token);
+            }
+          }
+        }
+        const validName = /^[a-zA-Z_$][a-zA-Z\d_$]*$/;
+        function createStructureReader(structure, firstId) {
+          function readObject() {
+            if (readObject.count++ > inlineObjectReadThreshold) {
+              let readObject2 = structure.read = new BlockedFunction("r", "return function(){return " + (currentUnpackr.freezeData ? "Object.freeze" : "") + "({" + structure.map((key2) => key2 === "__proto__" ? "__proto_:r()" : validName.test(key2) ? key2 + ":r()" : "[" + JSON.stringify(key2) + "]:r()").join(",") + "})}")(read);
+              if (structure.highByte === 0)
+                structure.read = createSecondByteReader(firstId, structure.read);
+              return readObject2();
+            }
+            let object2 = {};
+            for (let i = 0, l = structure.length; i < l; i++) {
+              let key2 = structure[i];
+              if (key2 === "__proto__")
+                key2 = "__proto_";
+              object2[key2] = read();
+            }
+            if (currentUnpackr.freezeData)
+              return Object.freeze(object2);
+            return object2;
+          }
+          readObject.count = 0;
+          if (structure.highByte === 0) {
+            return createSecondByteReader(firstId, readObject);
+          }
+          return readObject;
+        }
+        const createSecondByteReader = (firstId, read0) => {
+          return function() {
+            let highByte = src[position$1++];
+            if (highByte === 0)
+              return read0();
+            let id = firstId < 32 ? -(firstId + (highByte << 5)) : firstId + (highByte << 5);
+            let structure = currentStructures[id] || loadStructures()[id];
+            if (!structure) {
+              throw new Error("Record id is not defined for " + id);
+            }
+            if (!structure.read)
+              structure.read = createStructureReader(structure, firstId);
+            return structure.read();
+          };
+        };
+        function loadStructures() {
+          let loadedStructures = saveState(() => {
+            src = null;
+            return currentUnpackr.getStructures();
+          });
+          return currentStructures = currentUnpackr._mergeStructures(loadedStructures, currentStructures);
+        }
+        var readFixedString = readStringJS;
+        var readString8 = readStringJS;
+        var readString16 = readStringJS;
+        var readString32 = readStringJS;
+        let isNativeAccelerationEnabled = false;
+        function readStringJS(length) {
+          let result;
+          if (length < 16) {
+            if (result = shortStringInJS(length))
+              return result;
+          }
+          if (length > 64 && decoder)
+            return decoder.decode(src.subarray(position$1, position$1 += length));
+          const end = position$1 + length;
+          const units = [];
+          result = "";
+          while (position$1 < end) {
+            const byte1 = src[position$1++];
+            if ((byte1 & 128) === 0) {
+              units.push(byte1);
+            } else if ((byte1 & 224) === 192) {
+              const byte2 = src[position$1++] & 63;
+              const codePoint = (byte1 & 31) << 6 | byte2;
+              if (codePoint < 128) {
+                units.push(65533);
+              } else {
+                units.push(codePoint);
+              }
+            } else if ((byte1 & 240) === 224) {
+              const byte2 = src[position$1++] & 63;
+              const byte3 = src[position$1++] & 63;
+              const codePoint = (byte1 & 31) << 12 | byte2 << 6 | byte3;
+              if (codePoint < 2048 || codePoint >= 55296 && codePoint <= 57343) {
+                units.push(65533);
+              } else {
+                units.push(codePoint);
+              }
+            } else if ((byte1 & 248) === 240) {
+              const byte2 = src[position$1++] & 63;
+              const byte3 = src[position$1++] & 63;
+              const byte4 = src[position$1++] & 63;
+              let unit = (byte1 & 7) << 18 | byte2 << 12 | byte3 << 6 | byte4;
+              if (unit < 65536 || unit > 1114111) {
+                units.push(65533);
+              } else if (unit > 65535) {
+                unit -= 65536;
+                units.push(unit >>> 10 & 1023 | 55296);
+                unit = 56320 | unit & 1023;
+                units.push(unit);
+              } else {
+                units.push(unit);
+              }
+            } else {
+              units.push(65533);
+            }
+            if (units.length >= 4096) {
+              result += fromCharCode.apply(String, units);
+              units.length = 0;
+            }
+          }
+          if (units.length > 0) {
+            result += fromCharCode.apply(String, units);
+          }
+          return result;
+        }
+        function readArray(length) {
+          let array2 = new Array(length);
+          for (let i = 0; i < length; i++) {
+            array2[i] = read();
+          }
+          if (currentUnpackr.freezeData)
+            return Object.freeze(array2);
+          return array2;
+        }
+        function readMap(length) {
+          if (currentUnpackr.mapsAsObjects) {
+            let object2 = {};
+            for (let i = 0; i < length; i++) {
+              let key2 = readKey();
+              if (key2 === "__proto__")
+                key2 = "__proto_";
+              object2[key2] = read();
+            }
+            return object2;
+          } else {
+            let map = /* @__PURE__ */ new Map();
+            for (let i = 0; i < length; i++) {
+              map.set(read(), read());
+            }
+            return map;
+          }
+        }
+        var fromCharCode = String.fromCharCode;
+        function longStringInJS(length) {
+          let start = position$1;
+          let bytes2 = new Array(length);
+          for (let i = 0; i < length; i++) {
+            const byte = src[position$1++];
+            if ((byte & 128) > 0) {
+              position$1 = start;
+              return;
+            }
+            bytes2[i] = byte;
+          }
+          return fromCharCode.apply(String, bytes2);
+        }
+        function shortStringInJS(length) {
+          if (length < 4) {
+            if (length < 2) {
+              if (length === 0)
+                return "";
+              else {
+                let a = src[position$1++];
+                if ((a & 128) > 1) {
+                  position$1 -= 1;
+                  return;
+                }
+                return fromCharCode(a);
+              }
+            } else {
+              let a = src[position$1++];
+              let b = src[position$1++];
+              if ((a & 128) > 0 || (b & 128) > 0) {
+                position$1 -= 2;
+                return;
+              }
+              if (length < 3)
+                return fromCharCode(a, b);
+              let c = src[position$1++];
+              if ((c & 128) > 0) {
+                position$1 -= 3;
+                return;
+              }
+              return fromCharCode(a, b, c);
+            }
+          } else {
+            let a = src[position$1++];
+            let b = src[position$1++];
+            let c = src[position$1++];
+            let d = src[position$1++];
+            if ((a & 128) > 0 || (b & 128) > 0 || (c & 128) > 0 || (d & 128) > 0) {
+              position$1 -= 4;
+              return;
+            }
+            if (length < 6) {
+              if (length === 4)
+                return fromCharCode(a, b, c, d);
+              else {
+                let e = src[position$1++];
+                if ((e & 128) > 0) {
+                  position$1 -= 5;
+                  return;
+                }
+                return fromCharCode(a, b, c, d, e);
+              }
+            } else if (length < 8) {
+              let e = src[position$1++];
+              let f = src[position$1++];
+              if ((e & 128) > 0 || (f & 128) > 0) {
+                position$1 -= 6;
+                return;
+              }
+              if (length < 7)
+                return fromCharCode(a, b, c, d, e, f);
+              let g = src[position$1++];
+              if ((g & 128) > 0) {
+                position$1 -= 7;
+                return;
+              }
+              return fromCharCode(a, b, c, d, e, f, g);
+            } else {
+              let e = src[position$1++];
+              let f = src[position$1++];
+              let g = src[position$1++];
+              let h = src[position$1++];
+              if ((e & 128) > 0 || (f & 128) > 0 || (g & 128) > 0 || (h & 128) > 0) {
+                position$1 -= 8;
+                return;
+              }
+              if (length < 10) {
+                if (length === 8)
+                  return fromCharCode(a, b, c, d, e, f, g, h);
+                else {
+                  let i = src[position$1++];
+                  if ((i & 128) > 0) {
+                    position$1 -= 9;
+                    return;
+                  }
+                  return fromCharCode(a, b, c, d, e, f, g, h, i);
+                }
+              } else if (length < 12) {
+                let i = src[position$1++];
+                let j = src[position$1++];
+                if ((i & 128) > 0 || (j & 128) > 0) {
+                  position$1 -= 10;
+                  return;
+                }
+                if (length < 11)
+                  return fromCharCode(a, b, c, d, e, f, g, h, i, j);
+                let k = src[position$1++];
+                if ((k & 128) > 0) {
+                  position$1 -= 11;
+                  return;
+                }
+                return fromCharCode(a, b, c, d, e, f, g, h, i, j, k);
+              } else {
+                let i = src[position$1++];
+                let j = src[position$1++];
+                let k = src[position$1++];
+                let l = src[position$1++];
+                if ((i & 128) > 0 || (j & 128) > 0 || (k & 128) > 0 || (l & 128) > 0) {
+                  position$1 -= 12;
+                  return;
+                }
+                if (length < 14) {
+                  if (length === 12)
+                    return fromCharCode(a, b, c, d, e, f, g, h, i, j, k, l);
+                  else {
+                    let m = src[position$1++];
+                    if ((m & 128) > 0) {
+                      position$1 -= 13;
+                      return;
+                    }
+                    return fromCharCode(a, b, c, d, e, f, g, h, i, j, k, l, m);
+                  }
+                } else {
+                  let m = src[position$1++];
+                  let n = src[position$1++];
+                  if ((m & 128) > 0 || (n & 128) > 0) {
+                    position$1 -= 14;
+                    return;
+                  }
+                  if (length < 15)
+                    return fromCharCode(a, b, c, d, e, f, g, h, i, j, k, l, m, n);
+                  let o = src[position$1++];
+                  if ((o & 128) > 0) {
+                    position$1 -= 15;
+                    return;
+                  }
+                  return fromCharCode(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o);
+                }
+              }
+            }
+          }
+        }
+        function readOnlyJSString() {
+          let token = src[position$1++];
+          let length;
+          if (token < 192) {
+            length = token - 160;
+          } else {
+            switch (token) {
+              case 217:
+                length = src[position$1++];
+                break;
+              case 218:
+                length = dataView.getUint16(position$1);
+                position$1 += 2;
+                break;
+              case 219:
+                length = dataView.getUint32(position$1);
+                position$1 += 4;
+                break;
+              default:
+                throw new Error("Expected string");
+            }
+          }
+          return readStringJS(length);
+        }
+        function readBin(length) {
+          return currentUnpackr.copyBuffers ? (
+            // specifically use the copying slice (not the node one)
+            Uint8Array.prototype.slice.call(src, position$1, position$1 += length)
+          ) : src.subarray(position$1, position$1 += length);
+        }
+        function readExt(length) {
+          let type = src[position$1++];
+          if (currentExtensions[type]) {
+            let end;
+            return currentExtensions[type](src.subarray(position$1, end = position$1 += length), (readPosition) => {
+              position$1 = readPosition;
+              try {
+                return read();
+              } finally {
+                position$1 = end;
+              }
+            });
+          } else
+            throw new Error("Unknown extension type " + type);
+        }
+        var keyCache = new Array(4096);
+        function readKey() {
+          let length = src[position$1++];
+          if (length >= 160 && length < 192) {
+            length = length - 160;
+            if (srcStringEnd >= position$1)
+              return srcString.slice(position$1 - srcStringStart, (position$1 += length) - srcStringStart);
+            else if (!(srcStringEnd == 0 && srcEnd < 180))
+              return readFixedString(length);
+          } else {
+            position$1--;
+            return asSafeString(read());
+          }
+          let key2 = (length << 5 ^ (length > 1 ? dataView.getUint16(position$1) : length > 0 ? src[position$1] : 0)) & 4095;
+          let entry = keyCache[key2];
+          let checkPosition = position$1;
+          let end = position$1 + length - 3;
+          let chunk;
+          let i = 0;
+          if (entry && entry.bytes == length) {
+            while (checkPosition < end) {
+              chunk = dataView.getUint32(checkPosition);
+              if (chunk != entry[i++]) {
+                checkPosition = 1879048192;
+                break;
+              }
+              checkPosition += 4;
+            }
+            end += 3;
+            while (checkPosition < end) {
+              chunk = src[checkPosition++];
+              if (chunk != entry[i++]) {
+                checkPosition = 1879048192;
+                break;
+              }
+            }
+            if (checkPosition === end) {
+              position$1 = checkPosition;
+              return entry.string;
+            }
+            end -= 3;
+            checkPosition = position$1;
+          }
+          entry = [];
+          keyCache[key2] = entry;
+          entry.bytes = length;
+          while (checkPosition < end) {
+            chunk = dataView.getUint32(checkPosition);
+            entry.push(chunk);
+            checkPosition += 4;
+          }
+          end += 3;
+          while (checkPosition < end) {
+            chunk = src[checkPosition++];
+            entry.push(chunk);
+          }
+          let string = length < 16 ? shortStringInJS(length) : longStringInJS(length);
+          if (string != null)
+            return entry.string = string;
+          return entry.string = readFixedString(length);
+        }
+        function asSafeString(property) {
+          if (typeof property === "string") return property;
+          if (typeof property === "number" || typeof property === "boolean" || typeof property === "bigint") return property.toString();
+          if (property == null) return property + "";
+          if (currentUnpackr.allowArraysInMapKeys && Array.isArray(property) && property.flat().every((item) => ["string", "number", "boolean", "bigint"].includes(typeof item))) {
+            return property.flat().toString();
+          }
+          throw new Error(`Invalid property type for record: ${typeof property}`);
+        }
+        const recordDefinition = (id, highByte) => {
+          let structure = read().map(asSafeString);
+          let firstByte = id;
+          if (highByte !== void 0) {
+            id = id < 32 ? -((highByte << 5) + id) : (highByte << 5) + id;
+            structure.highByte = highByte;
+          }
+          let existingStructure = currentStructures[id];
+          if (existingStructure && (existingStructure.isShared || sequentialMode)) {
+            (currentStructures.restoreStructures || (currentStructures.restoreStructures = []))[id] = existingStructure;
+          }
+          currentStructures[id] = structure;
+          structure.read = createStructureReader(structure, firstByte);
+          return structure.read();
+        };
+        currentExtensions[0] = () => {
+        };
+        currentExtensions[0].noBuffer = true;
+        currentExtensions[66] = (data) => {
+          let headLength = data.byteLength % 8 || 8;
+          let head = BigInt(data[0] & 128 ? data[0] - 256 : data[0]);
+          for (let i = 1; i < headLength; i++) {
+            head <<= BigInt(8);
+            head += BigInt(data[i]);
+          }
+          if (data.byteLength !== headLength) {
+            let view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+            let decode3 = (start, end) => {
+              let length = end - start;
+              if (length <= 40) {
+                let out = view.getBigUint64(start);
+                for (let i = start + 8; i < end; i += 8) {
+                  out <<= BigInt(64n);
+                  out |= view.getBigUint64(i);
+                }
+                return out;
+              }
+              let middle = start + (length >> 4 << 3);
+              let left = decode3(start, middle);
+              let right = decode3(middle, end);
+              return left << BigInt((end - middle) * 8) | right;
+            };
+            head = head << BigInt((view.byteLength - headLength) * 8) | decode3(headLength, view.byteLength);
+          }
+          return head;
+        };
+        let errors = {
+          Error,
+          EvalError,
+          RangeError,
+          ReferenceError,
+          SyntaxError,
+          TypeError,
+          URIError,
+          AggregateError: typeof AggregateError === "function" ? AggregateError : null
+        };
+        currentExtensions[101] = () => {
+          let data = read();
+          if (!errors[data[0]]) {
+            let error = Error(data[1], { cause: data[2] });
+            error.name = data[0];
+            return error;
+          }
+          return errors[data[0]](data[1], { cause: data[2] });
+        };
+        currentExtensions[105] = (data) => {
+          if (currentUnpackr.structuredClone === false) throw new Error("Structured clone extension is disabled");
+          let id = dataView.getUint32(position$1 - 4);
+          if (!referenceMap)
+            referenceMap = /* @__PURE__ */ new Map();
+          let token = src[position$1];
+          let target2;
+          if (token >= 144 && token < 160 || token == 220 || token == 221)
+            target2 = [];
+          else if (token >= 128 && token < 144 || token == 222 || token == 223)
+            target2 = /* @__PURE__ */ new Map();
+          else if ((token >= 199 && token <= 201 || token >= 212 && token <= 216) && src[position$1 + 1] === 115)
+            target2 = /* @__PURE__ */ new Set();
+          else
+            target2 = {};
+          let refEntry = { target: target2 };
+          referenceMap.set(id, refEntry);
+          let targetProperties = read();
+          if (!refEntry.used) {
+            return refEntry.target = targetProperties;
+          } else {
+            Object.assign(target2, targetProperties);
+          }
+          if (target2 instanceof Map)
+            for (let [k, v] of targetProperties.entries()) target2.set(k, v);
+          if (target2 instanceof Set)
+            for (let i of Array.from(targetProperties)) target2.add(i);
+          return target2;
+        };
+        currentExtensions[112] = (data) => {
+          if (currentUnpackr.structuredClone === false) throw new Error("Structured clone extension is disabled");
+          let id = dataView.getUint32(position$1 - 4);
+          let refEntry = referenceMap.get(id);
+          refEntry.used = true;
+          return refEntry.target;
+        };
+        currentExtensions[115] = () => new Set(read());
+        const typedArrays = ["Int8", "Uint8", "Uint8Clamped", "Int16", "Uint16", "Int32", "Uint32", "Float32", "Float64", "BigInt64", "BigUint64"].map((type) => type + "Array");
+        let glbl = typeof globalThis === "object" ? globalThis : window;
+        currentExtensions[116] = (data) => {
+          let typeCode = data[0];
+          let buffer = Uint8Array.prototype.slice.call(data, 1).buffer;
+          let typedArrayName = typedArrays[typeCode];
+          if (!typedArrayName) {
+            if (typeCode === 16) return buffer;
+            if (typeCode === 17) return new DataView(buffer);
+            throw new Error("Could not find typed array for code " + typeCode);
+          }
+          return new glbl[typedArrayName](buffer);
+        };
+        currentExtensions[120] = () => {
+          let data = read();
+          return new RegExp(data[0], data[1]);
+        };
+        const TEMP_BUNDLE = [];
+        currentExtensions[98] = (data) => {
+          let dataSize = (data[0] << 24) + (data[1] << 16) + (data[2] << 8) + data[3];
+          let dataPosition = position$1;
+          position$1 += dataSize - data.length;
+          bundledStrings$1 = TEMP_BUNDLE;
+          bundledStrings$1 = [readOnlyJSString(), readOnlyJSString()];
+          bundledStrings$1.position0 = 0;
+          bundledStrings$1.position1 = 0;
+          bundledStrings$1.postBundlePosition = position$1;
+          position$1 = dataPosition;
+          return read();
+        };
+        currentExtensions[255] = (data) => {
+          if (data.length == 4)
+            return new Date((data[0] * 16777216 + (data[1] << 16) + (data[2] << 8) + data[3]) * 1e3);
+          else if (data.length == 8)
+            return new Date(
+              ((data[0] << 22) + (data[1] << 14) + (data[2] << 6) + (data[3] >> 2)) / 1e6 + ((data[3] & 3) * 4294967296 + data[4] * 16777216 + (data[5] << 16) + (data[6] << 8) + data[7]) * 1e3
+            );
+          else if (data.length == 12)
+            return new Date(
+              ((data[0] << 24) + (data[1] << 16) + (data[2] << 8) + data[3]) / 1e6 + ((data[4] & 128 ? -281474976710656 : 0) + data[6] * 1099511627776 + data[7] * 4294967296 + data[8] * 16777216 + (data[9] << 16) + (data[10] << 8) + data[11]) * 1e3
+            );
+          else
+            return /* @__PURE__ */ new Date("invalid");
+        };
+        function saveState(callback) {
+          let savedSrcEnd = srcEnd;
+          let savedPosition = position$1;
+          let savedSrcStringStart = srcStringStart;
+          let savedSrcStringEnd = srcStringEnd;
+          let savedSrcString = srcString;
+          let savedReferenceMap = referenceMap;
+          let savedBundledStrings = bundledStrings$1;
+          let savedSrc = new Uint8Array(src.slice(0, srcEnd));
+          let savedStructures = currentStructures;
+          let savedStructuresContents = currentStructures.slice(0, currentStructures.length);
+          let savedPackr = currentUnpackr;
+          let savedSequentialMode = sequentialMode;
+          let value = callback();
+          srcEnd = savedSrcEnd;
+          position$1 = savedPosition;
+          srcStringStart = savedSrcStringStart;
+          srcStringEnd = savedSrcStringEnd;
+          srcString = savedSrcString;
+          referenceMap = savedReferenceMap;
+          bundledStrings$1 = savedBundledStrings;
+          src = savedSrc;
+          sequentialMode = savedSequentialMode;
+          currentStructures = savedStructures;
+          currentStructures.splice(0, currentStructures.length, ...savedStructuresContents);
+          currentUnpackr = savedPackr;
+          dataView = new DataView(src.buffer, src.byteOffset, src.byteLength);
+          return value;
+        }
+        function clearSource() {
+          src = null;
+          referenceMap = null;
+          currentStructures = null;
+        }
+        function addExtension$1(extension) {
+          if (extension.unpack)
+            currentExtensions[extension.type] = extension.unpack;
+          else
+            currentExtensions[extension.type] = extension;
+        }
+        const mult10 = new Array(147);
+        for (let i = 0; i < 256; i++) {
+          mult10[i] = +("1e" + Math.floor(45.15 - i * 0.30103));
+        }
+        const Decoder = Unpackr;
+        var defaultUnpackr = new Unpackr({ useRecords: false });
+        const unpack2 = defaultUnpackr.unpack;
+        const unpackMultiple = defaultUnpackr.unpackMultiple;
+        const decode2 = defaultUnpackr.unpack;
+        const FLOAT32_OPTIONS = {
+          NEVER: 0,
+          ALWAYS: 1,
+          DECIMAL_ROUND: 3,
+          DECIMAL_FIT: 4
+        };
+        let f32Array = new Float32Array(1);
+        let u8Array = new Uint8Array(f32Array.buffer, 0, 4);
+        function roundFloat32(float32Number) {
+          f32Array[0] = float32Number;
+          let multiplier = mult10[(u8Array[3] & 127) << 1 | u8Array[2] >> 7];
+          return (multiplier * float32Number + (float32Number > 0 ? 0.5 : -0.5) >> 0) / multiplier;
+        }
+        let textEncoder;
+        try {
+          textEncoder = new TextEncoder();
+        } catch (error) {
+        }
+        let extensions, extensionClasses;
+        const hasNodeBuffer = typeof Buffer !== "undefined";
+        const ByteArrayAllocate = hasNodeBuffer ? function(length) {
+          return Buffer.allocUnsafeSlow(length);
+        } : Uint8Array;
+        const ByteArray = hasNodeBuffer ? Buffer : Uint8Array;
+        const MAX_BUFFER_SIZE = hasNodeBuffer ? 4294967296 : 2144337920;
+        let target, keysTarget;
+        let targetView;
+        let position = 0;
+        let safeEnd;
+        let bundledStrings = null;
+        let writeStructSlots;
+        const MAX_BUNDLE_SIZE = 21760;
+        const hasNonLatin = /[\u0080-\uFFFF]/;
+        const RECORD_SYMBOL = Symbol("record-id");
+        class Packr extends Unpackr {
+          constructor(options) {
+            super(options);
+            this.offset = 0;
+            let start;
+            let hasSharedUpdate;
+            let structures;
+            let referenceMap2;
+            let encodeUtf8 = ByteArray.prototype.utf8Write ? function(string, position2) {
+              return target.utf8Write(string, position2, target.byteLength - position2);
+            } : textEncoder && textEncoder.encodeInto ? function(string, position2) {
+              return textEncoder.encodeInto(string, target.subarray(position2)).written;
+            } : false;
+            let packr = this;
+            if (!options)
+              options = {};
+            let isSequential = options && options.sequential;
+            let hasSharedStructures = options.structures || options.saveStructures;
+            let maxSharedStructures = options.maxSharedStructures;
+            if (maxSharedStructures == null)
+              maxSharedStructures = hasSharedStructures ? 32 : 0;
+            if (maxSharedStructures > 8160)
+              throw new Error("Maximum maxSharedStructure is 8160");
+            if (options.structuredClone && options.moreTypes == void 0) {
+              this.moreTypes = true;
+            }
+            let maxOwnStructures = options.maxOwnStructures;
+            if (maxOwnStructures == null)
+              maxOwnStructures = hasSharedStructures ? 32 : 64;
+            if (!this.structures && options.useRecords != false)
+              this.structures = [];
+            let useTwoByteRecords = maxSharedStructures > 32 || maxOwnStructures + maxSharedStructures > 64;
+            let sharedLimitId = maxSharedStructures + 64;
+            let maxStructureId = maxSharedStructures + maxOwnStructures + 64;
+            if (maxStructureId > 8256) {
+              throw new Error("Maximum maxSharedStructure + maxOwnStructure is 8192");
+            }
+            let recordIdsToRemove = [];
+            let transitionsCount = 0;
+            let serializationsSinceTransitionRebuild = 0;
+            this.pack = this.encode = function(value, encodeOptions) {
+              if (!target) {
+                target = new ByteArrayAllocate(8192);
+                targetView = target.dataView || (target.dataView = new DataView(target.buffer, 0, 8192));
+                position = 0;
+              }
+              safeEnd = target.length - 10;
+              if (safeEnd - position < 2048) {
+                target = new ByteArrayAllocate(target.length);
+                targetView = target.dataView || (target.dataView = new DataView(target.buffer, 0, target.length));
+                safeEnd = target.length - 10;
+                position = 0;
+              } else
+                position = position + 7 & 2147483640;
+              start = position;
+              if (encodeOptions & RESERVE_START_SPACE) position += encodeOptions & 255;
+              referenceMap2 = packr.structuredClone ? /* @__PURE__ */ new Map() : null;
+              if (packr.bundleStrings && typeof value !== "string") {
+                bundledStrings = [];
+                bundledStrings.size = Infinity;
+              } else
+                bundledStrings = null;
+              structures = packr.structures;
+              if (structures) {
+                if (structures.uninitialized)
+                  structures = packr._mergeStructures(packr.getStructures());
+                let sharedLength = structures.sharedLength || 0;
+                if (sharedLength > maxSharedStructures) {
+                  throw new Error("Shared structures is larger than maximum shared structures, try increasing maxSharedStructures to " + structures.sharedLength);
+                }
+                if (!structures.transitions) {
+                  structures.transitions = /* @__PURE__ */ Object.create(null);
+                  for (let i = 0; i < sharedLength; i++) {
+                    let keys2 = structures[i];
+                    if (!keys2)
+                      continue;
+                    let nextTransition, transition = structures.transitions;
+                    for (let j = 0, l = keys2.length; j < l; j++) {
+                      let key2 = keys2[j];
+                      nextTransition = transition[key2];
+                      if (!nextTransition) {
+                        nextTransition = transition[key2] = /* @__PURE__ */ Object.create(null);
+                      }
+                      transition = nextTransition;
+                    }
+                    transition[RECORD_SYMBOL] = i + 64;
+                  }
+                  this.lastNamedStructuresLength = sharedLength;
+                }
+                if (!isSequential) {
+                  structures.nextId = sharedLength + 64;
+                }
+              }
+              if (hasSharedUpdate)
+                hasSharedUpdate = false;
+              let encodingError;
+              try {
+                if (packr.randomAccessStructure && value && typeof value === "object") {
+                  if (value.constructor === Object) writeStruct(value);
+                  else if (value.constructor !== Map && !Array.isArray(value) && !extensionClasses.some((extClass) => value instanceof extClass)) {
+                    writeStruct(value.toJSON ? value.toJSON() : value);
+                  } else pack2(value);
+                } else
+                  pack2(value);
+                let lastBundle = bundledStrings;
+                if (bundledStrings)
+                  writeBundles(start, pack2, 0);
+                if (referenceMap2 && referenceMap2.idsToInsert) {
+                  let idsToInsert = referenceMap2.idsToInsert.sort((a, b) => a.offset > b.offset ? 1 : -1);
+                  let i = idsToInsert.length;
+                  let incrementPosition = -1;
+                  while (lastBundle && i > 0) {
+                    let insertionPoint = idsToInsert[--i].offset + start;
+                    if (insertionPoint < lastBundle.stringsPosition + start && incrementPosition === -1)
+                      incrementPosition = 0;
+                    if (insertionPoint > lastBundle.position + start) {
+                      if (incrementPosition >= 0)
+                        incrementPosition += 6;
+                    } else {
+                      if (incrementPosition >= 0) {
+                        targetView.setUint32(
+                          lastBundle.position + start,
+                          targetView.getUint32(lastBundle.position + start) + incrementPosition
+                        );
+                        incrementPosition = -1;
+                      }
+                      lastBundle = lastBundle.previous;
+                      i++;
+                    }
+                  }
+                  if (incrementPosition >= 0 && lastBundle) {
+                    targetView.setUint32(
+                      lastBundle.position + start,
+                      targetView.getUint32(lastBundle.position + start) + incrementPosition
+                    );
+                  }
+                  position += idsToInsert.length * 6;
+                  if (position > safeEnd)
+                    makeRoom(position);
+                  packr.offset = position;
+                  let serialized = insertIds(target.subarray(start, position), idsToInsert);
+                  referenceMap2 = null;
+                  return serialized;
+                }
+                packr.offset = position;
+                if (encodeOptions & REUSE_BUFFER_MODE) {
+                  target.start = start;
+                  target.end = position;
+                  return target;
+                }
+                return target.subarray(start, position);
+              } catch (error) {
+                encodingError = error;
+                throw error;
+              } finally {
+                if (structures) {
+                  resetStructures();
+                  if (hasSharedUpdate && packr.saveStructures) {
+                    let sharedLength = structures.sharedLength || 0;
+                    let returnBuffer = target.subarray(start, position);
+                    let newSharedData = prepareStructures(structures, packr);
+                    if (!encodingError) {
+                      if (packr.saveStructures(newSharedData, newSharedData.isCompatible) === false) {
+                        return packr.pack(value, encodeOptions);
+                      }
+                      packr.lastNamedStructuresLength = sharedLength;
+                      if (target.length > 1073741824) target = null;
+                      return returnBuffer;
+                    }
+                  }
+                }
+                if (target.length > 1073741824) target = null;
+                if (encodeOptions & RESET_BUFFER_MODE)
+                  position = start;
+              }
+            };
+            const resetStructures = () => {
+              if (serializationsSinceTransitionRebuild < 10)
+                serializationsSinceTransitionRebuild++;
+              let sharedLength = structures.sharedLength || 0;
+              if (structures.length > sharedLength && !isSequential)
+                structures.length = sharedLength;
+              if (transitionsCount > 1e4) {
+                structures.transitions = null;
+                serializationsSinceTransitionRebuild = 0;
+                transitionsCount = 0;
+                if (recordIdsToRemove.length > 0)
+                  recordIdsToRemove = [];
+              } else if (recordIdsToRemove.length > 0 && !isSequential) {
+                for (let i = 0, l = recordIdsToRemove.length; i < l; i++) {
+                  recordIdsToRemove[i][RECORD_SYMBOL] = 0;
+                }
+                recordIdsToRemove = [];
+              }
+            };
+            const packArray = (value) => {
+              var length = value.length;
+              if (length < 16) {
+                target[position++] = 144 | length;
+              } else if (length < 65536) {
+                target[position++] = 220;
+                target[position++] = length >> 8;
+                target[position++] = length & 255;
+              } else {
+                target[position++] = 221;
+                targetView.setUint32(position, length);
+                position += 4;
+              }
+              for (let i = 0; i < length; i++) {
+                pack2(value[i]);
+              }
+            };
+            const pack2 = (value) => {
+              if (position > safeEnd)
+                target = makeRoom(position);
+              var type = typeof value;
+              var length;
+              if (type === "string") {
+                let strLength = value.length;
+                if (bundledStrings && strLength >= 4 && strLength < 4096) {
+                  if ((bundledStrings.size += strLength) > MAX_BUNDLE_SIZE) {
+                    let extStart;
+                    let maxBytes2 = (bundledStrings[0] ? bundledStrings[0].length * 3 + bundledStrings[1].length : 0) + 10;
+                    if (position + maxBytes2 > safeEnd)
+                      target = makeRoom(position + maxBytes2);
+                    let lastBundle;
+                    if (bundledStrings.position) {
+                      lastBundle = bundledStrings;
+                      target[position] = 200;
+                      position += 3;
+                      target[position++] = 98;
+                      extStart = position - start;
+                      position += 4;
+                      writeBundles(start, pack2, 0);
+                      targetView.setUint16(extStart + start - 3, position - start - extStart);
+                    } else {
+                      target[position++] = 214;
+                      target[position++] = 98;
+                      extStart = position - start;
+                      position += 4;
+                    }
+                    bundledStrings = ["", ""];
+                    bundledStrings.previous = lastBundle;
+                    bundledStrings.size = 0;
+                    bundledStrings.position = extStart;
+                  }
+                  let twoByte = hasNonLatin.test(value);
+                  bundledStrings[twoByte ? 0 : 1] += value;
+                  target[position++] = 193;
+                  pack2(twoByte ? -strLength : strLength);
+                  return;
+                }
+                let headerSize;
+                if (strLength < 32) {
+                  headerSize = 1;
+                } else if (strLength < 256) {
+                  headerSize = 2;
+                } else if (strLength < 65536) {
+                  headerSize = 3;
+                } else {
+                  headerSize = 5;
+                }
+                let maxBytes = strLength * 3;
+                if (position + maxBytes > safeEnd)
+                  target = makeRoom(position + maxBytes);
+                if (strLength < 64 || !encodeUtf8) {
+                  let i, c1, c2, strPosition = position + headerSize;
+                  for (i = 0; i < strLength; i++) {
+                    c1 = value.charCodeAt(i);
+                    if (c1 < 128) {
+                      target[strPosition++] = c1;
+                    } else if (c1 < 2048) {
+                      target[strPosition++] = c1 >> 6 | 192;
+                      target[strPosition++] = c1 & 63 | 128;
+                    } else if ((c1 & 64512) === 55296 && ((c2 = value.charCodeAt(i + 1)) & 64512) === 56320) {
+                      c1 = 65536 + ((c1 & 1023) << 10) + (c2 & 1023);
+                      i++;
+                      target[strPosition++] = c1 >> 18 | 240;
+                      target[strPosition++] = c1 >> 12 & 63 | 128;
+                      target[strPosition++] = c1 >> 6 & 63 | 128;
+                      target[strPosition++] = c1 & 63 | 128;
+                    } else {
+                      target[strPosition++] = c1 >> 12 | 224;
+                      target[strPosition++] = c1 >> 6 & 63 | 128;
+                      target[strPosition++] = c1 & 63 | 128;
+                    }
+                  }
+                  length = strPosition - position - headerSize;
+                } else {
+                  length = encodeUtf8(value, position + headerSize);
+                }
+                if (length < 32) {
+                  target[position++] = 160 | length;
+                } else if (length < 256) {
+                  if (headerSize < 2) {
+                    target.copyWithin(position + 2, position + 1, position + 1 + length);
+                  }
+                  target[position++] = 217;
+                  target[position++] = length;
+                } else if (length < 65536) {
+                  if (headerSize < 3) {
+                    target.copyWithin(position + 3, position + 2, position + 2 + length);
+                  }
+                  target[position++] = 218;
+                  target[position++] = length >> 8;
+                  target[position++] = length & 255;
+                } else {
+                  if (headerSize < 5) {
+                    target.copyWithin(position + 5, position + 3, position + 3 + length);
+                  }
+                  target[position++] = 219;
+                  targetView.setUint32(position, length);
+                  position += 4;
+                }
+                position += length;
+              } else if (type === "number") {
+                if (value >>> 0 === value) {
+                  if (value < 32 || value < 128 && this.useRecords === false || value < 64 && !this.randomAccessStructure) {
+                    target[position++] = value;
+                  } else if (value < 256) {
+                    target[position++] = 204;
+                    target[position++] = value;
+                  } else if (value < 65536) {
+                    target[position++] = 205;
+                    target[position++] = value >> 8;
+                    target[position++] = value & 255;
+                  } else {
+                    target[position++] = 206;
+                    targetView.setUint32(position, value);
+                    position += 4;
+                  }
+                } else if (value >> 0 === value) {
+                  if (value >= -32) {
+                    target[position++] = 256 + value;
+                  } else if (value >= -128) {
+                    target[position++] = 208;
+                    target[position++] = value + 256;
+                  } else if (value >= -32768) {
+                    target[position++] = 209;
+                    targetView.setInt16(position, value);
+                    position += 2;
+                  } else {
+                    target[position++] = 210;
+                    targetView.setInt32(position, value);
+                    position += 4;
+                  }
+                } else {
+                  let useFloat32;
+                  if ((useFloat32 = this.useFloat32) > 0 && value < 4294967296 && value >= -2147483648) {
+                    target[position++] = 202;
+                    targetView.setFloat32(position, value);
+                    let xShifted;
+                    if (useFloat32 < 4 || // this checks for rounding of numbers that were encoded in 32-bit float to nearest significant decimal digit that could be preserved
+                    (xShifted = value * mult10[(target[position] & 127) << 1 | target[position + 1] >> 7]) >> 0 === xShifted) {
+                      position += 4;
+                      return;
+                    } else
+                      position--;
+                  }
+                  target[position++] = 203;
+                  targetView.setFloat64(position, value);
+                  position += 8;
+                }
+              } else if (type === "object" || type === "function") {
+                if (!value)
+                  target[position++] = 192;
+                else {
+                  if (referenceMap2) {
+                    let referee = referenceMap2.get(value);
+                    if (referee) {
+                      if (!referee.id) {
+                        let idsToInsert = referenceMap2.idsToInsert || (referenceMap2.idsToInsert = []);
+                        referee.id = idsToInsert.push(referee);
+                      }
+                      target[position++] = 214;
+                      target[position++] = 112;
+                      targetView.setUint32(position, referee.id);
+                      position += 4;
+                      return;
+                    } else
+                      referenceMap2.set(value, { offset: position - start });
+                  }
+                  let constructor = value.constructor;
+                  if (constructor === Object) {
+                    writeObject(value);
+                  } else if (constructor === Array) {
+                    packArray(value);
+                  } else if (constructor === Map) {
+                    if (this.mapAsEmptyObject) target[position++] = 128;
+                    else {
+                      length = value.size;
+                      if (length < 16) {
+                        target[position++] = 128 | length;
+                      } else if (length < 65536) {
+                        target[position++] = 222;
+                        target[position++] = length >> 8;
+                        target[position++] = length & 255;
+                      } else {
+                        target[position++] = 223;
+                        targetView.setUint32(position, length);
+                        position += 4;
+                      }
+                      for (let [key2, entryValue] of value) {
+                        pack2(key2);
+                        pack2(entryValue);
+                      }
+                    }
+                  } else {
+                    for (let i = 0, l = extensions.length; i < l; i++) {
+                      let extensionClass = extensionClasses[i];
+                      if (value instanceof extensionClass) {
+                        let extension = extensions[i];
+                        if (extension.write) {
+                          if (extension.type) {
+                            target[position++] = 212;
+                            target[position++] = extension.type;
+                            target[position++] = 0;
+                          }
+                          let writeResult = extension.write.call(this, value);
+                          if (writeResult === value) {
+                            if (Array.isArray(value)) {
+                              packArray(value);
+                            } else {
+                              writeObject(value);
+                            }
+                          } else {
+                            pack2(writeResult);
+                          }
+                          return;
+                        }
+                        let currentTarget = target;
+                        let currentTargetView = targetView;
+                        let currentPosition = position;
+                        target = null;
+                        let result;
+                        try {
+                          result = extension.pack.call(this, value, (size) => {
+                            target = currentTarget;
+                            currentTarget = null;
+                            position += size;
+                            if (position > safeEnd)
+                              makeRoom(position);
+                            return {
+                              target,
+                              targetView,
+                              position: position - size
+                            };
+                          }, pack2);
+                        } finally {
+                          if (currentTarget) {
+                            target = currentTarget;
+                            targetView = currentTargetView;
+                            position = currentPosition;
+                            safeEnd = target.length - 10;
+                          }
+                        }
+                        if (result) {
+                          if (result.length + position > safeEnd)
+                            makeRoom(result.length + position);
+                          position = writeExtensionData(result, target, position, extension.type);
+                        }
+                        return;
+                      }
+                    }
+                    if (Array.isArray(value)) {
+                      packArray(value);
+                    } else {
+                      if (value.toJSON) {
+                        const json2 = value.toJSON();
+                        if (json2 !== value)
+                          return pack2(json2);
+                      }
+                      if (type === "function")
+                        return pack2(this.writeFunction && this.writeFunction(value));
+                      writeObject(value);
+                    }
+                  }
+                }
+              } else if (type === "boolean") {
+                target[position++] = value ? 195 : 194;
+              } else if (type === "bigint") {
+                if (value < 9223372036854776e3 && value >= -9223372036854776e3) {
+                  target[position++] = 211;
+                  targetView.setBigInt64(position, value);
+                } else if (value < 18446744073709552e3 && value > 0) {
+                  target[position++] = 207;
+                  targetView.setBigUint64(position, value);
+                } else {
+                  if (this.largeBigIntToFloat) {
+                    target[position++] = 203;
+                    targetView.setFloat64(position, Number(value));
+                  } else if (this.largeBigIntToString) {
+                    return pack2(value.toString());
+                  } else if (this.useBigIntExtension || this.moreTypes) {
+                    let empty = value < 0 ? BigInt(-1) : BigInt(0);
+                    let array2;
+                    if (value >> BigInt(65536) === empty) {
+                      let mask = BigInt(18446744073709552e3) - BigInt(1);
+                      let chunks = [];
+                      while (true) {
+                        chunks.push(value & mask);
+                        if (value >> BigInt(63) === empty) break;
+                        value >>= BigInt(64);
+                      }
+                      array2 = new Uint8Array(new BigUint64Array(chunks).buffer);
+                      array2.reverse();
+                    } else {
+                      let invert = value < 0;
+                      let string = (invert ? ~value : value).toString(16);
+                      if (string.length % 2) {
+                        string = "0" + string;
+                      } else if (parseInt(string.charAt(0), 16) >= 8) {
+                        string = "00" + string;
+                      }
+                      if (hasNodeBuffer) {
+                        array2 = Buffer.from(string, "hex");
+                      } else {
+                        array2 = new Uint8Array(string.length / 2);
+                        for (let i = 0; i < array2.length; i++) {
+                          array2[i] = parseInt(string.slice(i * 2, i * 2 + 2), 16);
+                        }
+                      }
+                      if (invert) {
+                        for (let i = 0; i < array2.length; i++) array2[i] = ~array2[i];
+                      }
+                    }
+                    if (array2.length + position > safeEnd)
+                      makeRoom(array2.length + position);
+                    position = writeExtensionData(array2, target, position, 66);
+                    return;
+                  } else {
+                    throw new RangeError(value + " was too large to fit in MessagePack 64-bit integer format, use useBigIntExtension, or set largeBigIntToFloat to convert to float-64, or set largeBigIntToString to convert to string");
+                  }
+                }
+                position += 8;
+              } else if (type === "undefined") {
+                if (this.encodeUndefinedAsNil)
+                  target[position++] = 192;
+                else {
+                  target[position++] = 212;
+                  target[position++] = 0;
+                  target[position++] = 0;
+                }
+              } else {
+                throw new Error("Unknown type: " + type);
+              }
+            };
+            const writePlainObject = this.variableMapSize || this.coercibleKeyAsNumber || this.skipValues ? (object2) => {
+              let keys2;
+              if (this.skipValues) {
+                keys2 = [];
+                for (let key3 in object2) {
+                  if ((typeof object2.hasOwnProperty !== "function" || object2.hasOwnProperty(key3)) && !this.skipValues.includes(object2[key3]))
+                    keys2.push(key3);
+                }
+              } else {
+                keys2 = Object.keys(object2);
+              }
+              let length = keys2.length;
+              if (length < 16) {
+                target[position++] = 128 | length;
+              } else if (length < 65536) {
+                target[position++] = 222;
+                target[position++] = length >> 8;
+                target[position++] = length & 255;
+              } else {
+                target[position++] = 223;
+                targetView.setUint32(position, length);
+                position += 4;
+              }
+              let key2;
+              if (this.coercibleKeyAsNumber) {
+                for (let i = 0; i < length; i++) {
+                  key2 = keys2[i];
+                  let num = Number(key2);
+                  pack2(isNaN(num) ? key2 : num);
+                  pack2(object2[key2]);
+                }
+              } else {
+                for (let i = 0; i < length; i++) {
+                  pack2(key2 = keys2[i]);
+                  pack2(object2[key2]);
+                }
+              }
+            } : (object2) => {
+              target[position++] = 222;
+              let objectOffset = position - start;
+              position += 2;
+              let size = 0;
+              for (let key2 in object2) {
+                if (typeof object2.hasOwnProperty !== "function" || object2.hasOwnProperty(key2)) {
+                  pack2(key2);
+                  pack2(object2[key2]);
+                  size++;
+                }
+              }
+              if (size > 65535) {
+                throw new Error('Object is too large to serialize with fast 16-bit map size, use the "variableMapSize" option to serialize this object');
+              }
+              target[objectOffset++ + start] = size >> 8;
+              target[objectOffset + start] = size & 255;
+            };
+            const writeRecord = this.useRecords === false ? writePlainObject : options.progressiveRecords && !useTwoByteRecords ? (
+              // this is about 2% faster for highly stable structures, since it only requires one for-in loop (but much more expensive when new structure needs to be written)
+              (object2) => {
+                let nextTransition, transition = structures.transitions || (structures.transitions = /* @__PURE__ */ Object.create(null));
+                let objectOffset = position++ - start;
+                let wroteKeys;
+                for (let key2 in object2) {
+                  if (typeof object2.hasOwnProperty !== "function" || object2.hasOwnProperty(key2)) {
+                    nextTransition = transition[key2];
+                    if (nextTransition)
+                      transition = nextTransition;
+                    else {
+                      let keys2 = Object.keys(object2);
+                      let lastTransition = transition;
+                      transition = structures.transitions;
+                      let newTransitions = 0;
+                      for (let i = 0, l = keys2.length; i < l; i++) {
+                        let key3 = keys2[i];
+                        nextTransition = transition[key3];
+                        if (!nextTransition) {
+                          nextTransition = transition[key3] = /* @__PURE__ */ Object.create(null);
+                          newTransitions++;
+                        }
+                        transition = nextTransition;
+                      }
+                      if (objectOffset + start + 1 == position) {
+                        position--;
+                        newRecord(transition, keys2, newTransitions);
+                      } else
+                        insertNewRecord(transition, keys2, objectOffset, newTransitions);
+                      wroteKeys = true;
+                      transition = lastTransition[key2];
+                    }
+                    pack2(object2[key2]);
+                  }
+                }
+                if (!wroteKeys) {
+                  let recordId = transition[RECORD_SYMBOL];
+                  if (recordId)
+                    target[objectOffset + start] = recordId;
+                  else
+                    insertNewRecord(transition, Object.keys(object2), objectOffset, 0);
+                }
+              }
+            ) : (object2) => {
+              let nextTransition, transition = structures.transitions || (structures.transitions = /* @__PURE__ */ Object.create(null));
+              let newTransitions = 0;
+              for (let key2 in object2) if (typeof object2.hasOwnProperty !== "function" || object2.hasOwnProperty(key2)) {
+                nextTransition = transition[key2];
+                if (!nextTransition) {
+                  nextTransition = transition[key2] = /* @__PURE__ */ Object.create(null);
+                  newTransitions++;
+                }
+                transition = nextTransition;
+              }
+              let recordId = transition[RECORD_SYMBOL];
+              if (recordId) {
+                if (recordId >= 96 && useTwoByteRecords) {
+                  target[position++] = ((recordId -= 96) & 31) + 96;
+                  target[position++] = recordId >> 5;
+                } else
+                  target[position++] = recordId;
+              } else {
+                newRecord(transition, transition.__keys__ || Object.keys(object2), newTransitions);
+              }
+              for (let key2 in object2)
+                if (typeof object2.hasOwnProperty !== "function" || object2.hasOwnProperty(key2)) {
+                  pack2(object2[key2]);
+                }
+            };
+            const checkUseRecords = typeof this.useRecords == "function" && this.useRecords;
+            const writeObject = checkUseRecords ? (object2) => {
+              checkUseRecords(object2) ? writeRecord(object2) : writePlainObject(object2);
+            } : writeRecord;
+            const makeRoom = (end) => {
+              let newSize;
+              if (end > 16777216) {
+                if (end - start > MAX_BUFFER_SIZE)
+                  throw new Error("Packed buffer would be larger than maximum buffer size");
+                newSize = Math.min(
+                  MAX_BUFFER_SIZE,
+                  Math.round(Math.max((end - start) * (end > 67108864 ? 1.25 : 2), 4194304) / 4096) * 4096
+                );
+              } else
+                newSize = (Math.max(end - start << 2, target.length - 1) >> 12) + 1 << 12;
+              let newBuffer = new ByteArrayAllocate(newSize);
+              targetView = newBuffer.dataView || (newBuffer.dataView = new DataView(newBuffer.buffer, 0, newSize));
+              end = Math.min(end, target.length);
+              if (target.copy)
+                target.copy(newBuffer, 0, start, end);
+              else
+                newBuffer.set(target.slice(start, end));
+              position -= start;
+              start = 0;
+              safeEnd = newBuffer.length - 10;
+              return target = newBuffer;
+            };
+            const newRecord = (transition, keys2, newTransitions) => {
+              let recordId = structures.nextId;
+              if (!recordId)
+                recordId = 64;
+              if (recordId < sharedLimitId && this.shouldShareStructure && !this.shouldShareStructure(keys2)) {
+                recordId = structures.nextOwnId;
+                if (!(recordId < maxStructureId))
+                  recordId = sharedLimitId;
+                structures.nextOwnId = recordId + 1;
+              } else {
+                if (recordId >= maxStructureId)
+                  recordId = sharedLimitId;
+                structures.nextId = recordId + 1;
+              }
+              let highByte = keys2.highByte = recordId >= 96 && useTwoByteRecords ? recordId - 96 >> 5 : -1;
+              transition[RECORD_SYMBOL] = recordId;
+              transition.__keys__ = keys2;
+              structures[recordId - 64] = keys2;
+              if (recordId < sharedLimitId) {
+                keys2.isShared = true;
+                structures.sharedLength = recordId - 63;
+                hasSharedUpdate = true;
+                if (highByte >= 0) {
+                  target[position++] = (recordId & 31) + 96;
+                  target[position++] = highByte;
+                } else {
+                  target[position++] = recordId;
+                }
+              } else {
+                if (highByte >= 0) {
+                  target[position++] = 213;
+                  target[position++] = 114;
+                  target[position++] = (recordId & 31) + 96;
+                  target[position++] = highByte;
+                } else {
+                  target[position++] = 212;
+                  target[position++] = 114;
+                  target[position++] = recordId;
+                }
+                if (newTransitions)
+                  transitionsCount += serializationsSinceTransitionRebuild * newTransitions;
+                if (recordIdsToRemove.length >= maxOwnStructures)
+                  recordIdsToRemove.shift()[RECORD_SYMBOL] = 0;
+                recordIdsToRemove.push(transition);
+                pack2(keys2);
+              }
+            };
+            const insertNewRecord = (transition, keys2, insertionOffset, newTransitions) => {
+              let mainTarget = target;
+              let mainPosition = position;
+              let mainSafeEnd = safeEnd;
+              let mainStart = start;
+              target = keysTarget;
+              position = 0;
+              start = 0;
+              if (!target)
+                keysTarget = target = new ByteArrayAllocate(8192);
+              safeEnd = target.length - 10;
+              newRecord(transition, keys2, newTransitions);
+              keysTarget = target;
+              let keysPosition = position;
+              target = mainTarget;
+              position = mainPosition;
+              safeEnd = mainSafeEnd;
+              start = mainStart;
+              if (keysPosition > 1) {
+                let newEnd = position + keysPosition - 1;
+                if (newEnd > safeEnd)
+                  makeRoom(newEnd);
+                let insertionPosition = insertionOffset + start;
+                target.copyWithin(insertionPosition + keysPosition, insertionPosition + 1, position);
+                target.set(keysTarget.slice(0, keysPosition), insertionPosition);
+                position = newEnd;
+              } else {
+                target[insertionOffset + start] = keysTarget[0];
+              }
+            };
+            const writeStruct = (object2) => {
+              let newPosition = writeStructSlots(object2, target, start, position, structures, makeRoom, (value, newPosition2, notifySharedUpdate) => {
+                if (notifySharedUpdate)
+                  return hasSharedUpdate = true;
+                position = newPosition2;
+                let startTarget = target;
+                pack2(value);
+                resetStructures();
+                if (startTarget !== target) {
+                  return { position, targetView, target };
+                }
+                return position;
+              }, this);
+              if (newPosition === 0)
+                return writeObject(object2);
+              position = newPosition;
+            };
+          }
+          useBuffer(buffer) {
+            target = buffer;
+            target.dataView || (target.dataView = new DataView(target.buffer, target.byteOffset, target.byteLength));
+            targetView = target.dataView;
+            position = 0;
+          }
+          set position(value) {
+            position = value;
+          }
+          get position() {
+            return position;
+          }
+          clearSharedData() {
+            if (this.structures)
+              this.structures = [];
+            if (this.typedStructs)
+              this.typedStructs = [];
+          }
+        }
+        extensionClasses = [Date, Set, Error, RegExp, ArrayBuffer, Object.getPrototypeOf(Uint8Array.prototype).constructor, DataView, C1Type];
+        extensions = [{
+          pack(date, allocateForWrite, pack2) {
+            let seconds = date.getTime() / 1e3;
+            if ((this.useTimestamp32 || date.getMilliseconds() === 0) && seconds >= 0 && seconds < 4294967296) {
+              let { target: target2, targetView: targetView2, position: position2 } = allocateForWrite(6);
+              target2[position2++] = 214;
+              target2[position2++] = 255;
+              targetView2.setUint32(position2, seconds);
+            } else if (seconds > 0 && seconds < 4294967296) {
+              let { target: target2, targetView: targetView2, position: position2 } = allocateForWrite(10);
+              target2[position2++] = 215;
+              target2[position2++] = 255;
+              targetView2.setUint32(position2, date.getMilliseconds() * 4e6 + (seconds / 1e3 / 4294967296 >> 0));
+              targetView2.setUint32(position2 + 4, seconds);
+            } else if (isNaN(seconds)) {
+              if (this.onInvalidDate) {
+                allocateForWrite(0);
+                return pack2(this.onInvalidDate());
+              }
+              let { target: target2, targetView: targetView2, position: position2 } = allocateForWrite(3);
+              target2[position2++] = 212;
+              target2[position2++] = 255;
+              target2[position2++] = 255;
+            } else {
+              let { target: target2, targetView: targetView2, position: position2 } = allocateForWrite(15);
+              target2[position2++] = 199;
+              target2[position2++] = 12;
+              target2[position2++] = 255;
+              targetView2.setUint32(position2, date.getMilliseconds() * 1e6);
+              targetView2.setBigInt64(position2 + 4, BigInt(Math.floor(seconds)));
+            }
+          }
+        }, {
+          pack(set, allocateForWrite, pack2) {
+            if (this.setAsEmptyObject) {
+              allocateForWrite(0);
+              return pack2({});
+            }
+            let array2 = Array.from(set);
+            let { target: target2, position: position2 } = allocateForWrite(this.moreTypes ? 3 : 0);
+            if (this.moreTypes) {
+              target2[position2++] = 212;
+              target2[position2++] = 115;
+              target2[position2++] = 0;
+            }
+            pack2(array2);
+          }
+        }, {
+          pack(error, allocateForWrite, pack2) {
+            let { target: target2, position: position2 } = allocateForWrite(this.moreTypes ? 3 : 0);
+            if (this.moreTypes) {
+              target2[position2++] = 212;
+              target2[position2++] = 101;
+              target2[position2++] = 0;
+            }
+            pack2([error.name, error.message, error.cause]);
+          }
+        }, {
+          pack(regex, allocateForWrite, pack2) {
+            let { target: target2, position: position2 } = allocateForWrite(this.moreTypes ? 3 : 0);
+            if (this.moreTypes) {
+              target2[position2++] = 212;
+              target2[position2++] = 120;
+              target2[position2++] = 0;
+            }
+            pack2([regex.source, regex.flags]);
+          }
+        }, {
+          pack(arrayBuffer, allocateForWrite) {
+            if (this.moreTypes)
+              writeExtBuffer(arrayBuffer, 16, allocateForWrite);
+            else
+              writeBuffer(hasNodeBuffer ? Buffer.from(arrayBuffer) : new Uint8Array(arrayBuffer), allocateForWrite);
+          }
+        }, {
+          pack(typedArray, allocateForWrite) {
+            let constructor = typedArray.constructor;
+            if (constructor !== ByteArray && this.moreTypes)
+              writeExtBuffer(typedArray, typedArrays.indexOf(constructor.name), allocateForWrite);
+            else
+              writeBuffer(typedArray, allocateForWrite);
+          }
+        }, {
+          pack(arrayBuffer, allocateForWrite) {
+            if (this.moreTypes)
+              writeExtBuffer(arrayBuffer, 17, allocateForWrite);
+            else
+              writeBuffer(hasNodeBuffer ? Buffer.from(arrayBuffer) : new Uint8Array(arrayBuffer), allocateForWrite);
+          }
+        }, {
+          pack(c1, allocateForWrite) {
+            let { target: target2, position: position2 } = allocateForWrite(1);
+            target2[position2] = 193;
+          }
+        }];
+        function writeExtBuffer(typedArray, type, allocateForWrite, encode2) {
+          let length = typedArray.byteLength;
+          if (length + 1 < 256) {
+            var { target: target2, position: position2 } = allocateForWrite(4 + length);
+            target2[position2++] = 199;
+            target2[position2++] = length + 1;
+          } else if (length + 1 < 65536) {
+            var { target: target2, position: position2 } = allocateForWrite(5 + length);
+            target2[position2++] = 200;
+            target2[position2++] = length + 1 >> 8;
+            target2[position2++] = length + 1 & 255;
+          } else {
+            var { target: target2, position: position2, targetView: targetView2 } = allocateForWrite(7 + length);
+            target2[position2++] = 201;
+            targetView2.setUint32(position2, length + 1);
+            position2 += 4;
+          }
+          target2[position2++] = 116;
+          target2[position2++] = type;
+          if (!typedArray.buffer) typedArray = new Uint8Array(typedArray);
+          target2.set(new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength), position2);
+        }
+        function writeBuffer(buffer, allocateForWrite) {
+          let length = buffer.byteLength;
+          var target2, position2;
+          if (length < 256) {
+            var { target: target2, position: position2 } = allocateForWrite(length + 2);
+            target2[position2++] = 196;
+            target2[position2++] = length;
+          } else if (length < 65536) {
+            var { target: target2, position: position2 } = allocateForWrite(length + 3);
+            target2[position2++] = 197;
+            target2[position2++] = length >> 8;
+            target2[position2++] = length & 255;
+          } else {
+            var { target: target2, position: position2, targetView: targetView2 } = allocateForWrite(length + 5);
+            target2[position2++] = 198;
+            targetView2.setUint32(position2, length);
+            position2 += 4;
+          }
+          target2.set(buffer, position2);
+        }
+        function writeExtensionData(result, target2, position2, type) {
+          let length = result.length;
+          switch (length) {
+            case 1:
+              target2[position2++] = 212;
+              break;
+            case 2:
+              target2[position2++] = 213;
+              break;
+            case 4:
+              target2[position2++] = 214;
+              break;
+            case 8:
+              target2[position2++] = 215;
+              break;
+            case 16:
+              target2[position2++] = 216;
+              break;
+            default:
+              if (length < 256) {
+                target2[position2++] = 199;
+                target2[position2++] = length;
+              } else if (length < 65536) {
+                target2[position2++] = 200;
+                target2[position2++] = length >> 8;
+                target2[position2++] = length & 255;
+              } else {
+                target2[position2++] = 201;
+                target2[position2++] = length >> 24;
+                target2[position2++] = length >> 16 & 255;
+                target2[position2++] = length >> 8 & 255;
+                target2[position2++] = length & 255;
+              }
+          }
+          target2[position2++] = type;
+          target2.set(result, position2);
+          position2 += length;
+          return position2;
+        }
+        function insertIds(serialized, idsToInsert) {
+          let nextId;
+          let distanceToMove = idsToInsert.length * 6;
+          let lastEnd = serialized.length - distanceToMove;
+          while (nextId = idsToInsert.pop()) {
+            let offset = nextId.offset;
+            let id = nextId.id;
+            serialized.copyWithin(offset + distanceToMove, offset, lastEnd);
+            distanceToMove -= 6;
+            let position2 = offset + distanceToMove;
+            serialized[position2++] = 214;
+            serialized[position2++] = 105;
+            serialized[position2++] = id >> 24;
+            serialized[position2++] = id >> 16 & 255;
+            serialized[position2++] = id >> 8 & 255;
+            serialized[position2++] = id & 255;
+            lastEnd = offset;
+          }
+          return serialized;
+        }
+        function writeBundles(start, pack2, incrementPosition) {
+          if (bundledStrings.length > 0) {
+            targetView.setUint32(bundledStrings.position + start, position + incrementPosition - bundledStrings.position - start);
+            bundledStrings.stringsPosition = position - start;
+            let writeStrings = bundledStrings;
+            bundledStrings = null;
+            pack2(writeStrings[0]);
+            pack2(writeStrings[1]);
+          }
+        }
+        function addExtension(extension) {
+          if (extension.Class) {
+            if (!extension.pack && !extension.write)
+              throw new Error("Extension has no pack or write function");
+            if (extension.pack && !extension.type)
+              throw new Error("Extension has no type (numeric code to identify the extension)");
+            extensionClasses.unshift(extension.Class);
+            extensions.unshift(extension);
+          }
+          addExtension$1(extension);
+        }
+        function prepareStructures(structures, packr) {
+          structures.isCompatible = (existingStructures) => {
+            let compatible = !existingStructures || (packr.lastNamedStructuresLength || 0) === existingStructures.length;
+            if (!compatible)
+              packr._mergeStructures(existingStructures);
+            return compatible;
+          };
+          return structures;
+        }
+        let defaultPackr = new Packr({ useRecords: false });
+        const pack = defaultPackr.pack;
+        const encode = defaultPackr.pack;
+        const Encoder = Packr;
+        const { NEVER, ALWAYS, DECIMAL_ROUND, DECIMAL_FIT } = FLOAT32_OPTIONS;
+        const REUSE_BUFFER_MODE = 512;
+        const RESET_BUFFER_MODE = 1024;
+        const RESERVE_START_SPACE = 2048;
+        function packIter(objectIterator, options = {}) {
+          if (!objectIterator || typeof objectIterator !== "object") {
+            throw new Error("first argument must be an Iterable, Async Iterable, or a Promise for an Async Iterable");
+          } else if (typeof objectIterator[Symbol.iterator] === "function") {
+            return packIterSync(objectIterator, options);
+          } else if (typeof objectIterator.then === "function" || typeof objectIterator[Symbol.asyncIterator] === "function") {
+            return packIterAsync(objectIterator, options);
+          } else {
+            throw new Error("first argument must be an Iterable, Async Iterable, Iterator, Async Iterator, or a Promise");
+          }
+        }
+        function* packIterSync(objectIterator, options) {
+          const packr = new Packr(options);
+          for (const value of objectIterator) {
+            yield packr.pack(value);
+          }
+        }
+        async function* packIterAsync(objectIterator, options) {
+          const packr = new Packr(options);
+          for await (const value of objectIterator) {
+            yield packr.pack(value);
+          }
+        }
+        function unpackIter(bufferIterator, options = {}) {
+          if (!bufferIterator || typeof bufferIterator !== "object") {
+            throw new Error("first argument must be an Iterable, Async Iterable, Iterator, Async Iterator, or a promise");
+          }
+          const unpackr = new Unpackr(options);
+          let incomplete;
+          const parser = (chunk) => {
+            let yields;
+            if (incomplete) {
+              chunk = Buffer.concat([incomplete, chunk]);
+              incomplete = void 0;
+            }
+            try {
+              yields = unpackr.unpackMultiple(chunk);
+            } catch (err2) {
+              if (err2.incomplete) {
+                incomplete = chunk.slice(err2.lastPosition);
+                yields = err2.values;
+              } else {
+                throw err2;
+              }
+            }
+            return yields;
+          };
+          if (typeof bufferIterator[Symbol.iterator] === "function") {
+            return (function* iter() {
+              for (const value of bufferIterator) {
+                yield* parser(value);
+              }
+            })();
+          } else if (typeof bufferIterator[Symbol.asyncIterator] === "function") {
+            return (async function* iter() {
+              for await (const value of bufferIterator) {
+                yield* parser(value);
+              }
+            })();
+          }
+        }
+        const decodeIter = unpackIter;
+        const encodeIter = packIter;
+        const useRecords = false;
+        const mapsAsObjects = true;
+        exports2.ALWAYS = ALWAYS;
+        exports2.C1 = C1;
+        exports2.DECIMAL_FIT = DECIMAL_FIT;
+        exports2.DECIMAL_ROUND = DECIMAL_ROUND;
+        exports2.Decoder = Decoder;
+        exports2.Encoder = Encoder;
+        exports2.FLOAT32_OPTIONS = FLOAT32_OPTIONS;
+        exports2.NEVER = NEVER;
+        exports2.Packr = Packr;
+        exports2.RESERVE_START_SPACE = RESERVE_START_SPACE;
+        exports2.RESET_BUFFER_MODE = RESET_BUFFER_MODE;
+        exports2.REUSE_BUFFER_MODE = REUSE_BUFFER_MODE;
+        exports2.Unpackr = Unpackr;
+        exports2.addExtension = addExtension;
+        exports2.clearSource = clearSource;
+        exports2.decode = decode2;
+        exports2.decodeIter = decodeIter;
+        exports2.encode = encode;
+        exports2.encodeIter = encodeIter;
+        exports2.isNativeAccelerationEnabled = isNativeAccelerationEnabled;
+        exports2.mapsAsObjects = mapsAsObjects;
+        exports2.pack = pack;
+        exports2.roundFloat32 = roundFloat32;
+        exports2.unpack = unpack2;
+        exports2.unpackMultiple = unpackMultiple;
+        exports2.useRecords = useRecords;
+      }));
+    }
+  });
+
   // src/style.js
   var CSS = `
 :root {
@@ -200,6 +3223,7 @@ h3 { font-size: 14px; font-weight: 650; }
 .steps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .step { border: 1px solid var(--step-line); border-radius: 20px; padding: 5px 10px; color: var(--hero-ink); font-size: 11px; }
 .list-editor { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
+.preset-block-list { max-height: 560px; overflow: auto; }
 .itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
 .listitem.active { border-color: var(--brand-line); background: var(--accent-bg); }
@@ -230,6 +3254,7 @@ h3 { font-size: 14px; font-weight: 650; }
 .composer > * { flex-shrink: 0; }
 .composer textarea { min-height: 80px; max-height: 180px; }
 .composer select { font-size: 12px; padding: 7px; }
+.request-options { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr); gap: 6px; }
 .candidate { background: var(--candidate-bg); border: 1px solid var(--candidate-line); border-radius: 10px; padding: 13px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
 .candidate .pill { background: var(--candidate-tag); color: var(--candidate-ink); }
 .diff { border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 360px; overflow: auto; background: var(--diff-bg); min-width: 0; }
@@ -267,6 +3292,7 @@ details[open] > summary { margin-bottom: 9px; }
   .navitem { gap: 7px; padding: 12px 7px; font-size: 13px; }
   .list-editor { grid-template-columns: minmax(0, 1fr); }
   .itemlist { flex-direction: row; overflow-x: auto; }
+  .preset-block-list { max-height: 140px; }
   .listitem { min-width: 120px; max-width: 180px; flex-shrink: 0; }
   .topbar { padding: 12px 16px; }
   .toolbar { padding: 8px 16px; }
@@ -523,14 +3549,14 @@ details[open] > summary { margin-bottom: 9px; }
       this.initializer = initializer;
       this.cache = /* @__PURE__ */ new Map();
     }
-    has(key) {
-      return key in this.initializer;
+    has(key2) {
+      return key2 in this.initializer;
     }
-    get(key) {
-      if (this.cache.has(key)) return this.cache.get(key);
-      const fn = this.initializer[key];
+    get(key2) {
+      if (this.cache.has(key2)) return this.cache.get(key2);
+      const fn = this.initializer[key2];
       const val = fn ? fn() : null;
-      this.cache.set(key, val);
+      this.cache.set(key2, val);
       return val;
     }
   };
@@ -3625,11 +6651,11 @@ details[open] > summary { margin-bottom: 9px; }
       for (const word of words) {
         let node = 0;
         for (let i = 0; i < word.length; i++) {
-          const key = node * alphabetSize + word[i];
-          let child = edges.get(key);
+          const key2 = node * alphabetSize + word[i];
+          let child = edges.get(key2);
           if (child === void 0) {
             child = parent.length;
-            edges.set(key, child);
+            edges.set(key2, child);
             parent.push(node);
             unit.push(word[i]);
             depth.push(depth[node] + 1);
@@ -6966,7 +9992,7 @@ details[open] > summary { margin-bottom: 9px; }
   };
 
   // src/core.js
-  var VERSION = "0.1.2";
+  var VERSION = "0.2.0";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
@@ -6987,7 +10013,7 @@ details[open] > summary { margin-bottom: 9px; }
   }
   function object(x, label) {
     assert(x && typeof x === "object" && !Array.isArray(x), label + ": \uAC1D\uCCB4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
-    for (const key of Object.keys(x)) assert(!dangerous.has(key), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD0A4: " + key);
+    for (const key2 of Object.keys(x)) assert(!dangerous.has(key2), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD0A4: " + key2);
   }
   function keys(x, required, optional = []) {
     object(x, "\uC751\uB2F5");
@@ -7133,7 +10159,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     reference.pendingProposals = session.candidates.filter((c) => !c.status).map((c) => ({ id: c.id, task: c.packet.task, data: c.packet.data }));
     reference.pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
     values.REFERENCE_CONTEXT = JSON.stringify(reference);
-    return [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key) => values[key]) }];
+    return [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key2) => values[key2]) }];
   }
   var LORE_KEYS = ["comment", "key", "secondkey", "content", "insertorder", "mode", "alwaysActive", "selective", "useRegex", "activationPercent"];
   var REGEX_KEYS = ["comment", "in", "out", "flag", "ableFlag", "type"];
@@ -7171,15 +10197,15 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     object(data.variables, "\uBCC0\uC218");
     array(data.removeVariables, "\uC0AD\uC81C\uD560 \uBCC0\uC218");
     const old = parseVariables(draft.defaultVariables ?? "");
-    for (const [key, val] of Object.entries(data.variables)) {
-      assert(/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key) && !dangerous.has(key), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uBCC0\uC218\uBA85: " + key);
+    for (const [key2, val] of Object.entries(data.variables)) {
+      assert(/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key2) && !dangerous.has(key2), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uBCC0\uC218\uBA85: " + key2);
       str(val, "\uBCC0\uC218 \uAC12");
       assert(val.length > 0 && !/[=\r\n]/.test(val), "\uCD08\uAE30 \uBCC0\uC218 \uAC12\uC5D0\uB294 \uB4F1\uD638\xB7\uC904\uBC14\uAFC8\xB7\uBE48 \uAC12\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
     }
     const seen = /* @__PURE__ */ new Set();
-    for (const key of data.removeVariables) {
-      assert(typeof key === "string" && Object.hasOwn(old, key) && !Object.hasOwn(data.variables, key) && !seen.has(key), "\uC0AD\uC81C\uD560 \uBCC0\uC218\uAC00 \uC5C6\uAC70\uB098 \uC911\uBCF5\uB429\uB2C8\uB2E4.");
-      seen.add(key);
+    for (const key2 of data.removeVariables) {
+      assert(typeof key2 === "string" && Object.hasOwn(old, key2) && !Object.hasOwn(data.variables, key2) && !seen.has(key2), "\uC0AD\uC81C\uD560 \uBCC0\uC218\uAC00 \uC5C6\uAC70\uB098 \uC911\uBCF5\uB429\uB2C8\uB2E4.");
+      seen.add(key2);
     }
   }
   function scripts(list, remove, draft) {
@@ -7254,7 +10280,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       }
       const handlers = luaEntries(draft).filter((s) => s.code.includes("onButtonClick") && !data.scripts.some((n) => n.ref === s.ref));
       assert(!handlers.length, "\uAE30\uC874 onButtonClick\uACFC \uCDA9\uB3CC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uAE30\uC874 \uD578\uB4E4\uB7EC\uB97C \uCC38\uC870\uD574 \uD568\uAED8 \uC218\uC815\uD558\uC138\uC694.");
-      for (const [key, value] of Object.entries(data.variables)) assert(!(key in parseVariables(draft.defaultVariables ?? "")) || parseVariables(draft.defaultVariables ?? "")[key] === value, "\uAE30\uC874 \uBCC0\uC218 \uCD08\uAE30\uAC12\uACFC \uCDA9\uB3CC\uD569\uB2C8\uB2E4: " + key);
+      for (const [key2, value] of Object.entries(data.variables)) assert(!(key2 in parseVariables(draft.defaultVariables ?? "")) || parseVariables(draft.defaultVariables ?? "")[key2] === value, "\uAE30\uC874 \uBCC0\uC218 \uCD08\uAE30\uAC12\uACFC \uCDA9\uB3CC\uD569\uB2C8\uB2E4: " + key2);
       return;
     }
     throw new Error("\uC54C \uC218 \uC5C6\uB294 \uC791\uC5C5\uC785\uB2C8\uB2E4.");
@@ -7275,22 +10301,22 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
   function parseVariables(text) {
     const r = /* @__PURE__ */ Object.create(null);
     for (const line of text.split("\n")) {
-      const [key, value] = line.split("=");
-      if (key && value && !dangerous.has(key)) r[key] = value;
+      const [key2, value] = line.split("=");
+      if (key2 && value && !dangerous.has(key2)) r[key2] = value;
     }
     return r;
   }
   function applyVariables(text, changed, remove) {
     const used = /* @__PURE__ */ new Set(), lines = [];
     for (const line of text.split("\n")) {
-      const key = line.split("=")[0];
-      if (remove.includes(key)) continue;
-      if (Object.hasOwn(changed, key)) {
-        if (!used.has(key)) lines.push(key + "=" + changed[key]);
-        used.add(key);
+      const key2 = line.split("=")[0];
+      if (remove.includes(key2)) continue;
+      if (Object.hasOwn(changed, key2)) {
+        if (!used.has(key2)) lines.push(key2 + "=" + changed[key2]);
+        used.add(key2);
       } else lines.push(line);
     }
-    for (const [key, value] of Object.entries(changed)) if (!used.has(key)) lines.push(key + "=" + value);
+    for (const [key2, value] of Object.entries(changed)) if (!used.has(key2)) lines.push(key2 + "=" + value);
     return lines.filter((l, i) => l || i !== 0).join("\n");
   }
   function applyUpdates(draft, field, list, remove, prefix) {
@@ -8256,12 +11282,157 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     for (; v; ++b)
       d[b] = v, v >>>= 8;
   };
+  var gzs = function(d) {
+    if (d[0] != 31 || d[1] != 139 || d[2] != 8)
+      err(6, "invalid gzip data");
+    var flg = d[3];
+    var st = 10;
+    if (flg & 4)
+      st += (d[10] | d[11] << 8) + 2;
+    for (var zs = (flg >> 3 & 1) + (flg >> 4 & 1); zs > 0; zs -= !d[st++])
+      ;
+    return st + (flg & 2);
+  };
+  var zls = function(d, dict) {
+    if ((d[0] & 15) != 8 || d[0] >> 4 > 7 || (d[0] << 8 | d[1]) % 31)
+      err(6, "invalid zlib data");
+    if ((d[1] >> 5 & 1) == +!dict)
+      err(6, "invalid zlib data: " + (d[1] & 32 ? "need" : "unexpected") + " dictionary");
+    return (d[1] >> 3 & 4) + 2;
+  };
+  function StrmOpt(opts, cb) {
+    if (typeof opts == "function")
+      cb = opts, opts = {};
+    this.ondata = cb;
+    return opts;
+  }
   function deflateSync(data, opts) {
     return dopt(data, opts || {}, 0, 0);
   }
+  var Inflate = /* @__PURE__ */ (function() {
+    function Inflate2(opts, cb) {
+      if (typeof opts == "function")
+        cb = opts, opts = {};
+      this.ondata = cb;
+      var dict = opts && opts.dictionary && opts.dictionary.subarray(-32768);
+      this.s = { i: 0, b: dict ? dict.length : 0 };
+      this.o = new u8(32768);
+      this.p = new u8(0);
+      if (dict)
+        this.o.set(dict);
+    }
+    Inflate2.prototype.e = function(c) {
+      if (!this.ondata)
+        err(5);
+      if (this.d)
+        err(4);
+      if (!this.p.length)
+        this.p = c;
+      else if (c.length) {
+        var n = new u8(this.p.length + c.length);
+        n.set(this.p), n.set(c, this.p.length), this.p = n;
+      }
+    };
+    Inflate2.prototype.c = function(final) {
+      this.s.i = +(this.d = final || false);
+      var bts = this.s.b;
+      var dt = inflt(this.p, this.s, this.o);
+      this.ondata(slc(dt, bts, this.s.b), this.d);
+      this.o = slc(dt, this.s.b - 32768), this.s.b = this.o.length;
+      this.p = slc(this.p, this.s.p / 8 | 0), this.s.p &= 7;
+    };
+    Inflate2.prototype.push = function(chunk, final) {
+      this.e(chunk), this.c(final);
+    };
+    return Inflate2;
+  })();
   function inflateSync(data, opts) {
     return inflt(data, { i: 2 }, opts && opts.out, opts && opts.dictionary);
   }
+  var Gunzip = /* @__PURE__ */ (function() {
+    function Gunzip2(opts, cb) {
+      this.v = 1;
+      this.r = 0;
+      Inflate.call(this, opts, cb);
+    }
+    Gunzip2.prototype.push = function(chunk, final) {
+      Inflate.prototype.e.call(this, chunk);
+      this.r += chunk.length;
+      if (this.v) {
+        var p = this.p.subarray(this.v - 1);
+        var s = p.length > 3 ? gzs(p) : 4;
+        if (s > p.length) {
+          if (!final)
+            return;
+        } else if (this.v > 1 && this.onmember) {
+          this.onmember(this.r - p.length);
+        }
+        this.p = p.subarray(s), this.v = 0;
+      }
+      Inflate.prototype.c.call(this, final);
+      if (this.s.f && !this.s.l && !final) {
+        this.v = shft(this.s.p) + 9;
+        this.s = { i: 0 };
+        this.o = new u8(0);
+        this.push(new u8(0), final);
+      }
+    };
+    return Gunzip2;
+  })();
+  var Unzlib = /* @__PURE__ */ (function() {
+    function Unzlib2(opts, cb) {
+      Inflate.call(this, opts, cb);
+      this.v = opts && opts.dictionary ? 2 : 1;
+    }
+    Unzlib2.prototype.push = function(chunk, final) {
+      Inflate.prototype.e.call(this, chunk);
+      if (this.v) {
+        if (this.p.length < 6 && !final)
+          return;
+        this.p = this.p.subarray(zls(this.p, this.v - 1)), this.v = 0;
+      }
+      if (final) {
+        if (this.p.length < 4)
+          err(6, "invalid zlib data");
+        this.p = this.p.subarray(0, -4);
+      }
+      Inflate.prototype.c.call(this, final);
+    };
+    return Unzlib2;
+  })();
+  var Decompress = /* @__PURE__ */ (function() {
+    function Decompress2(opts, cb) {
+      this.o = StrmOpt.call(this, opts, cb) || {};
+      this.G = Gunzip;
+      this.I = Inflate;
+      this.Z = Unzlib;
+    }
+    Decompress2.prototype.i = function() {
+      var _this = this;
+      this.s.ondata = function(dat, final) {
+        _this.ondata(dat, final);
+      };
+    };
+    Decompress2.prototype.push = function(chunk, final) {
+      if (!this.ondata)
+        err(5);
+      if (!this.s) {
+        if (this.p && this.p.length) {
+          var n = new u8(this.p.length + chunk.length);
+          n.set(this.p), n.set(chunk, this.p.length);
+        } else
+          this.p = chunk;
+        if (this.p.length > 2) {
+          this.s = this.p[0] == 31 && this.p[1] == 139 && this.p[2] == 8 ? new this.G(this.o) : (this.p[0] & 15) != 8 || this.p[0] >> 4 > 7 || (this.p[0] << 8 | this.p[1]) % 31 ? new this.I(this.o) : new this.Z(this.o);
+          this.i();
+          this.s.push(this.p, final);
+          this.p = null;
+        }
+      } else
+        this.s.push(chunk, final);
+    };
+    return Decompress2;
+  })();
   var fltn = function(d, p, t, o) {
     for (var k in d) {
       var val = d[k], n = p + k, op = o;
@@ -8551,7 +11722,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
   function cardToCharacter(card, module = null) {
     const d = card.data, r = d.extensions?.risuai ?? {}, c = blankCharacter();
     const map = { name: "name", description: "desc", personality: "personality", scenario: "scenario", first_mes: "firstMessage", mes_example: "exampleMessage", creator_notes: "creatorNotes", system_prompt: "systemPrompt", post_history_instructions: "replaceGlobalNote", alternate_greetings: "alternateGreetings", tags: "tags", creator: "creator", character_version: "characterVersion", group_only_greetings: "group_only_greetings", nickname: "nickname", source: "source", creation_date: "creation_date", modification_date: "modification_date" };
-    for (const [key, field] of Object.entries(map)) if (key in d) c[field] = clone(d[key]);
+    for (const [key2, field] of Object.entries(map)) if (key2 in d) c[field] = clone(d[key2]);
     for (const field of ["bias", "viewScreen", "utilityBot", "sdData", "backgroundHTML", "license", "additionalText", "largePortrait", "lorePlus", "inlayViewScreen", "newGenData", "defaultVariables", "prebuiltAssetCommand", "prebuiltAssetExclude", "prebuiltAssetStyle", "moduleNamespace", "hideChatIcon", "onboarding"]) if (field in r) c[field] = clone(r[field]);
     c.lowLevelAccess = false;
     c.customscript = clone(module?.regex ?? r.customScripts ?? []);
@@ -8662,8 +11833,1653 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     return zipSync(files, { level: 0 });
   }
 
+  // src/preset-format.js
+  var import_index_no_eval = __toESM(require_index_no_eval(), 1);
+
+  // node_modules/@noble/ciphers/esm/utils.js
+  /*! noble-ciphers - MIT License (c) 2023 Paul Miller (paulmillr.com) */
+  function isBytes(a) {
+    return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
+  }
+  function abool(b) {
+    if (typeof b !== "boolean")
+      throw new Error(`boolean expected, not ${b}`);
+  }
+  function abytes(b, ...lengths) {
+    if (!isBytes(b))
+      throw new Error("Uint8Array expected");
+    if (lengths.length > 0 && !lengths.includes(b.length))
+      throw new Error("Uint8Array expected of length " + lengths + ", got length=" + b.length);
+  }
+  function aexists(instance, checkFinished = true) {
+    if (instance.destroyed)
+      throw new Error("Hash instance has been destroyed");
+    if (checkFinished && instance.finished)
+      throw new Error("Hash#digest() has already been called");
+  }
+  function aoutput(out, instance) {
+    abytes(out);
+    const min = instance.outputLen;
+    if (out.length < min) {
+      throw new Error("digestInto() expects output buffer of length at least " + min);
+    }
+  }
+  function u82(arr) {
+    return new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+  }
+  function u32(arr) {
+    return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
+  }
+  function clean(...arrays) {
+    for (let i = 0; i < arrays.length; i++) {
+      arrays[i].fill(0);
+    }
+  }
+  function createView(arr) {
+    return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+  }
+  var isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68)();
+  function utf8ToBytes(str2) {
+    if (typeof str2 !== "string")
+      throw new Error("string expected");
+    return new Uint8Array(new TextEncoder().encode(str2));
+  }
+  function toBytes(data) {
+    if (typeof data === "string")
+      data = utf8ToBytes(data);
+    else if (isBytes(data))
+      data = copyBytes(data);
+    else
+      throw new Error("Uint8Array expected, got " + typeof data);
+    return data;
+  }
+  function equalBytes(a, b) {
+    if (a.length !== b.length)
+      return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++)
+      diff |= a[i] ^ b[i];
+    return diff === 0;
+  }
+  var wrapCipher = /* @__NO_SIDE_EFFECTS__ */ (params, constructor) => {
+    function wrappedCipher(key2, ...args) {
+      abytes(key2);
+      if (!isLE)
+        throw new Error("Non little-endian hardware is not yet supported");
+      if (params.nonceLength !== void 0) {
+        const nonce = args[0];
+        if (!nonce)
+          throw new Error("nonce / iv required");
+        if (params.varSizeNonce)
+          abytes(nonce);
+        else
+          abytes(nonce, params.nonceLength);
+      }
+      const tagl = params.tagLength;
+      if (tagl && args[1] !== void 0) {
+        abytes(args[1]);
+      }
+      const cipher = constructor(key2, ...args);
+      const checkOutput = (fnLength, output) => {
+        if (output !== void 0) {
+          if (fnLength !== 2)
+            throw new Error("cipher output not supported");
+          abytes(output);
+        }
+      };
+      let called = false;
+      const wrCipher = {
+        encrypt(data, output) {
+          if (called)
+            throw new Error("cannot encrypt() twice with same key + nonce");
+          called = true;
+          abytes(data);
+          checkOutput(cipher.encrypt.length, output);
+          return cipher.encrypt(data, output);
+        },
+        decrypt(data, output) {
+          abytes(data);
+          if (tagl && data.length < tagl)
+            throw new Error("invalid ciphertext length: smaller than tagLength=" + tagl);
+          checkOutput(cipher.decrypt.length, output);
+          return cipher.decrypt(data, output);
+        }
+      };
+      return wrCipher;
+    }
+    Object.assign(wrappedCipher, params);
+    return wrappedCipher;
+  };
+  function getOutput(expectedLength, out, onlyAligned = true) {
+    if (out === void 0)
+      return new Uint8Array(expectedLength);
+    if (out.length !== expectedLength)
+      throw new Error("invalid output length, expected " + expectedLength + ", got: " + out.length);
+    if (onlyAligned && !isAligned32(out))
+      throw new Error("invalid output, must be aligned");
+    return out;
+  }
+  function setBigUint64(view, byteOffset, value, isLE2) {
+    if (typeof view.setBigUint64 === "function")
+      return view.setBigUint64(byteOffset, value, isLE2);
+    const _32n = BigInt(32);
+    const _u32_max = BigInt(4294967295);
+    const wh = Number(value >> _32n & _u32_max);
+    const wl = Number(value & _u32_max);
+    const h = isLE2 ? 4 : 0;
+    const l = isLE2 ? 0 : 4;
+    view.setUint32(byteOffset + h, wh, isLE2);
+    view.setUint32(byteOffset + l, wl, isLE2);
+  }
+  function u64Lengths(dataLength, aadLength, isLE2) {
+    abool(isLE2);
+    const num = new Uint8Array(16);
+    const view = createView(num);
+    setBigUint64(view, 0, BigInt(aadLength), isLE2);
+    setBigUint64(view, 8, BigInt(dataLength), isLE2);
+    return num;
+  }
+  function isAligned32(bytes2) {
+    return bytes2.byteOffset % 4 === 0;
+  }
+  function copyBytes(bytes2) {
+    return Uint8Array.from(bytes2);
+  }
+
+  // node_modules/@noble/ciphers/esm/_polyval.js
+  var BLOCK_SIZE = 16;
+  var ZEROS16 = /* @__PURE__ */ new Uint8Array(16);
+  var ZEROS32 = u32(ZEROS16);
+  var POLY = 225;
+  var mul2 = (s0, s1, s2, s3) => {
+    const hiBit = s3 & 1;
+    return {
+      s3: s2 << 31 | s3 >>> 1,
+      s2: s1 << 31 | s2 >>> 1,
+      s1: s0 << 31 | s1 >>> 1,
+      s0: s0 >>> 1 ^ POLY << 24 & -(hiBit & 1)
+      // reduce % poly
+    };
+  };
+  var swapLE = (n) => (n >>> 0 & 255) << 24 | (n >>> 8 & 255) << 16 | (n >>> 16 & 255) << 8 | n >>> 24 & 255 | 0;
+  function _toGHASHKey(k) {
+    k.reverse();
+    const hiBit = k[15] & 1;
+    let carry = 0;
+    for (let i = 0; i < k.length; i++) {
+      const t = k[i];
+      k[i] = t >>> 1 | carry;
+      carry = (t & 1) << 7;
+    }
+    k[0] ^= -hiBit & 225;
+    return k;
+  }
+  var estimateWindow = (bytes2) => {
+    if (bytes2 > 64 * 1024)
+      return 8;
+    if (bytes2 > 1024)
+      return 4;
+    return 2;
+  };
+  var GHASH = class {
+    // We select bits per window adaptively based on expectedLength
+    constructor(key2, expectedLength) {
+      this.blockLen = BLOCK_SIZE;
+      this.outputLen = BLOCK_SIZE;
+      this.s0 = 0;
+      this.s1 = 0;
+      this.s2 = 0;
+      this.s3 = 0;
+      this.finished = false;
+      key2 = toBytes(key2);
+      abytes(key2, 16);
+      const kView = createView(key2);
+      let k0 = kView.getUint32(0, false);
+      let k1 = kView.getUint32(4, false);
+      let k2 = kView.getUint32(8, false);
+      let k3 = kView.getUint32(12, false);
+      const doubles = [];
+      for (let i = 0; i < 128; i++) {
+        doubles.push({ s0: swapLE(k0), s1: swapLE(k1), s2: swapLE(k2), s3: swapLE(k3) });
+        ({ s0: k0, s1: k1, s2: k2, s3: k3 } = mul2(k0, k1, k2, k3));
+      }
+      const W = estimateWindow(expectedLength || 1024);
+      if (![1, 2, 4, 8].includes(W))
+        throw new Error("ghash: invalid window size, expected 2, 4 or 8");
+      this.W = W;
+      const bits2 = 128;
+      const windows = bits2 / W;
+      const windowSize = this.windowSize = 2 ** W;
+      const items = [];
+      for (let w = 0; w < windows; w++) {
+        for (let byte = 0; byte < windowSize; byte++) {
+          let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+          for (let j = 0; j < W; j++) {
+            const bit = byte >>> W - j - 1 & 1;
+            if (!bit)
+              continue;
+            const { s0: d0, s1: d1, s2: d2, s3: d3 } = doubles[W * w + j];
+            s0 ^= d0, s1 ^= d1, s2 ^= d2, s3 ^= d3;
+          }
+          items.push({ s0, s1, s2, s3 });
+        }
+      }
+      this.t = items;
+    }
+    _updateBlock(s0, s1, s2, s3) {
+      s0 ^= this.s0, s1 ^= this.s1, s2 ^= this.s2, s3 ^= this.s3;
+      const { W, t, windowSize } = this;
+      let o0 = 0, o1 = 0, o2 = 0, o3 = 0;
+      const mask = (1 << W) - 1;
+      let w = 0;
+      for (const num of [s0, s1, s2, s3]) {
+        for (let bytePos = 0; bytePos < 4; bytePos++) {
+          const byte = num >>> 8 * bytePos & 255;
+          for (let bitPos = 8 / W - 1; bitPos >= 0; bitPos--) {
+            const bit = byte >>> W * bitPos & mask;
+            const { s0: e0, s1: e1, s2: e2, s3: e3 } = t[w * windowSize + bit];
+            o0 ^= e0, o1 ^= e1, o2 ^= e2, o3 ^= e3;
+            w += 1;
+          }
+        }
+      }
+      this.s0 = o0;
+      this.s1 = o1;
+      this.s2 = o2;
+      this.s3 = o3;
+    }
+    update(data) {
+      aexists(this);
+      data = toBytes(data);
+      abytes(data);
+      const b32 = u32(data);
+      const blocks = Math.floor(data.length / BLOCK_SIZE);
+      const left = data.length % BLOCK_SIZE;
+      for (let i = 0; i < blocks; i++) {
+        this._updateBlock(b32[i * 4 + 0], b32[i * 4 + 1], b32[i * 4 + 2], b32[i * 4 + 3]);
+      }
+      if (left) {
+        ZEROS16.set(data.subarray(blocks * BLOCK_SIZE));
+        this._updateBlock(ZEROS32[0], ZEROS32[1], ZEROS32[2], ZEROS32[3]);
+        clean(ZEROS32);
+      }
+      return this;
+    }
+    destroy() {
+      const { t } = this;
+      for (const elm of t) {
+        elm.s0 = 0, elm.s1 = 0, elm.s2 = 0, elm.s3 = 0;
+      }
+    }
+    digestInto(out) {
+      aexists(this);
+      aoutput(out, this);
+      this.finished = true;
+      const { s0, s1, s2, s3 } = this;
+      const o32 = u32(out);
+      o32[0] = s0;
+      o32[1] = s1;
+      o32[2] = s2;
+      o32[3] = s3;
+      return out;
+    }
+    digest() {
+      const res = new Uint8Array(BLOCK_SIZE);
+      this.digestInto(res);
+      this.destroy();
+      return res;
+    }
+  };
+  var Polyval = class extends GHASH {
+    constructor(key2, expectedLength) {
+      key2 = toBytes(key2);
+      abytes(key2);
+      const ghKey = _toGHASHKey(copyBytes(key2));
+      super(ghKey, expectedLength);
+      clean(ghKey);
+    }
+    update(data) {
+      data = toBytes(data);
+      aexists(this);
+      const b32 = u32(data);
+      const left = data.length % BLOCK_SIZE;
+      const blocks = Math.floor(data.length / BLOCK_SIZE);
+      for (let i = 0; i < blocks; i++) {
+        this._updateBlock(swapLE(b32[i * 4 + 3]), swapLE(b32[i * 4 + 2]), swapLE(b32[i * 4 + 1]), swapLE(b32[i * 4 + 0]));
+      }
+      if (left) {
+        ZEROS16.set(data.subarray(blocks * BLOCK_SIZE));
+        this._updateBlock(swapLE(ZEROS32[3]), swapLE(ZEROS32[2]), swapLE(ZEROS32[1]), swapLE(ZEROS32[0]));
+        clean(ZEROS32);
+      }
+      return this;
+    }
+    digestInto(out) {
+      aexists(this);
+      aoutput(out, this);
+      this.finished = true;
+      const { s0, s1, s2, s3 } = this;
+      const o32 = u32(out);
+      o32[0] = s0;
+      o32[1] = s1;
+      o32[2] = s2;
+      o32[3] = s3;
+      return out.reverse();
+    }
+  };
+  function wrapConstructorWithKey(hashCons) {
+    const hashC = (msg, key2) => hashCons(key2, msg.length).update(toBytes(msg)).digest();
+    const tmp = hashCons(new Uint8Array(16), 0);
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = (key2, expectedLength) => hashCons(key2, expectedLength);
+    return hashC;
+  }
+  var ghash = wrapConstructorWithKey((key2, expectedLength) => new GHASH(key2, expectedLength));
+  var polyval = wrapConstructorWithKey((key2, expectedLength) => new Polyval(key2, expectedLength));
+
+  // node_modules/@noble/ciphers/esm/aes.js
+  var BLOCK_SIZE2 = 16;
+  var BLOCK_SIZE32 = 4;
+  var EMPTY_BLOCK = /* @__PURE__ */ new Uint8Array(BLOCK_SIZE2);
+  var POLY2 = 283;
+  function mul22(n) {
+    return n << 1 ^ POLY2 & -(n >> 7);
+  }
+  function mul(a, b) {
+    let res = 0;
+    for (; b > 0; b >>= 1) {
+      res ^= a & -(b & 1);
+      a = mul22(a);
+    }
+    return res;
+  }
+  var sbox = /* @__PURE__ */ (() => {
+    const t = new Uint8Array(256);
+    for (let i = 0, x = 1; i < 256; i++, x ^= mul22(x))
+      t[i] = x;
+    const box = new Uint8Array(256);
+    box[0] = 99;
+    for (let i = 0; i < 255; i++) {
+      let x = t[255 - i];
+      x |= x << 8;
+      box[t[i]] = (x ^ x >> 4 ^ x >> 5 ^ x >> 6 ^ x >> 7 ^ 99) & 255;
+    }
+    clean(t);
+    return box;
+  })();
+  var rotr32_8 = (n) => n << 24 | n >>> 8;
+  var rotl32_8 = (n) => n << 8 | n >>> 24;
+  function genTtable(sbox2, fn) {
+    if (sbox2.length !== 256)
+      throw new Error("Wrong sbox length");
+    const T0 = new Uint32Array(256).map((_, j) => fn(sbox2[j]));
+    const T1 = T0.map(rotl32_8);
+    const T2 = T1.map(rotl32_8);
+    const T3 = T2.map(rotl32_8);
+    const T01 = new Uint32Array(256 * 256);
+    const T23 = new Uint32Array(256 * 256);
+    const sbox22 = new Uint16Array(256 * 256);
+    for (let i = 0; i < 256; i++) {
+      for (let j = 0; j < 256; j++) {
+        const idx = i * 256 + j;
+        T01[idx] = T0[i] ^ T1[j];
+        T23[idx] = T2[i] ^ T3[j];
+        sbox22[idx] = sbox2[i] << 8 | sbox2[j];
+      }
+    }
+    return { sbox: sbox2, sbox2: sbox22, T0, T1, T2, T3, T01, T23 };
+  }
+  var tableEncoding = /* @__PURE__ */ genTtable(sbox, (s) => mul(s, 3) << 24 | s << 16 | s << 8 | mul(s, 2));
+  var xPowers = /* @__PURE__ */ (() => {
+    const p = new Uint8Array(16);
+    for (let i = 0, x = 1; i < 16; i++, x = mul22(x))
+      p[i] = x;
+    return p;
+  })();
+  function expandKeyLE(key2) {
+    abytes(key2);
+    const len = key2.length;
+    if (![16, 24, 32].includes(len))
+      throw new Error("aes: invalid key size, should be 16, 24 or 32, got " + len);
+    const { sbox2 } = tableEncoding;
+    const toClean = [];
+    if (!isAligned32(key2))
+      toClean.push(key2 = copyBytes(key2));
+    const k32 = u32(key2);
+    const Nk = k32.length;
+    const subByte = (n) => applySbox(sbox2, n, n, n, n);
+    const xk = new Uint32Array(len + 28);
+    xk.set(k32);
+    for (let i = Nk; i < xk.length; i++) {
+      let t = xk[i - 1];
+      if (i % Nk === 0)
+        t = subByte(rotr32_8(t)) ^ xPowers[i / Nk - 1];
+      else if (Nk > 6 && i % Nk === 4)
+        t = subByte(t);
+      xk[i] = xk[i - Nk] ^ t;
+    }
+    clean(...toClean);
+    return xk;
+  }
+  function apply0123(T01, T23, s0, s1, s2, s3) {
+    return T01[s0 << 8 & 65280 | s1 >>> 8 & 255] ^ T23[s2 >>> 8 & 65280 | s3 >>> 24 & 255];
+  }
+  function applySbox(sbox2, s0, s1, s2, s3) {
+    return sbox2[s0 & 255 | s1 & 65280] | sbox2[s2 >>> 16 & 255 | s3 >>> 16 & 65280] << 16;
+  }
+  function encrypt(xk, s0, s1, s2, s3) {
+    const { sbox2, T01, T23 } = tableEncoding;
+    let k = 0;
+    s0 ^= xk[k++], s1 ^= xk[k++], s2 ^= xk[k++], s3 ^= xk[k++];
+    const rounds = xk.length / 4 - 2;
+    for (let i = 0; i < rounds; i++) {
+      const t02 = xk[k++] ^ apply0123(T01, T23, s0, s1, s2, s3);
+      const t12 = xk[k++] ^ apply0123(T01, T23, s1, s2, s3, s0);
+      const t22 = xk[k++] ^ apply0123(T01, T23, s2, s3, s0, s1);
+      const t32 = xk[k++] ^ apply0123(T01, T23, s3, s0, s1, s2);
+      s0 = t02, s1 = t12, s2 = t22, s3 = t32;
+    }
+    const t0 = xk[k++] ^ applySbox(sbox2, s0, s1, s2, s3);
+    const t1 = xk[k++] ^ applySbox(sbox2, s1, s2, s3, s0);
+    const t2 = xk[k++] ^ applySbox(sbox2, s2, s3, s0, s1);
+    const t3 = xk[k++] ^ applySbox(sbox2, s3, s0, s1, s2);
+    return { s0: t0, s1: t1, s2: t2, s3: t3 };
+  }
+  function ctr32(xk, isLE2, nonce, src, dst) {
+    abytes(nonce, BLOCK_SIZE2);
+    abytes(src);
+    dst = getOutput(src.length, dst);
+    const ctr = nonce;
+    const c32 = u32(ctr);
+    const view = createView(ctr);
+    const src32 = u32(src);
+    const dst32 = u32(dst);
+    const ctrPos = isLE2 ? 0 : 12;
+    const srcLen = src.length;
+    let ctrNum = view.getUint32(ctrPos, isLE2);
+    let { s0, s1, s2, s3 } = encrypt(xk, c32[0], c32[1], c32[2], c32[3]);
+    for (let i = 0; i + 4 <= src32.length; i += 4) {
+      dst32[i + 0] = src32[i + 0] ^ s0;
+      dst32[i + 1] = src32[i + 1] ^ s1;
+      dst32[i + 2] = src32[i + 2] ^ s2;
+      dst32[i + 3] = src32[i + 3] ^ s3;
+      ctrNum = ctrNum + 1 >>> 0;
+      view.setUint32(ctrPos, ctrNum, isLE2);
+      ({ s0, s1, s2, s3 } = encrypt(xk, c32[0], c32[1], c32[2], c32[3]));
+    }
+    const start = BLOCK_SIZE2 * Math.floor(src32.length / BLOCK_SIZE32);
+    if (start < srcLen) {
+      const b32 = new Uint32Array([s0, s1, s2, s3]);
+      const buf = u82(b32);
+      for (let i = start, pos = 0; i < srcLen; i++, pos++)
+        dst[i] = src[i] ^ buf[pos];
+      clean(b32);
+    }
+    return dst;
+  }
+  function computeTag(fn, isLE2, key2, data, AAD) {
+    const aadLength = AAD ? AAD.length : 0;
+    const h = fn.create(key2, data.length + aadLength);
+    if (AAD)
+      h.update(AAD);
+    const num = u64Lengths(8 * data.length, 8 * aadLength, isLE2);
+    h.update(data);
+    h.update(num);
+    const res = h.digest();
+    clean(num);
+    return res;
+  }
+  var gcm = /* @__PURE__ */ wrapCipher({ blockSize: 16, nonceLength: 12, tagLength: 16, varSizeNonce: true }, function aesgcm(key2, nonce, AAD) {
+    if (nonce.length < 8)
+      throw new Error("aes/gcm: invalid nonce length");
+    const tagLength = 16;
+    function _computeTag(authKey, tagMask, data) {
+      const tag = computeTag(ghash, false, authKey, data, AAD);
+      for (let i = 0; i < tagMask.length; i++)
+        tag[i] ^= tagMask[i];
+      return tag;
+    }
+    function deriveKeys() {
+      const xk = expandKeyLE(key2);
+      const authKey = EMPTY_BLOCK.slice();
+      const counter = EMPTY_BLOCK.slice();
+      ctr32(xk, false, counter, counter, authKey);
+      if (nonce.length === 12) {
+        counter.set(nonce);
+      } else {
+        const nonceLen = EMPTY_BLOCK.slice();
+        const view = createView(nonceLen);
+        setBigUint64(view, 8, BigInt(nonce.length * 8), false);
+        const g = ghash.create(authKey).update(nonce).update(nonceLen);
+        g.digestInto(counter);
+        g.destroy();
+      }
+      const tagMask = ctr32(xk, false, counter, EMPTY_BLOCK);
+      return { xk, authKey, counter, tagMask };
+    }
+    return {
+      encrypt(plaintext) {
+        const { xk, authKey, counter, tagMask } = deriveKeys();
+        const out = new Uint8Array(plaintext.length + tagLength);
+        const toClean = [xk, authKey, counter, tagMask];
+        if (!isAligned32(plaintext))
+          toClean.push(plaintext = copyBytes(plaintext));
+        ctr32(xk, false, counter, plaintext, out.subarray(0, plaintext.length));
+        const tag = _computeTag(authKey, tagMask, out.subarray(0, out.length - tagLength));
+        toClean.push(tag);
+        out.set(tag, plaintext.length);
+        clean(...toClean);
+        return out;
+      },
+      decrypt(ciphertext) {
+        const { xk, authKey, counter, tagMask } = deriveKeys();
+        const toClean = [xk, authKey, tagMask, counter];
+        if (!isAligned32(ciphertext))
+          toClean.push(ciphertext = copyBytes(ciphertext));
+        const data = ciphertext.subarray(0, -tagLength);
+        const passedTag = ciphertext.subarray(-tagLength);
+        const tag = _computeTag(authKey, tagMask, data);
+        toClean.push(tag);
+        if (!equalBytes(tag, passedTag))
+          throw new Error("aes/gcm: invalid ghash tag");
+        const out = ctr32(xk, false, counter, data);
+        clean(...toClean);
+        return out;
+      }
+    };
+  });
+
+  // node_modules/@noble/hashes/esm/utils.js
+  /*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+  function isBytes2(a) {
+    return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
+  }
+  function abytes2(b, ...lengths) {
+    if (!isBytes2(b))
+      throw new Error("Uint8Array expected");
+    if (lengths.length > 0 && !lengths.includes(b.length))
+      throw new Error("Uint8Array expected of length " + lengths + ", got length=" + b.length);
+  }
+  function aexists2(instance, checkFinished = true) {
+    if (instance.destroyed)
+      throw new Error("Hash instance has been destroyed");
+    if (checkFinished && instance.finished)
+      throw new Error("Hash#digest() has already been called");
+  }
+  function aoutput2(out, instance) {
+    abytes2(out);
+    const min = instance.outputLen;
+    if (out.length < min) {
+      throw new Error("digestInto() expects output buffer of length at least " + min);
+    }
+  }
+  function clean2(...arrays) {
+    for (let i = 0; i < arrays.length; i++) {
+      arrays[i].fill(0);
+    }
+  }
+  function createView2(arr) {
+    return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+  }
+  function rotr(word, shift) {
+    return word << 32 - shift | word >>> shift;
+  }
+  function utf8ToBytes2(str2) {
+    if (typeof str2 !== "string")
+      throw new Error("string expected");
+    return new Uint8Array(new TextEncoder().encode(str2));
+  }
+  function toBytes2(data) {
+    if (typeof data === "string")
+      data = utf8ToBytes2(data);
+    abytes2(data);
+    return data;
+  }
+  var Hash2 = class {
+  };
+  function createHasher(hashCons) {
+    const hashC = (msg) => hashCons().update(toBytes2(msg)).digest();
+    const tmp = hashCons();
+    hashC.outputLen = tmp.outputLen;
+    hashC.blockLen = tmp.blockLen;
+    hashC.create = () => hashCons();
+    return hashC;
+  }
+
+  // node_modules/@noble/hashes/esm/_md.js
+  function setBigUint642(view, byteOffset, value, isLE2) {
+    if (typeof view.setBigUint64 === "function")
+      return view.setBigUint64(byteOffset, value, isLE2);
+    const _32n = BigInt(32);
+    const _u32_max = BigInt(4294967295);
+    const wh = Number(value >> _32n & _u32_max);
+    const wl = Number(value & _u32_max);
+    const h = isLE2 ? 4 : 0;
+    const l = isLE2 ? 0 : 4;
+    view.setUint32(byteOffset + h, wh, isLE2);
+    view.setUint32(byteOffset + l, wl, isLE2);
+  }
+  function Chi(a, b, c) {
+    return a & b ^ ~a & c;
+  }
+  function Maj(a, b, c) {
+    return a & b ^ a & c ^ b & c;
+  }
+  var HashMD = class extends Hash2 {
+    constructor(blockLen, outputLen, padOffset, isLE2) {
+      super();
+      this.finished = false;
+      this.length = 0;
+      this.pos = 0;
+      this.destroyed = false;
+      this.blockLen = blockLen;
+      this.outputLen = outputLen;
+      this.padOffset = padOffset;
+      this.isLE = isLE2;
+      this.buffer = new Uint8Array(blockLen);
+      this.view = createView2(this.buffer);
+    }
+    update(data) {
+      aexists2(this);
+      data = toBytes2(data);
+      abytes2(data);
+      const { view, buffer, blockLen } = this;
+      const len = data.length;
+      for (let pos = 0; pos < len; ) {
+        const take = Math.min(blockLen - this.pos, len - pos);
+        if (take === blockLen) {
+          const dataView = createView2(data);
+          for (; blockLen <= len - pos; pos += blockLen)
+            this.process(dataView, pos);
+          continue;
+        }
+        buffer.set(data.subarray(pos, pos + take), this.pos);
+        this.pos += take;
+        pos += take;
+        if (this.pos === blockLen) {
+          this.process(view, 0);
+          this.pos = 0;
+        }
+      }
+      this.length += data.length;
+      this.roundClean();
+      return this;
+    }
+    digestInto(out) {
+      aexists2(this);
+      aoutput2(out, this);
+      this.finished = true;
+      const { buffer, view, blockLen, isLE: isLE2 } = this;
+      let { pos } = this;
+      buffer[pos++] = 128;
+      clean2(this.buffer.subarray(pos));
+      if (this.padOffset > blockLen - pos) {
+        this.process(view, 0);
+        pos = 0;
+      }
+      for (let i = pos; i < blockLen; i++)
+        buffer[i] = 0;
+      setBigUint642(view, blockLen - 8, BigInt(this.length * 8), isLE2);
+      this.process(view, 0);
+      const oview = createView2(out);
+      const len = this.outputLen;
+      if (len % 4)
+        throw new Error("_sha2: outputLen should be aligned to 32bit");
+      const outLen = len / 4;
+      const state = this.get();
+      if (outLen > state.length)
+        throw new Error("_sha2: outputLen bigger than state");
+      for (let i = 0; i < outLen; i++)
+        oview.setUint32(4 * i, state[i], isLE2);
+    }
+    digest() {
+      const { buffer, outputLen } = this;
+      this.digestInto(buffer);
+      const res = buffer.slice(0, outputLen);
+      this.destroy();
+      return res;
+    }
+    _cloneInto(to) {
+      to || (to = new this.constructor());
+      to.set(...this.get());
+      const { blockLen, buffer, length, finished, destroyed, pos } = this;
+      to.destroyed = destroyed;
+      to.finished = finished;
+      to.length = length;
+      to.pos = pos;
+      if (length % blockLen)
+        to.buffer.set(buffer);
+      return to;
+    }
+    clone() {
+      return this._cloneInto();
+    }
+  };
+  var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+    1779033703,
+    3144134277,
+    1013904242,
+    2773480762,
+    1359893119,
+    2600822924,
+    528734635,
+    1541459225
+  ]);
+
+  // node_modules/@noble/hashes/esm/sha2.js
+  var SHA256_K = /* @__PURE__ */ Uint32Array.from([
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ]);
+  var SHA256_W = /* @__PURE__ */ new Uint32Array(64);
+  var SHA256 = class extends HashMD {
+    constructor(outputLen = 32) {
+      super(64, outputLen, 8, false);
+      this.A = SHA256_IV[0] | 0;
+      this.B = SHA256_IV[1] | 0;
+      this.C = SHA256_IV[2] | 0;
+      this.D = SHA256_IV[3] | 0;
+      this.E = SHA256_IV[4] | 0;
+      this.F = SHA256_IV[5] | 0;
+      this.G = SHA256_IV[6] | 0;
+      this.H = SHA256_IV[7] | 0;
+    }
+    get() {
+      const { A, B, C, D, E, F, G, H } = this;
+      return [A, B, C, D, E, F, G, H];
+    }
+    // prettier-ignore
+    set(A, B, C, D, E, F, G, H) {
+      this.A = A | 0;
+      this.B = B | 0;
+      this.C = C | 0;
+      this.D = D | 0;
+      this.E = E | 0;
+      this.F = F | 0;
+      this.G = G | 0;
+      this.H = H | 0;
+    }
+    process(view, offset) {
+      for (let i = 0; i < 16; i++, offset += 4)
+        SHA256_W[i] = view.getUint32(offset, false);
+      for (let i = 16; i < 64; i++) {
+        const W15 = SHA256_W[i - 15];
+        const W2 = SHA256_W[i - 2];
+        const s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ W15 >>> 3;
+        const s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ W2 >>> 10;
+        SHA256_W[i] = s1 + SHA256_W[i - 7] + s0 + SHA256_W[i - 16] | 0;
+      }
+      let { A, B, C, D, E, F, G, H } = this;
+      for (let i = 0; i < 64; i++) {
+        const sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25);
+        const T1 = H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i] | 0;
+        const sigma0 = rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22);
+        const T2 = sigma0 + Maj(A, B, C) | 0;
+        H = G;
+        G = F;
+        F = E;
+        E = D + T1 | 0;
+        D = C;
+        C = B;
+        B = A;
+        A = T1 + T2 | 0;
+      }
+      A = A + this.A | 0;
+      B = B + this.B | 0;
+      C = C + this.C | 0;
+      D = D + this.D | 0;
+      E = E + this.E | 0;
+      F = F + this.F | 0;
+      G = G + this.G | 0;
+      H = H + this.H | 0;
+      this.set(A, B, C, D, E, F, G, H);
+    }
+    roundClean() {
+      clean2(SHA256_W);
+    }
+    destroy() {
+      this.set(0, 0, 0, 0, 0, 0, 0, 0);
+      clean2(this.buffer);
+    }
+  };
+  var sha256 = /* @__PURE__ */ createHasher(() => new SHA256());
+
+  // node_modules/@noble/hashes/esm/sha256.js
+  var sha2562 = sha256;
+
+  // src/preset-format.js
+  var PRESET_LIMIT = 8 * 1024 * 1024;
+  var key = sha2562(new TextEncoder().encode("risupreset"));
+  function expand(data) {
+    const chunks = [];
+    let size = 0;
+    const inflater = new Decompress((chunk) => {
+      size += chunk.length;
+      assert(size <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uC555\uCD95 \uD574\uC81C \uD06C\uAE30\uAC00 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+      chunks.push(chunk);
+    });
+    for (let i = 0; i < data.length; i += 2048) inflater.push(data.subarray(i, i + 2048), i + 2048 >= data.length);
+    const output = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return output;
+  }
+  function checkTree(value, depth = 0, count = { n: 0 }) {
+    assert(depth < 70 && ++count.n < 2e5, "\uD504\uB9AC\uC14B\uC758 \uB370\uC774\uD130 \uAD6C\uC870\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4.");
+    if (!value || typeof value !== "object") return;
+    for (const [k, v] of Object.entries(value)) {
+      assert(!["__proto__", "constructor", "prototype"].includes(k), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD504\uB9AC\uC14B \uD0A4: " + k);
+      checkTree(v, depth + 1, count);
+    }
+  }
+  var allowed = ["name", "description", "mainPrompt", "jailbreak", "jailbreakToggle", "chainOfThought", "globalNote", "promptTemplate", "formatingOrder", "customPromptTemplateToggle", "templateDefaultVariables", "promptSettings", "promptBlockOverlay", "moduleIntergration", "regex"];
+  function normalizePreset(raw) {
+    assert(raw && typeof raw === "object" && !Array.isArray(raw), "\uD504\uB9AC\uC14B \uAC1D\uCCB4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
+    checkTree(raw);
+    assert(["promptTemplate", "mainPrompt", "formatingOrder", "customPromptTemplateToggle"].some((k) => Object.hasOwn(raw, k)), "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B \uD544\uB4DC\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    const result = {};
+    for (const k of allowed) if (Object.hasOwn(raw, k)) result[k] = clone(raw[k]);
+    for (const k of ["name", "description", "mainPrompt", "jailbreak", "globalNote", "customPromptTemplateToggle", "templateDefaultVariables", "moduleIntergration"]) {
+      if (result[k] === void 0) result[k] = "";
+      assert(typeof result[k] === "string", "\uD504\uB9AC\uC14B \uBB38\uC790\uC5F4 \uD615\uC2DD \uC624\uB958: " + k);
+    }
+    result.name ||= "\uAC00\uC838\uC628 \uD504\uB9AC\uC14B";
+    for (const k of ["jailbreakToggle", "chainOfThought"]) if (k in result) assert(typeof result[k] === "boolean", "\uD504\uB86C\uD504\uD2B8 \uD65C\uC131\uD654 \uC124\uC815 \uD615\uC2DD \uC624\uB958: " + k);
+    if (result.regex !== void 0) assert(Array.isArray(result.regex), "\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD\uC740 \uBC30\uC5F4\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.");
+    if (result.promptBlockOverlay !== void 0) assert(result.promptBlockOverlay && typeof result.promptBlockOverlay === "object" && !Array.isArray(result.promptBlockOverlay), "\uC624\uBC84\uB808\uC774 \uC124\uC815\uC740 \uAC1D\uCCB4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    if (result.promptSettings !== void 0) assert(result.promptSettings && typeof result.promptSettings === "object" && !Array.isArray(result.promptSettings), "\uD504\uB86C\uD504\uD2B8 \uC635\uC158\uC740 \uAC1D\uCCB4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    if (result.promptTemplate == null) result.promptTemplate = legacyBlocks(result);
+    assert(Array.isArray(result.promptTemplate) && result.promptTemplate.length <= 500, "\uD504\uB86C\uD504\uD2B8 \uBE14\uB85D\uC740 500\uAC1C \uC774\uD558 \uBC30\uC5F4\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.");
+    for (const b of result.promptTemplate) {
+      assert(b && typeof b === "object" && !Array.isArray(b) && typeof b.type === "string", "\uC798\uBABB\uB41C \uD504\uB86C\uD504\uD2B8 \uBE14\uB85D\uC785\uB2C8\uB2E4.");
+      for (const k of ["text", "innerFormat", "defaultText", "name"]) if (k in b) assert(typeof b[k] === "string", "\uBE14\uB85D \uBB38\uC790\uC5F4 \uD615\uC2DD \uC624\uB958: " + k);
+      if ("enabled" in b) assert(typeof b.enabled === "boolean", "\uBE14\uB85D \uD65C\uC131\uD654 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT, "\uD504\uB9AC\uC14B\uC774 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    return result;
+  }
+  function legacyBlocks(p) {
+    const order = p.formatingOrder ?? ["main", "description", "personaPrompt", "lorebook", "chats", "lastChat", "globalNote", "authorNote"];
+    assert(Array.isArray(order), "\uAD6C\uD615 \uD504\uB86C\uD504\uD2B8 \uC21C\uC11C\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return order.map((type) => {
+      if (["main", "jailbreak", "globalNote"].includes(type)) return { type: "plain", type2: type === "jailbreak" ? "normal" : type, name: type, role: "system", text: p[type === "main" ? "mainPrompt" : type] ?? "" };
+      if (type === "chats") return { type: "chat", rangeStart: 0, rangeEnd: -1 };
+      if (type === "lastChat") return { type: "chat", rangeStart: -1, rangeEnd: "end" };
+      if (type === "personaPrompt") return { type: "persona" };
+      if (type === "authorNote") return { type: "authornote" };
+      return { type };
+    });
+  }
+  function decodePreset(data, name = "preset.risup") {
+    assert(data instanceof Uint8Array && data.length <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uD30C\uC77C\uC740 8MiB \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    let raw;
+    if (/\.(risup|risupreset)$/i.test(name)) {
+      const packed = /\.risup$/i.test(name) ? data.map((x) => rpackMap[x + 256]) : data;
+      let wrapper;
+      try {
+        wrapper = (0, import_index_no_eval.decode)(expand(packed));
+      } catch (error) {
+        throw new Error("\uD504\uB9AC\uC14B \uC555\uCD95\xB7MessagePack\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: " + error.message);
+      }
+      assert(wrapper && [0, 2].includes(wrapper.presetVersion) && wrapper.type === "preset", "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uD504\uB9AC\uC14B \uD30C\uC77C \uBC84\uC804\uC785\uB2C8\uB2E4.");
+      const encrypted = wrapper.preset ?? wrapper.pres;
+      assert(encrypted instanceof Uint8Array && encrypted.length <= PRESET_LIMIT, "\uC554\uD638\uD654\uB41C \uD504\uB9AC\uC14B \uBCF8\uBB38\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      try {
+        raw = (0, import_index_no_eval.decode)(gcm(key, new Uint8Array(12)).decrypt(encrypted));
+      } catch {
+        throw new Error("\uD504\uB9AC\uC14B \uBCF5\uD638\uD654\xB7\uBCF8\uBB38 \uD574\uC11D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uD30C\uC77C \uC190\uC0C1 \uB610\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uD615\uC2DD\uC785\uB2C8\uB2E4.");
+      }
+    } else {
+      try {
+        raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(data));
+      } catch {
+        throw new Error("UTF-8 \uD504\uB9AC\uC14B JSON\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      }
+    }
+    const result = normalizePreset(raw);
+    for (const block of result.promptTemplate) {
+      delete block.workshopError;
+      delete block.workshopDraft;
+    }
+    return result;
+  }
+
+  // src/preset-v2.js
+  function parseToggleSyntax(template) {
+    const parsed = [];
+    for (const line of template.split("\n")) {
+      const [key2, value, type, option] = line.replace(/\r$/, "").split("=");
+      if (["group", "groupEnd", "divider"].includes(type)) parsed.push({ key: key2, value, type });
+      else if (type === "caption" && value) parsed.push({ key: key2, value, type });
+      else if (key2 && value) parsed.push({ key: key2, value, type: ["select", "text", "textarea"].includes(type) ? type : "switch", options: option?.split(",") ?? [] });
+    }
+    return parsed;
+  }
+  function parseToggleTree(template) {
+    const items = [], definitions = [], stack = [];
+    const target = () => stack.at(-1)?.children ?? items;
+    for (const toggle of parseToggleSyntax(template)) {
+      if (toggle.type === "group") {
+        const g = { type: "group", label: toggle.value ?? "", children: [] };
+        target().push(g);
+        stack.push(g);
+      } else if (toggle.type === "groupEnd") stack.pop();
+      else if (["caption", "divider"].includes(toggle.type)) target().push({ type: toggle.type, label: toggle.value ?? "" });
+      else {
+        const definition = { ...toggle, key: "toggle_" + toggle.key, rawKey: toggle.key, label: toggle.value, group: stack.at(-1)?.label };
+        definitions.push(definition);
+        target().push({ type: "toggle", definition });
+      }
+    }
+    return { items, definitions };
+  }
+  var toggleDefault = (definition) => ["text", "textarea"].includes(definition.type) ? "" : "0";
+  var ops = { is: "equal", isnot: "notequal", greater: "greater", greaterequal: "greater_equal", less: "less", lessequal: "less_equal" };
+  var safeArg = (value) => typeof value === "string" && value.length > 0 && !/[{}\r\n]/.test(value) && !value.includes("::");
+  function compileV2(body, activation) {
+    if (!activation?.conditions.length) return body;
+    if (!["and", "or"].includes(activation.join)) throw new Error("\uC870\uAC74 \uACB0\uD569\uC740 and/or\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    const expression = activation.conditions.map((c) => {
+      if (!safeArg(c.key) || !safeArg(c.value) || !ops[c.operator]) throw new Error("\uC870\uAC74 \uD0A4\xB7\uAC12\uC5D0\uB294 \uC911\uAD04\uD638\xB7\uC904\uBC14\uAFC8\xB7::\uB97C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return "{{" + ops[c.operator] + "::{{getglobalvar::" + c.key + "}}::" + c.value + "}}";
+    }).join("::" + activation.join + "::");
+    return "{{#when::keep::" + expression + "}}\n" + body + "\n{{/when}}";
+  }
+  function parseV2(source) {
+    const wrapper = source.match(/^\{\{#when::keep::(.+)\}\}\r?\n([\s\S]*)\r?\n\{\{\/when\}\}$/);
+    if (!wrapper) return { body: source, activation: null };
+    const comparison = /\{\{(equal|notequal|greater|greater_equal|less|less_equal)::\{\{getglobalvar::([^{}\r\n]+)\}\}::([^{}\r\n]+)\}\}/y;
+    const conditions = [], joins = [];
+    let cursor = 0;
+    while (cursor < wrapper[1].length) {
+      comparison.lastIndex = cursor;
+      const m = comparison.exec(wrapper[1]);
+      if (!m) return { body: source, activation: null };
+      conditions.push({ key: m[2], operator: Object.keys(ops).find((k) => ops[k] === m[1]), value: m[3] });
+      cursor = comparison.lastIndex;
+      if (cursor === wrapper[1].length) break;
+      const separator = wrapper[1].slice(cursor).match(/^::(and|or)::/);
+      if (!separator) return { body: source, activation: null };
+      joins.push(separator[1]);
+      cursor += separator[0].length;
+    }
+    if (!conditions.length || joins.some((j) => j !== joins[0])) return { body: source, activation: null };
+    return { body: wrapper[2], activation: { join: joins[0] ?? "and", conditions } };
+  }
+
+  // src/preset-engine.js
+  function newPresetState() {
+    return { schemaVersion: 1, mode: "direct", preset: null, values: {}, selected: 0, pane: "blocks", environment: { userName: "\uC0AC\uC6A9\uC790", persona: "", authorNote: "", memory: "", globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
+  }
+  function validatePresetState(raw) {
+    assert(raw?.schemaVersion === 1 && ["direct", "preset"].includes(raw.mode), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uACF5\uBC29 \uD504\uB9AC\uC14B \uC124\uC815\uC785\uB2C8\uB2E4.");
+    const result = { ...newPresetState(), ...clone(raw) };
+    if (result.preset) result.preset = normalizePreset(result.preset);
+    assert(result.values && typeof result.values === "object" && !Array.isArray(result.values), "\uD1A0\uAE00 \uAC12 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    result.environment = { ...newPresetState().environment, ...result.environment };
+    for (const key2 of ["userName", "persona", "authorNote", "memory"]) assert(typeof result.environment[key2] === "string", "\uD504\uB9AC\uC14B \uCC38\uACE0\uC790\uB8CC \uD615\uC2DD \uC624\uB958: " + key2);
+    assert(result.environment.globals && typeof result.environment.globals === "object" && !Array.isArray(result.environment.globals), "\uCD94\uAC00 \uC804\uC5ED \uBCC0\uC218\uB294 JSON \uAC1D\uCCB4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    for (const values of [result.values, result.environment.globals]) for (const [key2, value] of Object.entries(values)) {
+      assert(!["__proto__", "constructor", "prototype"].includes(key2) && typeof value === "string", "\uBCC0\uC218\uC758 \uD0A4\xB7\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    result.excluded = { ...newPresetState().excluded, ...result.excluded };
+    for (const key2 of ["regex", "modules", "overlay"]) assert(typeof result.excluded[key2] === "boolean", "\uC81C\uC678 \uC124\uC815\uC740 \uCC38/\uAC70\uC9D3\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4: " + key2);
+    assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT * 2, "\uD504\uB9AC\uC14B \uC791\uC5C5 \uC0C1\uD0DC\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4.");
+    return result;
+  }
+  function toggleDefinitions(preset) {
+    const tree = parseToggleTree(preset?.customPromptTemplateToggle ?? "");
+    assert(tree.definitions.length <= 300, "\uD1A0\uAE00\uC740 300\uAC1C \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    const names = /* @__PURE__ */ new Set();
+    for (const d of tree.definitions) {
+      assert(!names.has(d.key), "\uC911\uBCF5 \uD1A0\uAE00 \uD0A4: " + d.rawKey);
+      names.add(d.key);
+      assert(!/[{}\r\n]/.test(d.key) && !d.key.includes("::"), "\uD1A0\uAE00 \uD0A4\uC5D0 \uC911\uAD04\uD638\xB7\uC904\uBC14\uAFC8\xB7::\uB97C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    }
+    return tree;
+  }
+  function presetValues(state) {
+    const r = { ...state.environment.globals };
+    for (const d of toggleDefinitions(state.preset).definitions) {
+      const value = state.values[d.key] ?? toggleDefault(d);
+      if (d.type === "switch") assert(["0", "1"].includes(value), "\uC2A4\uC704\uCE58 \uD1A0\uAE00 \uAC12\uC740 0/1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4: " + d.rawKey);
+      if (d.type === "select") assert(/^\d+$/.test(value) && Number(value) < d.options.length, "\uC120\uD0DD\uD615 \uD1A0\uAE00 \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: " + d.rawKey);
+      r[d.key] = value;
+    }
+    return r;
+  }
+  function tokenize(source) {
+    assert(source.length <= 1048576, "\uBE14\uB85D \uC6D0\uBB38\uC774 1MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    let position = 0, count = 0;
+    function pieces(depth, inMacro) {
+      assert(depth < 50, "CBS \uC911\uCCA9\uC774 \uB108\uBB34 \uAE4A\uC2B5\uB2C8\uB2E4.");
+      const parts = [[]];
+      let text = "";
+      const flush = () => {
+        if (text) {
+          parts.at(-1).push({ kind: "text", text });
+          text = "";
+        }
+      };
+      while (position < source.length) {
+        assert(++count < 2e6, "CBS \uCC98\uB9AC \uD55C\uB3C4\uC5D0 \uB3C4\uB2EC\uD588\uC2B5\uB2C8\uB2E4.");
+        if (source.startsWith("{{", position)) {
+          flush();
+          position += 2;
+          const nested = pieces(depth + 1, true);
+          parts.at(-1).push({ kind: "macro", parts: nested });
+        } else if (inMacro && source.startsWith("}}", position)) {
+          flush();
+          position += 2;
+          return parts;
+        } else if (inMacro && source.startsWith("::", position)) {
+          flush();
+          parts.push([]);
+          position += 2;
+        } else {
+          text += source[position++];
+        }
+      }
+      flush();
+      assert(!inMacro, "CBS \uB2EB\uB294 \uC911\uAD04\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return parts;
+    }
+    const nodes = pieces(0, false)[0];
+    let cursor = 0;
+    function group(closing, depth = 0) {
+      assert(depth < 50, "CBS \uBE14\uB85D \uC911\uCCA9\uC774 \uB108\uBB34 \uAE4A\uC2B5\uB2C8\uB2E4.");
+      const children = [];
+      while (cursor < nodes.length) {
+        const node = nodes[cursor++], head = node.kind === "macro" ? (node.parts[0][0]?.text ?? "").trim() : "";
+        if (head === "else" || head === "#else") {
+          assert(closing, "\uB2E8\uB3C5 else \uBB38\uC785\uB2C8\uB2E4.");
+          return { children, otherwise: true };
+        }
+        if (head.startsWith("/") && !head.startsWith("//")) {
+          assert(head.slice(1) === closing, "CBS \uBE14\uB85D\uC758 \uB2EB\uB294 \uD0DC\uADF8\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+          return { children, otherwise: false };
+        }
+        if (head.startsWith("#")) {
+          const name = head.split(/\s/)[0].slice(1), first = group(name, depth + 1);
+          const second = first.otherwise ? group(name, depth + 1) : { children: [] };
+          children.push({ kind: "block", name, opening: node, yes: first.children, no: second.children });
+        } else children.push(node);
+      }
+      assert(!closing, "CBS \uBE14\uB85D \uB2EB\uB294 \uD0DC\uADF8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4: " + closing);
+      return { children };
+    }
+    return group(null).children;
+  }
+  var truth = (value) => !["", "0", "false", "null", "undefined", "NaN"].includes(String(value).trim());
+  function logic(values) {
+    if (values.length === 1) return truth(values[0]);
+    assert(values.length % 2 === 1, "\uC870\uAC74\uC2DD\uC758 \uAC12\uACFC and/or \uC218\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const joins = values.filter((_, i) => i % 2 === 1);
+    assert(joins.every((v) => v === "and" || v === "or") && joins.every((v) => v === joins[0]), "\uD63C\uD569 \uC870\uAC74\uC2DD\uC740 and \uB610\uB294 or\uB85C \uB098\uB220 \uC911\uCCA9\uD574 \uC8FC\uC138\uC694.");
+    const flags = values.filter((_, i) => i % 2 === 0).map(truth);
+    return joins[0] === "or" ? flags.some(Boolean) : flags.every(Boolean);
+  }
+  function evaluate(nodes, context) {
+    const render = (list) => {
+      let out2 = "";
+      for (const node of list) {
+        out2 += one(node);
+        assert(out2.length <= 2097152, "CBS \uCD9C\uB825 \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+      }
+      return out2;
+    };
+    const part = (p) => render(p);
+    function one(node) {
+      if (node.kind === "text") return node.text;
+      if (node.kind === "block") {
+        assert(["if", "if_pure", "when"].includes(node.name), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 CBS \uBE14\uB85D: #" + node.name);
+        let values;
+        if (node.name === "when") {
+          values = node.opening.parts.slice(1).map(part);
+          if (values[0] === "keep") values.shift();
+        } else values = [part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/, "")];
+        return render(logic(values) ? node.yes : node.no);
+      }
+      const head = part(node.parts[0]).trim(), name = head.toLowerCase(), args = node.parts.slice(1).map(part);
+      if (head.startsWith("//") || head.startsWith("!")) return "";
+      if (Object.hasOwn(context.fields, name)) {
+        assert(!args.length, "\uC778\uC790 \uC5C6\uB294 CBS \uD45C\uAE30\uC785\uB2C8\uB2E4: " + head);
+        return context.fields[name];
+      }
+      if (name === "getglobalvar") {
+        assert(args.length === 1, "getglobalvar \uC778\uC790 \uC624\uB958");
+        assert(Object.hasOwn(context.globals, args[0]), "\uAC12\uC774 \uC5C6\uB294 \uC804\uC5ED \uBCC0\uC218: " + args[0] + " (\uD1A0\uAE00 \uB610\uB294 \uCD94\uAC00 \uC804\uC5ED \uBCC0\uC218\uC5D0\uC11C \uC124\uC815\uD558\uC138\uC694)");
+        return context.globals[args[0]];
+      }
+      if (name === "getvar") {
+        assert(args.length === 1, "getvar \uC778\uC790 \uC624\uB958");
+        return Object.hasOwn(context.variables, args[0]) ? context.variables[args[0]] : "null";
+      }
+      if (["equal", "notequal", "greater", "greater_equal", "less", "less_equal"].includes(name)) {
+        assert(args.length === 2, "\uBE44\uAD50\uC2DD\uC5D0\uB294 \uAC12 2\uAC1C\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4: " + name);
+        const [a, b] = args;
+        if (name === "equal") return a === b ? "1" : "0";
+        if (name === "notequal") return a !== b ? "1" : "0";
+        const x = Number(a), y = Number(b);
+        assert(Number.isFinite(x) && Number.isFinite(y), "\uC22B\uC790 \uBE44\uAD50\uC5D0 \uC22B\uC790\uAC00 \uC544\uB2CC \uAC12\uC774 \uC788\uC2B5\uB2C8\uB2E4.");
+        return { greater: x > y, greater_equal: x >= y, less: x < y, less_equal: x <= y }[name] ? "1" : "0";
+      }
+      if (name === "and") return args.every(truth) ? "1" : "0";
+      if (name === "or") return args.some(truth) ? "1" : "0";
+      if (name === "not") {
+        assert(args.length === 1, "not \uC778\uC790 \uC624\uB958");
+        return truth(args[0]) ? "0" : "1";
+      }
+      if (name === "trim") {
+        if (args.length) return args.join("::").trim();
+        context.trim = true;
+        return "";
+      }
+      if (name === "lower") return args.join("::").toLowerCase();
+      if (name === "upper") return args.join("::").toUpperCase();
+      throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 CBS: " + head);
+    }
+    const out = render(nodes);
+    return context.trim ? out.trim() : out;
+  }
+  function renderPresetText(source, context) {
+    const value = evaluate(tokenize(source), { ...context, trim: false });
+    assert(bytes(value) <= 2097152, "CBS \uCD9C\uB825\uC774 2MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    return value;
+  }
+  function range(block, count) {
+    let start = block.rangeStart ?? 0, end = block.rangeEnd ?? "end";
+    assert(Number.isInteger(start) && (end === "end" || Number.isInteger(end)), "\uCC44\uD305 \uBC94\uC704\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (start === -1e3) return [0, count];
+    if (end === "end") end = count;
+    if (start < 0) start = Math.max(0, count + start);
+    if (end < 0) end = Math.max(0, count + end);
+    return [start, Math.min(end, count)];
+  }
+  var roles = { system: "system", user: "user", bot: "assistant", assistant: "assistant" };
+  var role = (value) => Object.hasOwn(roles, value) ? roles[value] : void 0;
+  var BLOCK_TYPES = [["plain", "\uC77C\uBC18 \uD504\uB86C\uD504\uD2B8"], ["chat", "\uC81C\uC791 \uB300\uD654"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["persona", "\uD398\uB974\uC18C\uB098"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["authornote", "\uC791\uAC00 \uB178\uD2B8"], ["postEverything", "\uB9C8\uC9C0\uB9C9 \uC9C0\uC2DC"], ["memory", "\uBA54\uBAA8\uB9AC \uC785\uB825"], ["chatML", "ChatML"], ["jailbreak", "\uAD6C\uD615 \uCD94\uAC00 \uD504\uB86C\uD504\uD2B8"], ["cot", "\uAD6C\uD615 CoT \uBE14\uB85D"], ["cache", "\uCE90\uC2DC \uC9C0\uC810 (\uBBF8\uC9C0\uC6D0)"]];
+  function assemblePreset(rawState, session, task, directMessages) {
+    const state = validatePresetState(rawState), p = state.preset;
+    assert(p, "\uBA3C\uC800 \uD504\uB9AC\uC14B \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.");
+    const globals = presetValues(state), variables2 = { ...parseVariables(p.templateDefaultVariables), ...parseVariables(session.draft.defaultVariables ?? "") };
+    const d = session.draft, env = state.environment;
+    const lore = (d.globalLore ?? []).map((l) => "[" + (l.comment || l.key) + "]\n" + l.content).join("\n\n");
+    const currentUser = { role: "user", content: "[\uACF5\uBC29 \uC791\uC5C5 \uC9C0\uCE68]\n" + directMessages[0].content + "\n\n" + directMessages[1].content };
+    const history = session.thread.filter((m) => !m.error && ["user", "assistant"].includes(m.role)).map((m) => ({ role: m.role, content: m.content }));
+    const chats = [...history, currentUser];
+    const context = { globals, variables: variables2, fields: { char: d.name ?? "", user: env.userName, description: d.desc ?? "", personality: d.personality ?? "", scenario: d.scenario ?? "", persona: env.persona, firstmessage: d.firstMessage ?? "", first_message: d.firstMessage ?? "", systemprompt: d.systemPrompt ?? "", lorebook: lore, chatindex: String(chats.length - 1), lastusermessage: currentUser.content, lastcharmessage: history.findLast((m) => m.role === "assistant")?.content ?? "", original: p.mainPrompt, slot: "" } };
+    const messages = [], trace = [], issues = [];
+    let userCount = 0;
+    if (p.moduleIntergration && !state.excluded.modules) issues.push("\uC678\uBD80 \uBAA8\uB4C8 \uCC38\uC870\uB294 \uAC00\uC838\uC628 \uD30C\uC77C\uB9CC\uC73C\uB85C \uC7AC\uD604\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
+    if (p.regex?.length && !state.excluded.regex) issues.push("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uD30C\uC774\uD504\uB77C\uC778\uC740 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
+    if (p.promptBlockOverlay?.enabled && !state.excluded.overlay) issues.push("\uBCF4\uC870 \uD504\uB86C\uD504\uD2B8 \uC624\uBC84\uB808\uC774\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
+    for (const option of ["sendChatAsSystem", "sendName", "utilOverride", "customChainOfThought"]) if (p.promptSettings?.[option]) issues.push("\uBBF8\uC9C0\uC6D0 \uD504\uB86C\uD504\uD2B8 \uC635\uC158: " + option + " (\uACE0\uAE09 JSON\uC5D0\uC11C \uD574\uC81C\uD558\uC138\uC694)");
+    let size = 0;
+    const push = (r, content, blockIndex, current = false) => {
+      assert(role(r), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uBA54\uC2DC\uC9C0 \uC5ED\uD560: " + r);
+      size += bytes(content);
+      assert(size <= 4 * 1024 * 1024, "\uC870\uB9BD\uB41C \uD504\uB86C\uD504\uD2B8\uAC00 4MiB \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+      if (current) userCount++;
+      if (content) messages.push({ role: role(r), content });
+      assert(messages.length <= 3e3, "\uC804\uC1A1 \uBA54\uC2DC\uC9C0\uAC00 3,000\uAC1C\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    };
+    for (const [i, b] of p.promptTemplate.entries()) {
+      const record = { index: i, name: b.name || b.type, type: b.type, status: "excluded", messages: 0 };
+      trace.push(record);
+      if (b.enabled === false) continue;
+      if (b.type === "jailbreak" && p.jailbreakToggle === false || b.type === "cot" && p.chainOfThought === false) {
+        record.reason = "\uD504\uB9AC\uC14B\uC758 \uAD6C\uD615 \uBE14\uB85D \uD65C\uC131\uD654 \uC124\uC815\uC774 \uAEBC\uC838 \uC788\uC2B5\uB2C8\uB2E4.";
+        continue;
+      }
+      const before = messages.length;
+      try {
+        assert(!b.workshopError, b.workshopError);
+        if (["plain", "jailbreak", "cot"].includes(b.type)) push(b.role ?? "system", renderPresetText(b.text ?? "", context), i);
+        else if (b.type === "chat") {
+          const [start, end] = range(b, chats.length);
+          for (const m of chats.slice(start, Math.max(start, end))) push(m.role, m.content, i, m === currentUser);
+        } else if (["description", "persona", "lorebook", "authornote", "memory", "postEverything"].includes(b.type)) {
+          const values = { description: d.desc ?? "", persona: env.persona, lorebook: lore, authornote: env.authorNote || b.defaultText || "", memory: env.memory, postEverything: p.promptSettings?.postEndInnerFormat ?? "" };
+          let text = values[b.type];
+          if (text && (b.type === "postEverything" || b.type === "authornote" && !env.authorNote)) text = renderPresetText(text, context);
+          if (text && b.innerFormat) {
+            assert(b.innerFormat.includes("{{slot}}"), "\uAC10\uC2F8\uB294 \uC11C\uC2DD\uC5D0 {{slot}}\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+            text = renderPresetText(b.innerFormat, { ...context, fields: { ...context.fields, slot: text } });
+          }
+          push(b.role2 ?? "system", text, i);
+        } else if (b.type === "chatML") {
+          const text = renderPresetText(b.text ?? "", context), regex = /<\|im_start\|>(system|user|assistant)\r?\n([\s\S]*?)(?:<\|im_end\|>|$)/g;
+          let match, position = 0;
+          while (match = regex.exec(text)) {
+            assert(!text.slice(position, match.index).trim(), "ChatML \uC2DC\uC791 \uD45C\uAE30 \uC55E\uC5D0 \uD574\uC11D\uD560 \uC218 \uC5C6\uB294 \uB0B4\uC6A9\uC774 \uC788\uC2B5\uB2C8\uB2E4.");
+            push(match[1], match[2], i);
+            position = regex.lastIndex;
+          }
+          assert(position > 0 && !text.slice(position).trim(), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 ChatML \uD615\uC2DD\uC785\uB2C8\uB2E4.");
+        } else throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uBE14\uB85D \uC720\uD615: " + b.type);
+        record.status = messages.length > before ? "included" : "empty";
+        record.messages = messages.length - before;
+      } catch (error) {
+        record.status = "error";
+        record.error = error.message;
+        issues.push(i + 1 + ". " + record.name + ": " + error.message);
+      }
+    }
+    if (p.promptSettings?.assistantPrefill) {
+      try {
+        push("assistant", renderPresetText(p.promptSettings.assistantPrefill, context), -1);
+      } catch (error) {
+        issues.push("Assistant prefill: " + error.message);
+      }
+    }
+    if (userCount !== 1) issues.push("\uC774\uBC88 \uACF5\uBC29 \uC694\uCCAD\uC744 \uD3EC\uD568\uD558\uB294 \uCC44\uD305 \uBE14\uB85D\uC774 \uC815\uD655\uD788 1\uAC1C\uC5EC\uC57C \uD569\uB2C8\uB2E4. \uD604\uC7AC " + userCount + "\uD68C \uD3EC\uD568\uB410\uC2B5\uB2C8\uB2E4.");
+    return { messages, trace, issues, globals, notes: ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uC758 \uC804\uCCB4 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."] };
+  }
+
+  // src/preset-ui.js
+  async function importPresetFile(app) {
+    const file = await app.file(".risup,.risupreset,.json,.preset");
+    if (!file) return;
+    assert(file.size <= 8 * 1024 * 1024, "\uD504\uB9AC\uC14B \uD30C\uC77C\uC740 8MiB \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    const id = app.s.sessionId, data = new Uint8Array(await file.arrayBuffer());
+    assert(app.s.sessionId === id, "\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+    await applyImportedPreset(app, data, file.name);
+  }
+  async function applyImportedPreset(app, data, name) {
+    const id = app.s.sessionId;
+    await tick();
+    const preset = decodePreset(data, name);
+    assert(app.s.sessionId === id, "\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+    toggleDefinitions(preset);
+    const next = { ...newPresetState(), mode: "preset", preset };
+    app.s.preset = next;
+    app.presetChanged();
+    await savePresetWorkspace(app);
+    app.s.tab = "preset";
+    app.view = "editor";
+    app.render();
+    app.toast("\uD504\uB9AC\uC14B\uC744 \uACF5\uBC29\uC73C\uB85C \uAC00\uC838\uC654\uC2B5\uB2C8\uB2E4. \uD1A0\uAE00\uACFC \uC804\uC1A1 \uB0B4\uC6A9\uC744 \uD655\uC778\uD558\uC138\uC694.");
+  }
+  async function savePresetWorkspace(app) {
+    const value = validatePresetState(app.s.preset);
+    await app.store("preset-workspace", value);
+    app.savedPreset = clone(value);
+  }
+  function exportJson(app) {
+    const data = normalizePreset(app.s.preset.preset);
+    assert(!data.promptTemplate.some((b) => b.workshopError), "\uC801\uC6A9\uD558\uC9C0 \uBABB\uD55C \uC870\uAC74 \uD3B8\uC9D1\uC744 \uBA3C\uC800 \uC218\uC815\uD558\uC138\uC694.");
+    data.promptTemplate = data.promptTemplate.filter((b) => b.enabled !== false).map((b) => {
+      delete b.enabled;
+      delete b.workshopError;
+      delete b.workshopDraft;
+      return b;
+    });
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    const a = app.h("a", { href: url, download: (data.name || "preset").replace(/[<>:"/\\|?*]/g, "_") + ".json" });
+    app.doc.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 6e4);
+  }
+  function renderPresetEditor(app, host) {
+    const h = app.h.bind(app), state = app.s.preset, p = state.preset;
+    const change = () => app.presetChanged();
+    const redraw = () => app.renderEditor();
+    host.append(h("div", { class: "row" }, app.b("\uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30", () => importPresetFile(app), "primary", { "data-action": "import-preset" }), app.b("\uD504\uB9AC\uC14B \uC124\uC815 \uC800\uC7A5", async () => {
+      await savePresetWorkspace(app);
+      app.toast("\uD504\uB9AC\uC14B\xB7\uD1A0\uAE00 \uC124\uC815\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.");
+    }, "", { disabled: !p }), app.b("JSON \uB0B4\uBCF4\uB0B4\uAE30", () => exportJson(app), "", { disabled: !p })));
+    if (!p) {
+      host.append(h("div", { class: "empty" }, ".risup / .risupreset / JSON \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.", "\n\uD504\uB86C\uD504\uD2B8\uC640 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uC548\uC5D0\uC11C \uAD00\uB9AC\uD558\uBA70 \uBCF8\uCCB4 \uD504\uB9AC\uC14B\uC740 \uBCC0\uACBD\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      return;
+    }
+    host.append(
+      app.field("\uD504\uB9AC\uC14B \uC774\uB984", p.name, (v) => {
+        p.name = v;
+        change();
+      }, { tag: "input" }),
+      h("p", { class: "muted" }, "\uD30C\uC77C\uC5D0\uC11C \uAC00\uC838\uC628 \uC0AC\uBCF8\uC785\uB2C8\uB2E4. \uBCF8\uCCB4\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB378\xB7\uC811\uC18D \uC815\uBCF4\uB294 \uAC00\uC838\uC624\uC9C0 \uC54A\uC73C\uBA70 \uAE30\uC874 \uBA54\uC778\xB7\uBCF4\uC870 \uBAA8\uB378 \uC124\uC815\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4."),
+      h("div", { class: "row" }, [["blocks", "\uD504\uB86C\uD504\uD2B8 \uBE14\uB85D"], ["toggles", "\uD1A0\uAE00 \uC124\uC815"], ["context", "\uCC38\uACE0\uC790\uB8CC"], ["preview", "\uC804\uC1A1 \uB0B4\uC6A9"]].map(([key2, label]) => app.b(label, () => {
+        state.pane = key2;
+        app.touch(false);
+        redraw();
+      }, state.pane === key2 ? "primary small" : "small")))
+    );
+    if (state.pane === "toggles") {
+      let tree;
+      try {
+        tree = toggleDefinitions(p);
+      } catch (error) {
+        host.append(h("p", { class: "warn" }, error.message));
+        tree = { items: [], definitions: [] };
+      }
+      const draw = (items) => items.map((item) => {
+        if (item.type === "group") return h("details", { class: "card", open: "" }, h("summary", {}, item.label || "\uADF8\uB8F9"), h("div", { class: "stack", style: "margin-top:12px" }, draw(item.children)));
+        if (item.type === "caption") return h("p", { class: "muted" }, item.label);
+        if (item.type === "divider") return h("hr", { class: "ruled" });
+        const d = item.definition, value = state.values[d.key] ?? toggleDefault(d);
+        let control;
+        if (d.type === "switch") control = app.check(d.label, value === "1", (v) => {
+          state.values[d.key] = v ? "1" : "0";
+          change();
+        });
+        else if (d.type === "select") control = h("label", { class: "field" }, h("span", {}, d.label), app.select(value, d.options.map((label, i) => [String(i), label]), (v) => {
+          state.values[d.key] = v;
+          change();
+        }, d.label));
+        else control = app.field(d.label, value, (v) => {
+          state.values[d.key] = v;
+          change();
+        }, { tag: d.type === "text" ? "input" : "textarea" });
+        const usages = p.promptTemplate.filter((b) => (b.text ?? b.innerFormat ?? "").includes(d.key)).map((b) => b.name || b.type);
+        return h("div", { class: "card stack" }, control, h("p", { class: "muted" }, d.key + (usages.length ? " \xB7 \uC0AC\uC6A9: " + usages.join(", ") : " \xB7 \uCC38\uC870 \uBE14\uB85D \uC5C6\uC74C")));
+      });
+      host.append(
+        h("p", { class: "muted" }, "\uD1A0\uAE00 \uC815\uC758\uB294 \uD30C\uC77C\uC5D0\uC11C \uC77D\uACE0, \uC120\uD0DD\uAC12\uC740 \uACF5\uBC29\uC5D0 \uBCC4\uB3C4\uB85C \uC800\uC7A5\uD569\uB2C8\uB2E4. \uC120\uD0DD\uD615 \uAC12\uC740 \uBCF8\uCCB4\uC640 \uAC19\uC774 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638(0\uBD80\uD130)\uB85C \uCC98\uB9AC\uD569\uB2C8\uB2E4."),
+        ...draw(tree.items),
+        h("details", {}, h("summary", {}, "\uD1A0\uAE00 \uC815\uC758 \uC6D0\uBB38 \uD3B8\uC9D1"), h("div", { class: "stack" }, app.field("\uD1A0\uAE00 \uC815\uC758", p.customPromptTemplateToggle, (v) => {
+          p.customPromptTemplateToggle = v;
+          change();
+        }, { class: "code", placeholder: "tone=\uB9D0\uD22C=select=\uCC28\uBD84\uD568,\uD65C\uAE30\uCC38\nextra=\uCD94\uAC00 \uC124\uC815\nnote=\uBA54\uBAA8=textarea" }), app.b("\uD1A0\uAE00 \uBAA9\uB85D \uAC31\uC2E0", () => {
+          toggleDefinitions(p);
+          redraw();
+        }, "small")))
+      );
+    } else if (state.pane === "context") {
+      const env = state.environment;
+      host.append(app.field("\uC0AC\uC6A9\uC790 \uC774\uB984", env.userName, (v) => {
+        env.userName = v;
+        change();
+      }, { tag: "input" }), app.field("\uD398\uB974\uC18C\uB098 \uBE14\uB85D \uC785\uB825", env.persona, (v) => {
+        env.persona = v;
+        change();
+      }), app.field("\uC791\uAC00 \uB178\uD2B8 \uBE14\uB85D \uC785\uB825", env.authorNote, (v) => {
+        env.authorNote = v;
+        change();
+      }), app.field("\uBA54\uBAA8\uB9AC \uBE14\uB85D \uC785\uB825 \xB7 \uBCF8\uCCB4 \uBA54\uBAA8\uB9AC\uC640 \uBCC4\uB3C4", env.memory, (v) => {
+        env.memory = v;
+        change();
+      }), h("p", { class: "muted" }, "\uCE90\uB9AD\uD130 \uC124\uBA85\xB7\uB85C\uC5B4\uBD81\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uBE14\uB85D\uC5D0\uB294 \uC804\uCCB4 \uD56D\uBAA9\uC744 \uB123\uC73C\uBA70 \uBCF8\uCCB4\uC758 \uD65C\uC131\uD654 \uC870\uAC74\xB7\uBA54\uBAA8\uB9AC \uAC80\uC0C9\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      let globals = JSON.stringify(env.globals, null, 2);
+      host.append(app.field("\uCD94\uAC00 \uC804\uC5ED \uBCC0\uC218 JSON \xB7 \uBB38\uC790\uC5F4 \uAC12", globals, (v) => globals = v, { class: "code" }), app.b("\uCD94\uAC00 \uBCC0\uC218 \uC801\uC6A9", () => {
+        const values = JSON.parse(globals);
+        validatePresetState({ ...state, environment: { ...env, globals: values } });
+        env.globals = values;
+        change();
+        app.toast("\uCD94\uAC00 \uBCC0\uC218\uB97C \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.");
+      }, "small"));
+      if (p.moduleIntergration) host.append(app.check("\uD30C\uC77C \uBC16 \uBAA8\uB4C8 \uC5F0\uB3D9\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.modules, (v) => {
+        state.excluded.modules = v;
+        change();
+      }));
+      if (p.regex?.length) host.append(app.check("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.regex, (v) => {
+        state.excluded.regex = v;
+        change();
+      }));
+      if (p.promptBlockOverlay?.enabled) host.append(app.check("\uBCF4\uC870 \uD504\uB86C\uD504\uD2B8 \uC624\uBC84\uB808\uC774\uB97C \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.overlay, (v) => {
+        state.excluded.overlay = v;
+        change();
+      }));
+      if (p.promptTemplate.some((b) => b.type === "jailbreak")) host.append(app.check("\uAD6C\uD615 \uCD94\uAC00 \uD504\uB86C\uD504\uD2B8 \uBE14\uB85D \uC0AC\uC6A9", p.jailbreakToggle !== false, (v) => {
+        p.jailbreakToggle = v;
+        change();
+      }));
+      if (p.promptTemplate.some((b) => b.type === "cot")) host.append(app.check("\uAD6C\uD615 CoT \uBE14\uB85D \uC0AC\uC6A9", p.chainOfThought !== false, (v) => {
+        p.chainOfThought = v;
+        change();
+      }));
+      host.append(h("details", {}, h("summary", {}, "\uD504\uB86C\uD504\uD2B8 \uC635\uC158 JSON"), h("div", { class: "stack" }, app.field("\uD504\uB86C\uD504\uD2B8 \uC635\uC158", JSON.stringify(p.promptSettings ?? {}, null, 2), (v) => state.optionDraft = v, { class: "code" }), app.b("\uC635\uC158 \uC801\uC6A9", () => {
+        const value = JSON.parse(state.optionDraft ?? JSON.stringify(p.promptSettings ?? {}));
+        assert(value && typeof value === "object" && !Array.isArray(value), "\uC635\uC158\uC740 JSON \uAC1D\uCCB4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+        p.promptSettings = value;
+        change();
+        app.toast("\uC635\uC158\uC744 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.");
+      }, "small"))));
+    } else if (state.pane === "preview") {
+      const output = h("div", { class: "stack" });
+      const preview = () => {
+        try {
+          const report = app.previewRequest(app.task, true);
+          output.replaceChildren(
+            report.issues.length ? h("div", { class: "warn" }, "\uC804\uC1A1\uD560 \uC218 \uC5C6\uB294 \uD56D\uBAA9: ", h("ul", {}, report.issues.map((x) => h("li", {}, x)))) : h("p", { class: "pill" }, "\uC870\uB9BD \uAC80\uC0AC \uD1B5\uACFC \xB7 " + report.messages.length + "\uAC1C \uBA54\uC2DC\uC9C0"),
+            h("p", { class: "muted" }, "\uD604\uC7AC \uC694\uCCAD: " + app.task + " \xB7 " + report.messages.reduce((n, m) => n + m.content.length, 0).toLocaleString() + "\uC790"),
+            h("details", {}, h("summary", {}, "\uBE14\uB85D\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.trace, null, 2))),
+            ...report.messages.map((m, i) => h("section", { class: "card stack" }, h("h3", {}, `${i + 1}. ${m.role}`), h("pre", { class: "diff" }, m.content))),
+            h("p", { class: "muted" }, report.notes.join("\n"))
+          );
+        } catch (error) {
+          output.replaceChildren(h("p", { class: "warn" }, error.message));
+        }
+      };
+      host.append(app.b("\uD604\uC7AC \uC6D0\uACE0\xB7\uD1A0\uAE00\uB85C \uB2E4\uC2DC \uC870\uB9BD", preview, "small"), output);
+      preview();
+    } else renderBlocks(app, host);
+  }
+  function renderBlocks(app, host) {
+    const h = app.h.bind(app), state = app.s.preset, list = state.preset.promptTemplate;
+    const change = () => app.presetChanged(), redraw = () => app.renderEditor();
+    let addType = "plain";
+    host.append(h("div", { class: "row" }, h("div", { class: "fill" }, app.select("plain", BLOCK_TYPES, (v) => addType = v, "\uCD94\uAC00\uD560 \uBE14\uB85D \uC720\uD615")), app.b("\uBE14\uB85D \uCD94\uAC00", () => {
+      const b3 = { type: addType, name: BLOCK_TYPES.find(([key2]) => key2 === addType)?.[1] ?? addType };
+      if (["plain", "jailbreak", "cot", "chatML"].includes(addType)) Object.assign(b3, { text: "", role: "system", type2: "normal" });
+      if (addType === "chat") Object.assign(b3, { rangeStart: 0, rangeEnd: "end" });
+      list.push(b3);
+      state.selected = list.length - 1;
+      change();
+      redraw();
+    }, "small")));
+    const i = Math.min(Math.max(Number(state.selected) || 0, 0), Math.max(0, list.length - 1));
+    state.selected = i;
+    const nav = h("div", { class: "itemlist preset-block-list" }, list.map((b3, index) => app.b((b3.enabled === false ? "\u25CB " : "\u25CF ") + (index + 1) + ". " + (b3.name || b3.type), () => {
+      state.selected = index;
+      app.touch(false);
+      redraw();
+    }, "listitem" + (i === index ? " active" : ""))));
+    const edit = h("div", { class: "stack" });
+    host.append(h("div", { class: "list-editor" }, nav, edit));
+    const b = list[i];
+    if (!b) {
+      edit.append(h("div", { class: "empty" }, "\uBE14\uB85D\uC744 \uCD94\uAC00\uD558\uC138\uC694. \uC774\uBC88 \uC694\uCCAD\uC744 \uD3EC\uD568\uD558\uB294 \uC81C\uC791 \uB300\uD654 \uBE14\uB85D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."));
+      return;
+    }
+    edit.append(app.field("\uBE14\uB85D \uC774\uB984", b.name ?? "", (v) => {
+      b.name = v;
+      change();
+    }, { tag: "input" }), h("div", { class: "row" }, app.check("\uC774 \uBE14\uB85D \uC0AC\uC6A9", b.enabled !== false, (v) => {
+      b.enabled = v;
+      change();
+    }), h("span", { class: "pill" }, b.type)));
+    const move = (delta) => {
+      if (i + delta < 0 || i + delta >= list.length) return;
+      [list[i], list[i + delta]] = [list[i + delta], list[i]];
+      state.selected += delta;
+      change();
+      redraw();
+    };
+    edit.append(h("div", { class: "row" }, app.b("\uC704\uB85C", () => move(-1), "small"), app.b("\uC544\uB798\uB85C", () => move(1), "small"), app.b("\uBCF5\uC81C", () => {
+      list.splice(i + 1, 0, clone(b));
+      state.selected++;
+      change();
+      redraw();
+    }, "small"), app.b("\uBE14\uB85D \uC0AD\uC81C", async () => {
+      if (await app.confirm("\uBE14\uB85D\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?", b.name || b.type)) {
+        list.splice(i, 1);
+        change();
+        redraw();
+      }
+    }, "small danger")));
+    if (b.type === "chat") {
+      edit.append(app.field("\uB300\uD654 \uC2DC\uC791 \uBC88\uD638 \xB7 \uC74C\uC218\uB294 \uB4A4\uC5D0\uC11C", b.rangeStart ?? 0, (v) => {
+        b.rangeStart = Number(v);
+        change();
+      }, { tag: "input", type: "number" }), app.field("\uB300\uD654 \uB05D \uBC88\uD638 \xB7 end\uB294 \uB05D\uAE4C\uC9C0", b.rangeEnd ?? "end", (v) => {
+        b.rangeEnd = v === "end" ? "end" : Number(v);
+        change();
+      }, { tag: "input" }), h("p", { class: "muted" }, "\uACF5\uBC29 \uC81C\uC791 \uB300\uD654 \uB4A4\uC5D0 \uC774\uBC88 \uC694\uCCAD\uC744 \uC0AC\uC6A9\uC790 \uBA54\uC2DC\uC9C0\uB85C \uB123\uC2B5\uB2C8\uB2E4. \uC774\uBC88 \uC694\uCCAD\uC774 \uC804\uCCB4 \uBE14\uB85D\uC5D0\uC11C \uC815\uD655\uD788 \uD55C \uBC88 \uD3EC\uD568\uB3FC\uC57C \uC804\uC1A1\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."));
+    } else if (["plain", "jailbreak", "cot", "chatML"].includes(b.type)) {
+      if (b.type !== "chatML") edit.append(h("label", { class: "field" }, h("span", {}, "\uC5ED\uD560"), app.select(b.role ?? "system", [["system", "system"], ["user", "user"], ["bot", "assistant"]], (v) => {
+        b.role = v;
+        change();
+      }, "\uBE14\uB85D \uC5ED\uD560")));
+      renderText(app, edit, b, "text");
+    } else if (["description", "persona", "authornote", "memory", "lorebook", "postEverything"].includes(b.type)) {
+      edit.append(h("label", { class: "field" }, h("span", {}, "\uC5ED\uD560"), app.select(b.role2 ?? "system", [["system", "system"], ["user", "user"], ["bot", "assistant"]], (v) => {
+        b.role2 = v;
+        change();
+      }, "\uBE14\uB85D \uC5ED\uD560")));
+      edit.append(h("p", { class: "muted" }, b.type === "lorebook" ? "\uACF5\uBC29 \uD604\uC7AC\uC548\uC758 \uC804\uCCB4 \uB85C\uC5B4\uBD81\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4." : b.type === "postEverything" ? "\uD504\uB86C\uD504\uD2B8 \uC635\uC158\uC758 postEndInnerFormat\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4." : "\uACF5\uBC29\uC758 \uD574\uB2F9 \uCC38\uACE0\uC790\uB8CC\uB97C \uB123\uC2B5\uB2C8\uB2E4."), h("p", { class: "muted" }, "\uAC10\uC2F8\uB294 \uC11C\uC2DD\uC744 \uC0AC\uC6A9\uD560 \uB54C \uB0B4\uC6A9 \uC704\uCE58\uB294 {{slot}}\uC73C\uB85C \uD45C\uC2DC\uD558\uC138\uC694."));
+      renderText(app, edit, b, "innerFormat");
+      if (b.type === "authornote") edit.append(app.field("\uAE30\uBCF8 \uC791\uAC00 \uB178\uD2B8", b.defaultText ?? "", (v) => {
+        b.defaultText = v;
+        change();
+      }));
+    } else edit.append(h("p", { class: "warn" }, "\uC774 \uBE14\uB85D\uC740 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC0AC\uC6A9\uC744 \uB044\uAC70\uB098 \uB2E4\uB978 \uBE14\uB85D\uC73C\uB85C \uAD50\uCCB4\uD558\uC138\uC694."));
+  }
+  function renderText(app, host, block, key2) {
+    const h = app.h.bind(app), parsed = block.workshopDraft?.key === key2 ? clone(block.workshopDraft) : parseV2(block[key2] ?? "");
+    const errorText = h("p", { class: "warn" }, block.workshopError ?? "");
+    let source = block[key2] ?? "", rawInput;
+    const commit = () => {
+      try {
+        block[key2] = compileV2(parsed.body, parsed.activation);
+        delete block.workshopError;
+        delete block.workshopDraft;
+        source = block[key2];
+        if (rawInput) rawInput.value = source;
+      } catch (error) {
+        block.workshopError = error.message;
+        block.workshopDraft = { key: key2, body: parsed.body, activation: clone(parsed.activation) };
+      }
+      errorText.textContent = block.workshopError ?? "";
+      app.presetChanged();
+    };
+    const body = app.field(key2 === "text" ? "\uBE14\uB85D \uBCF8\uBB38" : "\uAC10\uC2F8\uB294 \uC11C\uC2DD", parsed.body, (v) => {
+      parsed.body = v;
+      commit();
+    }, { class: "code", style: "min-height:240px" });
+    host.append(body, errorText);
+    const box = h("div", { class: "stack" });
+    const draw = () => {
+      box.replaceChildren(h("h3", {}, "v2 \uD65C\uC131\uD654 \uC870\uAC74"));
+      if (parsed.activation) {
+        box.append(app.select(parsed.activation.join, [["and", "\uBAA8\uB450 \uCDA9\uC871 (AND)"], ["or", "\uD558\uB098 \uC774\uC0C1 \uCDA9\uC871 (OR)"]], (v) => {
+          parsed.activation.join = v;
+          commit();
+        }, "\uC870\uAC74 \uACB0\uD569"));
+        for (const [i, c] of parsed.activation.conditions.entries()) box.append(h("div", { class: "card stack" }, app.field("\uC870\uAC74 \uBCC0\uC218 \uD0A4", c.key, (v) => {
+          c.key = v;
+          try {
+            commit();
+          } catch (error) {
+            app.toast(error.message, true);
+          }
+        }, { tag: "input" }), app.select(c.operator, [["is", "\uAC19\uC74C"], ["isnot", "\uB2E4\uB984"], ["greater", "\uCD08\uACFC"], ["greaterequal", "\uC774\uC0C1"], ["less", "\uBBF8\uB9CC"], ["lessequal", "\uC774\uD558"]], (v) => {
+          c.operator = v;
+          commit();
+        }, "\uC870\uAC74 \uBE44\uAD50"), app.field("\uBE44\uAD50 \uAC12", c.value, (v) => {
+          c.value = v;
+          try {
+            commit();
+          } catch (error) {
+            app.toast(error.message, true);
+          }
+        }, { tag: "input" }), app.b("\uC870\uAC74 \uC0AD\uC81C", () => {
+          parsed.activation.conditions.splice(i, 1);
+          if (!parsed.activation.conditions.length) parsed.activation = null;
+          commit();
+          draw();
+        }, "small danger")));
+      }
+      box.append(app.b("\uC870\uAC74 \uCD94\uAC00", () => {
+        parsed.activation ??= { join: "and", conditions: [] };
+        const defs = toggleDefinitions(app.s.preset.preset).definitions;
+        parsed.activation.conditions.push({ key: defs[0]?.key ?? "toggle_example", operator: "is", value: "1" });
+        commit();
+        draw();
+      }, "small"));
+    };
+    draw();
+    host.append(box);
+    const raw = app.field("\uC804\uCCB4 CBS \uC6D0\uBB38", source, (v) => source = v, { class: "code" });
+    rawInput = raw.querySelector("textarea");
+    host.append(h("details", {}, h("summary", {}, "\uC804\uCCB4 CBS \uC6D0\uBB38 \uD3B8\uC9D1"), h("div", { class: "stack" }, raw, app.b("\uC6D0\uBB38 \uC801\uC6A9", () => {
+      block[key2] = source;
+      delete block.workshopError;
+      delete block.workshopDraft;
+      app.presetChanged();
+      app.renderEditor();
+    }, "small"))));
+  }
+
   // src/ui.js
-  var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"]];
+  var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B"]];
   var fieldNames = { name: "\uC774\uB984", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D" };
   var SETTINGS = { model: "submodel", timeout: 300, maxInputChars: 1e5, theme: "system" };
   var Workshop = class {
@@ -8673,6 +13489,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       this.s = newSession();
       this.prompts = {};
       this.settings = { ...SETTINGS };
+      this.s.preset = newPresetState();
+      this.savedPreset = null;
       this.started = false;
       this.serial = 0;
       this.autoSerial = 0;
@@ -8686,12 +13504,12 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     }
     h(tag, props = {}, ...children) {
       const e = this.doc.createElement(tag);
-      for (const [key, value] of Object.entries(props)) {
-        if (key === "class") e.className = value;
-        else if (key.startsWith("on")) e.addEventListener(key.slice(2).toLowerCase(), value);
-        else if (key === "text") e.textContent = value;
-        else if (key === "value" || key === "checked" || key === "disabled" || key === "selected") e[key] = value;
-        else if (value !== null && value !== void 0) e.setAttribute(key, String(value));
+      for (const [key2, value] of Object.entries(props)) {
+        if (key2 === "class") e.className = value;
+        else if (key2.startsWith("on")) e.addEventListener(key2.slice(2).toLowerCase(), value);
+        else if (key2 === "text") e.textContent = value;
+        else if (key2 === "value" || key2 === "checked" || key2 === "disabled" || key2 === "selected") e[key2] = value;
+        else if (value !== null && value !== void 0) e.setAttribute(key2, String(value));
       }
       for (const child of children.flat(Infinity)) if (child !== null && child !== void 0 && child !== false) e.append(child?.nodeType ? child : this.doc.createTextNode(String(child)));
       return e;
@@ -8738,9 +13556,13 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       if (draft) this.s.revision++;
       this.status();
     }
-    setField(key, value) {
-      this.s.draft[key] = value;
+    setField(key2, value) {
+      this.s.draft[key2] = value;
       this.touch();
+    }
+    presetChanged() {
+      this.s.promptRevision++;
+      this.touch(false);
     }
     dirty() {
       return this.s.targetId ? !equal(this.s.base, editable(this.s.draft)) : this.started;
@@ -8781,6 +13603,15 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         } catch {
         }
       }));
+      const savedPreset = await this.api.pluginStorage.getItem(PREFIX + "preset-workspace");
+      if (savedPreset) {
+        try {
+          this.savedPreset = validatePresetState(typeof savedPreset === "string" ? JSON.parse(savedPreset) : savedPreset);
+          this.s.preset = clone(this.savedPreset);
+        } catch (error) {
+          this.toast("\uD504\uB9AC\uC14B \uC124\uC815\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC800\uC7A5\uB41C \uC6D0\uBCF8\uC740 \uC720\uC9C0\uD588\uC2B5\uB2C8\uB2E4: " + error.message, true);
+        }
+      }
       await this.readSlots();
       this.render();
       const open = async () => {
@@ -8817,6 +13648,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         }
         try {
           const s = restoreSnapshot(raw);
+          if (s.preset) s.preset = validatePresetState(s.preset);
           const v = typeof raw === "string" ? JSON.parse(raw) : raw;
           this.slots[name] = { ...v, session: s };
         } catch (error) {
@@ -8824,10 +13656,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         }
       }
     }
-    async store(key, data) {
+    async store(key2, data) {
       const text = JSON.stringify(data);
       const work = this.storageQueue.catch(() => {
-      }).then(() => this.api.pluginStorage.setItem(PREFIX + key, text));
+      }).then(() => this.api.pluginStorage.setItem(PREFIX + key2, text));
       this.storageQueue = work;
       await work;
     }
@@ -8845,7 +13677,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     }
     status() {
       if (!this.statusEl) return;
-      const date = (key) => this.slots[key]?.savedAt ? new Date(this.slots[key].savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "\uC5C6\uC74C";
+      const date = (key2) => this.slots[key2]?.savedAt ? new Date(this.slots[key2].savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "\uC5C6\uC74C";
       this.statusEl.textContent = `${this.dirty() ? "\uC6D0\uACE0 \uD3B8\uC9D1 \uC911" : "\uBCC0\uACBD \uC5C6\uC74C"} \xB7 \uC790\uB3D9 ${date("autosave")} \xB7 \uC784\uC2DC ${date("manual")}`;
       if (this.titleEl) this.titleEl.textContent = this.s.draft.name || "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30";
       const counts = this.root?.querySelectorAll(".navcount");
@@ -8885,7 +13717,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       this.editor = h("section", { class: "editor", "aria-label": "\uC81C\uC791 \uC6D0\uACE0" });
       const sidebar = h("nav", { class: "sidebar", "aria-label": "\uC6D0\uACE0 \uAD6C\uC131" }, h("span", { class: "eyebrow" }, "MANUSCRIPT"), TABS.map(([id, name], i) => this.b([h("span", { class: "navnum" }, String(i + 1).padStart(2, "0")), name, h("span", { class: "navcount" }, id === "lorebook" ? s.draft.globalLore?.length ?? 0 : id === "regex" ? s.draft.customscript?.length ?? 0 : "")], () => {
         s.tab = id;
-        if (id !== "overview" && id !== "assets") this.task = id === "lua" ? "lua" : id;
+        if (Object.hasOwn(TASKS, id)) this.task = id;
         this.view = "editor";
         this.touch(false);
         this.render();
@@ -8900,7 +13732,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     renderEditor() {
       const h = this.h.bind(this), s = this.s;
       const title = TABS.find(([id]) => id === s.tab)?.[1] ?? "\uC81C\uC791 \uB178\uD2B8";
-      const hint = { overview: "\uB9CC\uB4E4\uACE0 \uC2F6\uC740 \uC774\uC57C\uAE30\uC640 \uC791\uC5C5 \uBC29\uD5A5\uC744 \uAE30\uB85D\uD569\uB2C8\uB2E4.", description: "\uC124\uC815\uACFC \uD589\uB3D9\uC758 \uAE30\uC900\uC774 \uB418\uB294 \uBCF8\uBB38\uC785\uB2C8\uB2E4.", lorebook: "\uC138\uACC4\uAD00\uACFC \uC778\uBB3C\uC744 \uD56D\uBAA9\uBCC4\uB85C \uB098\uB220 \uAD00\uB9AC\uD569\uB2C8\uB2E4.", regex: "\uCE58\uD658 \uADDC\uCE59\uACFC HTML/CSS\uB97C \uC6D0\uBB38\uC73C\uB85C \uD3B8\uC9D1\uD558\uACE0 \uD14D\uC2A4\uD2B8\uB85C \uD14C\uC2A4\uD2B8\uD569\uB2C8\uB2E4.", lua: "\uAE30\uC874 \uC774\uBCA4\uD2B8\uC640 \uD6A8\uACFC\uB97C \uC720\uC9C0\uD558\uBA70 Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uD3B8\uC9D1\uD569\uB2C8\uB2E4.", greeting: "\uC0AC\uC6A9\uC790\uAC00 \uC774\uC57C\uAE30 \uC548\uC73C\uB85C \uB4E4\uC5B4\uC624\uB294 \uCCAB \uC7A5\uBA74\uC785\uB2C8\uB2E4.", assets: "\uC774\uBBF8\uC9C0\uB97C \uB80C\uB354\uB9C1\uD558\uC9C0 \uC54A\uACE0 \uC774\uB984\uACFC \uC5D0\uC14B \uCC38\uC870\uB97C \uAD00\uB9AC\uD569\uB2C8\uB2E4." };
+      const hint = { overview: "\uB9CC\uB4E4\uACE0 \uC2F6\uC740 \uC774\uC57C\uAE30\uC640 \uC791\uC5C5 \uBC29\uD5A5\uC744 \uAE30\uB85D\uD569\uB2C8\uB2E4.", description: "\uC124\uC815\uACFC \uD589\uB3D9\uC758 \uAE30\uC900\uC774 \uB418\uB294 \uBCF8\uBB38\uC785\uB2C8\uB2E4.", lorebook: "\uC138\uACC4\uAD00\uACFC \uC778\uBB3C\uC744 \uD56D\uBAA9\uBCC4\uB85C \uB098\uB220 \uAD00\uB9AC\uD569\uB2C8\uB2E4.", regex: "\uCE58\uD658 \uADDC\uCE59\uACFC HTML/CSS\uB97C \uC6D0\uBB38\uC73C\uB85C \uD3B8\uC9D1\uD558\uACE0 \uD14D\uC2A4\uD2B8\uB85C \uD14C\uC2A4\uD2B8\uD569\uB2C8\uB2E4.", lua: "\uAE30\uC874 \uC774\uBCA4\uD2B8\uC640 \uD6A8\uACFC\uB97C \uC720\uC9C0\uD558\uBA70 Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uD3B8\uC9D1\uD569\uB2C8\uB2E4.", greeting: "\uC0AC\uC6A9\uC790\uAC00 \uC774\uC57C\uAE30 \uC548\uC73C\uB85C \uB4E4\uC5B4\uC624\uB294 \uCCAB \uC7A5\uBA74\uC785\uB2C8\uB2E4.", assets: "\uC774\uBBF8\uC9C0\uB97C \uB80C\uB354\uB9C1\uD558\uC9C0 \uC54A\uACE0 \uC774\uB984\uACFC \uC5D0\uC14B \uCC38\uC870\uB97C \uAD00\uB9AC\uD569\uB2C8\uB2E4.", preset: "\uAC00\uC838\uC628 \uD504\uB9AC\uC14B\uC758 \uBE14\uB85D\xB7\uD1A0\uAE00\uC744 \uD3B8\uC9D1\uD558\uACE0 \uACF5\uBC29 \uC694\uCCAD\uC744 \uC870\uB9BD\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uD504\uB9AC\uC14B\uC740 \uBCC0\uACBD\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
       this.editor.replaceChildren(h("div", { class: "sectionhead" }, h("span", { class: "eyebrow" }, "WORKING DRAFT"), h("h2", { style: "margin-top:7px" }, title), h("p", { class: "muted" }, hint[s.tab])));
       const body = h("div", { class: "stack" });
       this.editor.append(body);
@@ -8953,6 +13785,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         this.editorAction(body, "greeting");
         this.editorAction(body, "choiceGreeting");
       } else if (s.tab === "assets") this.renderAssets(body);
+      else if (s.tab === "preset") renderPresetEditor(this, body);
     }
     editorAction(host, task) {
       host.append(this.h("div", { class: "row" }, this.b("LLM\uACFC " + TASKS[task].label + " \uB2E4\uB4EC\uAE30", () => {
@@ -8982,8 +13815,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       }, "small"), h("span", { class: "muted" }, `${list.length}\uAC1C \uD56D\uBAA9`)), h("div", { class: "list-editor" }, nav, edit));
       if (!item) edit.append(h("div", { class: "empty" }, "\uD56D\uBAA9\uC744 \uCD94\uAC00\uD558\uAC70\uB098 LLM\uC5D0\uAC8C \uC791\uC131\uC744 \uC694\uCCAD\uD558\uC138\uC694."));
       else {
-        const change = (key, value) => {
-          item[key] = value;
+        const change = (key2, value) => {
+          item[key2] = value;
           this.touch();
         };
         edit.append(this.field("\uD56D\uBAA9 \uC774\uB984", item.comment, (v) => change("comment", v), { tag: "input" }));
@@ -9174,10 +14007,19 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const scope = ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? this.check("\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815", this.scopeOnly, (v) => {
         this.scopeOnly = v;
       }) : null;
+      const composition = this.select(s.preset.mode, [["direct", "\uC9C1\uC811 \uC694\uCCAD"], ["preset", "\uD504\uB9AC\uC14B \uC694\uCCAD"]], (v) => {
+        s.preset.mode = v;
+        this.presetChanged();
+        if (v === "preset" && !s.preset.preset) {
+          s.tab = "preset";
+          this.view = "editor";
+        }
+        this.render();
+      }, "\uC694\uCCAD \uAD6C\uC131");
       panel.append(messages, h(
         "div",
         { class: "composer" },
-        h("div", { class: "row" }, h("div", { class: "fill" }, taskSelect), h("div", { style: "width:113px" }, model)),
+        h("div", { class: "request-options" }, taskSelect, model, composition),
         scope,
         this.requestInput,
         h("div", { class: "row" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.job?.stop?.(), "danger small") : null),
@@ -9218,11 +14060,19 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
       return { request, scope, text: request + (scope ? "\n[\uD5C8\uC6A9 \uD3B8\uC9D1 \uBC94\uC704] \uAE30\uC874 \uD56D\uBAA9 " + scope + "\uB9CC \uC218\uC815\xB7\uC0AD\uC81C\uD560 \uC218 \uC788\uB2E4. \uC0C8 \uD56D\uBAA9 \uCD94\uAC00\uC640 \uB2E4\uB978 \uD56D\uBAA9 \uBCC0\uACBD\uC740 \uAE08\uC9C0\uD55C\uB2E4." : "") };
     }
+    previewRequest(task = this.task, forcePreset = false) {
+      const usePreset = forcePreset || this.s.preset.mode === "preset";
+      const direct = composeMessages(usePreset ? { ...this.s, thread: [] } : this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task));
+      if (usePreset) return assemblePreset(this.s.preset, this.s, task, direct);
+      return { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+    }
     async sendRequest() {
       assert(!this.job, "\uB2E4\uB978 LLM \uC694\uCCAD\uC774 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4.");
-      const task = this.task, s = this.s, { request, scope, text } = this.requestWithScope(task);
+      const task = this.task, s = this.s, { request, scope } = this.requestWithScope(task);
       assert(request, "LLM\uC5D0\uAC8C \uC804\uB2EC\uD560 \uC694\uCCAD\uC744 \uC801\uC5B4 \uC8FC\uC138\uC694.");
-      const messages = composeMessages(s, task, text, this.prompts[task] ?? defaultPrompt(task));
+      const report = this.previewRequest(task);
+      assert(!report.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + report.issues.join("\n"));
+      const messages = report.messages;
       const chars = messages.reduce((n, m) => n + m.content.length, 0);
       assert(chars <= this.settings.maxInputChars, `\uC804\uC1A1 \uB0B4\uC6A9\uC774 \uC124\uC815\uD55C ${this.settings.maxInputChars.toLocaleString()}\uC790 \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uB300\uD654\xB7\uCC38\uACE0\uC790\uB8CC\xB7\uC791\uC5C5 \uBC94\uC704\uB97C \uC9C1\uC811 \uC870\uC815\uD574 \uC8FC\uC138\uC694. \uC790\uB3D9\uC73C\uB85C \uC798\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
       const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
@@ -9260,7 +14110,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         const actual = h("pre", { class: "diff" });
         const preview = () => {
           try {
-            actual.textContent = JSON.stringify(composeMessages(this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task)), null, 2);
+            const report = this.previewRequest(task);
+            actual.textContent = (report.issues.length ? "\uC804\uC1A1\uD560 \uC218 \uC5C6\uB294 \uD56D\uBAA9:\n" + report.issues.join("\n") + "\n\n" : "") + JSON.stringify(report.messages, null, 2);
           } catch (e) {
             actual.textContent = e.message;
           }
@@ -9317,8 +14168,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       return true;
     }
     async replaceSession(session) {
+      const preset = session.preset ? validatePresetState(session.preset) : clone(this.savedPreset ?? newPresetState());
       this.job?.stop?.("\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uC774\uC804 \uC694\uCCAD\uC758 \uB300\uAE30\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
       this.s = session;
+      this.s.preset = preset;
       if (session.requestSettings) {
         const p = session.requestSettings;
         if (["model", "submodel"].includes(p.model)) this.settings.model = p.model;
@@ -9366,10 +14219,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       await this.readSlots();
       let choice = null;
       await this.dialog(initial ? "\uC774\uC5B4\uC11C \uC791\uC5C5\uD560 \uC800\uC7A5\uBCF8\uC774 \uC788\uC2B5\uB2C8\uB2E4" : "\uC791\uC5C5 \uC800\uC7A5\uBCF8 \uBD88\uB7EC\uC624\uAE30", (body) => {
-        for (const key of ["autosave", "manual"]) {
-          const v = this.slots[key];
-          body.append(this.h("div", { class: "card stack" }, this.h("h3", {}, key === "autosave" ? "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC 1\uAC1C" : "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5 \xB7 \uCD5C\uADFC 1\uAC1C"), this.h("p", { class: "muted" }, v?.error ?? (v ? `${v.name} \xB7 ${new Date(v.savedAt).toLocaleString("ko-KR")}` : "\uC544\uC9C1 \uC800\uC7A5\uBCF8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.")), this.b("\uC774 \uC800\uC7A5\uBCF8 \uBD88\uB7EC\uC624\uAE30", () => {
-            choice = key;
+        for (const key2 of ["autosave", "manual"]) {
+          const v = this.slots[key2];
+          body.append(this.h("div", { class: "card stack" }, this.h("h3", {}, key2 === "autosave" ? "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC 1\uAC1C" : "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5 \xB7 \uCD5C\uADFC 1\uAC1C"), this.h("p", { class: "muted" }, v?.error ?? (v ? `${v.name} \xB7 ${new Date(v.savedAt).toLocaleString("ko-KR")}` : "\uC544\uC9C1 \uC800\uC7A5\uBCF8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.")), this.b("\uC774 \uC800\uC7A5\uBCF8 \uBD88\uB7EC\uC624\uAE30", () => {
+            choice = key2;
             this.activeModal.close(true);
           }, "", { disabled: !v || !!v.error })));
         }

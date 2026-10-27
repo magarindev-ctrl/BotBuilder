@@ -119,6 +119,7 @@ h3 { font-size: 14px; font-weight: 650; }
 .steps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .step { border: 1px solid var(--step-line); border-radius: 20px; padding: 5px 10px; color: var(--hero-ink); font-size: 11px; }
 .list-editor { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
+.preset-block-list { max-height: 560px; overflow: auto; }
 .itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
 .listitem.active { border-color: var(--brand-line); background: var(--accent-bg); }
@@ -149,6 +150,7 @@ h3 { font-size: 14px; font-weight: 650; }
 .composer > * { flex-shrink: 0; }
 .composer textarea { min-height: 80px; max-height: 180px; }
 .composer select { font-size: 12px; padding: 7px; }
+.request-options { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr); gap: 6px; }
 .candidate { background: var(--candidate-bg); border: 1px solid var(--candidate-line); border-radius: 10px; padding: 13px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
 .candidate .pill { background: var(--candidate-tag); color: var(--candidate-ink); }
 .diff { border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 360px; overflow: auto; background: var(--diff-bg); min-width: 0; }
@@ -186,6 +188,7 @@ details[open] > summary { margin-bottom: 9px; }
   .navitem { gap: 7px; padding: 12px 7px; font-size: 13px; }
   .list-editor { grid-template-columns: minmax(0, 1fr); }
   .itemlist { flex-direction: row; overflow-x: auto; }
+  .preset-block-list { max-height: 140px; }
   .listitem { min-width: 120px; max-width: 180px; flex-shrink: 0; }
   .topbar { padding: 12px 16px; }
   .toolbar { padding: 8px 16px; }

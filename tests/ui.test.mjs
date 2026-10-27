@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Workshop } from '../src/ui.js';
 import { PREFIX, newSession, snapshot } from '../src/core.js';
+import { applyImportedPreset, savePresetWorkspace } from '../src/preset-ui.js';
+import { samplePreset, encodePreset } from './preset-fixture.mjs';
 
 const wait = () => new Promise(resolve => setTimeout(resolve, 12));
 async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop', data: { reply: '세계관부터 함께 정해보죠.', changes: [] } }, systemDark = false) {
@@ -14,10 +16,65 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
   const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
+test('binary preset import, local save, reload and both recovery slots preserve editable toggles',async()=>{
+  const x=await make();let y;
+  try {
+    await applyImportedPreset(x.app,await encodePreset(samplePreset()),'test.risup');
+    x.app.s.preset.values.toggle_extra='1';x.app.presetChanged();await savePresetWorkspace(x.app);
+    x.app.s.preset.preset.promptTemplate[0].text='편집한 프롬프트';x.app.presetChanged();
+    await x.app.saveSlot('manual');await x.app.autosave();
+    y=await make(Object.fromEntries(x.store));
+    assert.equal(y.app.s.preset.mode,'preset');assert.equal(y.app.s.preset.values.toggle_extra,'1');
+    assert.notEqual(y.app.s.preset.preset.promptTemplate[0].text,'편집한 프롬프트');
+    assert.equal(y.app.slots.manual.session.preset.preset.promptTemplate[0].text,'편집한 프롬프트');
+    assert.equal(y.app.slots.autosave.session.preset.values.toggle_extra,'1');
+    y.app.replaceSession(y.app.slots.manual.session);assert.equal(y.app.s.preset.preset.promptTemplate[0].text,'편집한 프롬프트');
+    const before=JSON.stringify(y.app.s.preset);
+    await assert.rejects(applyImportedPreset(y.app,new Uint8Array([0]),'broken.risup'));assert.equal(JSON.stringify(y.app.s.preset),before);
+  } finally{y?.close();x.close();}
+});
+test('preset preview equals actual transmission, history appears once and unsupported blocks never send',async()=>{
+  const x=await make();try {
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(samplePreset())),'p.json');
+    x.app.s.thread=[{role:'user',content:'unique_history_token'},{role:'assistant',content:'이전 답'}];
+    x.app.s.requests.workshop='구상하자';const report=x.app.previewRequest();
+    assert.deepEqual(report.issues,[]);await x.app.sendRequest();assert.deepEqual(x.calls[0].messages,report.messages);
+    assert.equal(x.calls[0].messages.filter(m=>m.content.includes('unique_history_token')).length,1);
+    x.app.s.preset.preset.promptTemplate[0].text='{{unsupported_macro}}';
+    await assert.rejects(x.app.sendRequest(),/CBS/);assert.equal(x.calls.length,1);
+    x.app.s.preset.mode='direct';await x.app.sendRequest();assert.equal(x.calls.length,2);
+  }finally{x.close();}
+});
+test('incomplete condition edits survive preset save and reload, and correction unblocks assembly',async()=>{
+  const x=await make();let y;try {
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(samplePreset())),'p.json');
+    button(x.dom,'조건 추가').click();await wait();
+    const input=x.dom.window.document.querySelector('[aria-label="조건 변수 키"]');input.value='';input.dispatchEvent(new x.dom.window.Event('input'));
+    const body=x.dom.window.document.querySelector('[aria-label="블록 본문"]');body.value='편집 중인 본문';body.dispatchEvent(new x.dom.window.Event('input'));
+    await savePresetWorkspace(x.app);y=await make(Object.fromEntries(x.store));y.app.s.tab='preset';y.app.render();
+    assert.equal(y.dom.window.document.querySelector('[aria-label="블록 본문"]').value,'편집 중인 본문');
+    assert.ok(y.app.previewRequest().issues.length);
+    const key=y.dom.window.document.querySelector('[aria-label="조건 변수 키"]');key.value='toggle_extra';key.dispatchEvent(new y.dom.window.Event('input'));
+    assert.equal(y.app.s.preset.preset.promptTemplate[0].workshopError,undefined);assert.deepEqual(y.app.previewRequest().issues,[]);
+  }finally{y?.close();x.close();}
+});
+test('changing a preset toggle discards a pending response and older snapshots still restore',async()=>{
+  const x=await make();try {
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(samplePreset())),'p.json');
+    let resolve;x.app.api.runLLMModel=()=>new Promise(done=>resolve=done);
+    x.app.s.requests.workshop='구상';const pending=x.app.sendRequest();await wait();
+    x.app.s.preset.values.toggle_extra='1';x.app.presetChanged();
+    resolve({type:'success',result:JSON.stringify({schemaVersion:1,task:'workshop',data:{reply:'late',changes:[]}})});
+    await pending;assert.equal(x.app.s.thread.at(-1).error,true);
+    x.app.replaceSession(newSession());assert.ok(x.app.s.preset);assert.equal(x.app.s.preset.mode,'preset');
+  }finally{x.close();}
+});
 test('workshop renders manuscript + persistent chat, with prompt beside every send action', async () => {
   const x = await make(); try {
     assert.match(x.dom.window.document.body.textContent, /이야기 공방/); assert.equal(x.dom.window.document.querySelectorAll('.editor').length, 1); assert.equal(x.dom.window.document.querySelectorAll('.conversation').length, 1);
     assert.ok(x.dom.window.document.querySelector('[data-action="send-request"]')); assert.ok(x.dom.window.document.querySelector('[data-action="prompt"]'));
+    const presetTab=[...x.dom.window.document.querySelectorAll('.navitem')].find(e=>e.textContent.includes('프롬프트 프리셋'));presetTab.click();await wait();
+    assert.ok(x.dom.window.document.querySelector('[data-action="import-preset"]'));assert.equal(x.app.task,'workshop');
     x.app.s.draft.desc = '<img src=x onerror=alert(1)>'; x.app.s.tab = 'description'; x.app.render(); assert.equal(x.dom.window.document.querySelectorAll('img').length, 0);
   } finally { x.close(); }
 });

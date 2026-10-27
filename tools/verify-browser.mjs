@@ -4,6 +4,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import { blankCharacter } from '../src/core.js';
+import { samplePreset, encodePreset } from '../tests/preset-fixture.mjs';
 
 await mkdir('artifacts', { recursive: true });
 const bundle = await readFile('dist/risu_story_workshop.js', 'utf8');
@@ -19,7 +20,7 @@ window.risuai = {
  getCharacterFromIndex:async i=>structuredClone(chars[i]),setCharacterToIndex:async(i,c)=>{chars[i]=structuredClone(c);},
  setDatabaseLite:async db=>{chars=structuredClone(db.characters);},
  runLLMModel:async o=>{window.__calls.push(o);await new Promise(r=>setTimeout(r,60));
- const task = o.messages[1].content.split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
+ const task = o.messages.findLast(m=>m.role==='user').content.split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
  const data = task==='workshop'?{reply:'기억을 거래하는 항구 도시를 배경으로 시작해볼까요? 사용자의 역할부터 함께 정해보면 좋겠습니다.',changes:[]}:{text:'기억을 거래하는 항구 도시의 기록관. 사람들의 사라진 과거를 찾아주며, 자신의 기억만은 되찾지 못하고 있다.'};
  return {type:'success',result:JSON.stringify({schemaVersion:1,task,data})};},
  saveAsset:async()=> 'assets/mock',readImage:async()=>new Uint8Array([1,2,3])
@@ -36,7 +37,9 @@ const browser = await chromium.launch({ executablePath: process.env.WORKSHOP_BRO
 const results = [], errors = [], layouts = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1, colorScheme: 'light' });
+  page.setDefaultTimeout(15000);
   page.on('pageerror', e => errors.push(e.message));
+  page.on('console',m=>{if(m.type()==='error'||m.type()==='warning')console.log('Frame console:',m.text());});
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.locator('#plugin').evaluate((iframe, source) => { iframe.srcdoc = source; }, frameHtml);
   const frame = await (await page.locator('#plugin').elementHandle()).contentFrame();
@@ -146,6 +149,53 @@ try {
   await frame.getByText('2개 매칭', { exact: false }).waitFor(); assert.equal(await frame.locator('.testresult b').count(), 0);
   results.push({ name: 'RE2JS executes under CSP and displays HTML as text', passed: true });
   await page.locator('#plugin').screenshot({ path: 'artifacts/workshop-regex.png', animations: 'disabled' });
+  await frame.locator('.navitem').filter({hasText:'프롬프트 프리셋'}).click();
+  console.log('Checking binary preset import');
+  const chooserPromise=page.waitForEvent('filechooser');
+  await frame.locator('[data-action="import-preset"]').click();
+  await (await chooserPromise).setFiles({name:'browser-preset.risup',mimeType:'application/octet-stream',buffer:Buffer.from(await encodePreset(samplePreset()))});
+  await frame.getByRole('textbox',{name:'프리셋 이름',exact:true}).waitFor();
+  assert.equal(await frame.getByRole('textbox',{name:'프리셋 이름',exact:true}).inputValue(),'검증용 프리셋');
+  assert.equal(await frame.getByRole('combobox',{name:'요청 구성'}).inputValue(),'preset');
+  await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
+  await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
+  await frame.getByRole('checkbox',{name:'추가 설정',exact:true}).check();
+  await frame.getByRole('combobox',{name:'말투',exact:true}).selectOption('1');
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  assert.match(await frame.locator('.editor').innerText(),/조건 활성/);
+  await page.locator('#plugin').screenshot({path:'artifacts/workshop-preset-preview.png',animations:'disabled'});
+  await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
+  await frame.getByRole('checkbox',{name:'추가 설정',exact:true}).uncheck();
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  assert.doesNotMatch(await frame.locator('.editor').innerText(),/조건 활성/);
+  results.push({name:'binary risup imported under CSP; v2 toggle condition controls assembled content',passed:true});
+  console.log('Checking preset edits and dispatch');
+  await frame.getByRole('button',{name:'프롬프트 블록',exact:true}).click();
+  await frame.getByRole('textbox',{name:'블록 본문',exact:true}).fill('편집된 규칙 {{char}}');
+  await frame.getByRole('combobox',{name:'블록 역할',exact:true}).selectOption('bot');
+  await frame.getByRole('button',{name:'아래로',exact:true}).click();
+  await page.locator('#plugin').screenshot({path:'artifacts/workshop-preset-blocks.png',animations:'disabled'});
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('프리셋을 적용해서 기록관 설명을 다듬어줘.');
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  const preview=await frame.locator('.editor section.card').evaluateAll(sections=>sections.map(s=>({role:s.querySelector('h3').textContent.split('. ')[1],content:s.querySelector('pre').textContent})));
+  assert.equal(preview[0].role,'assistant');assert.match(preview[0].content,/편집된 규칙/);
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===3&&!document.querySelector('[data-action="send-request"]').disabled);
+  await frame.locator('[data-action="apply-candidate"]').waitFor();
+  assert.deepEqual(await frame.evaluate(()=>window.__calls[2].messages),preview);
+  await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
+  await frame.waitForFunction(async()=>Boolean(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')));
+  const savedPreset=await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')));
+  assert.equal(savedPreset.values.toggle_tone,'1');assert.equal(savedPreset.preset.promptTemplate[1].role,'bot');
+  results.push({name:'block text, role and order edits match transmitted messages; local preset selections save',passed:true});
+  await frame.getByRole('button',{name:'프롬프트 블록',exact:true}).click();
+  await frame.getByRole('textbox',{name:'블록 본문',exact:true}).fill('{{unsupported_host_macro}}');
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.getByRole('alert').filter({hasText:'지원하지 않는 CBS'}).waitFor();
+  assert.equal(await frame.evaluate(()=>window.__calls.length),3);
+  results.push({name:'unsupported preset syntax stops before model dispatch',passed:true});
+  await frame.getByRole('combobox',{name:'요청 구성'}).selectOption('direct');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await frame.getByRole('button', { name: '대화', exact: true }).click();
@@ -154,6 +204,6 @@ try {
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 7, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 9, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

@@ -1,14 +1,17 @@
 import { CSS } from './style.js';
 import { VERSION, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
+import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
+import { renderPresetEditor } from './preset-ui.js';
 
-const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록']];
+const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
 const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록' };
 const SETTINGS = { model: 'submodel', timeout: 300, maxInputChars: 100000, theme: 'system' };
 
 export class Workshop {
   constructor(api, doc) {
     this.api = api; this.doc = doc; this.s = newSession(); this.prompts = {}; this.settings = { ...SETTINGS };
+    this.s.preset = newPresetState(); this.savedPreset = null;
     this.started = false; this.serial = 0; this.autoSerial = 0; this.slots = {}; this.ioBusy = false; this.job = null;
     this.view = 'editor'; this.task = 'workshop'; this.scopeOnly = false; this.storageQueue = Promise.resolve();
   }
@@ -55,6 +58,7 @@ export class Workshop {
     this.status();
   }
   setField(key, value) { this.s.draft[key] = value; this.touch(); }
+  presetChanged() { this.s.promptRevision++; this.touch(false); }
   dirty() { return this.s.targetId ? !equal(this.s.base, editable(this.s.draft)) : this.started; }
   toast(message, bad = false) {
     this.toastEl?.remove(); clearTimeout(this.toastTimer);
@@ -79,6 +83,11 @@ export class Workshop {
       const raw = await this.api.pluginStorage.getItem(PREFIX + 'prompt:' + task);
       try { if (raw) { const p = JSON.parse(raw); if (typeof p.system === 'string' && typeof p.user === 'string') this.prompts[task] = p; } } catch { /* Do not overwrite unreadable overrides. */ }
     }));
+    const savedPreset = await this.api.pluginStorage.getItem(PREFIX + 'preset-workspace');
+    if (savedPreset) {
+      try { this.savedPreset = validatePresetState(typeof savedPreset === 'string' ? JSON.parse(savedPreset) : savedPreset); this.s.preset = clone(this.savedPreset); }
+      catch (error) { this.toast('프리셋 설정을 불러오지 못했습니다. 저장된 원본은 유지했습니다: ' + error.message, true); }
+    }
     await this.readSlots();
     this.render();
     const open = async () => { await this.api.showContainer('fullscreen'); this.render(); if (!this.opened) { this.opened = true; if (this.slots.autosave || this.slots.manual) await this.showRecovery(true); } };
@@ -94,7 +103,7 @@ export class Workshop {
     for (const name of ['autosave', 'manual']) {
       const raw = await this.api.pluginStorage.getItem(PREFIX + name);
       if (!raw) { this.slots[name] = null; continue; }
-      try { const s = restoreSnapshot(raw); const v = typeof raw === 'string' ? JSON.parse(raw) : raw; this.slots[name] = { ...v, session: s }; }
+      try { const s = restoreSnapshot(raw); if(s.preset)s.preset=validatePresetState(s.preset); const v = typeof raw === 'string' ? JSON.parse(raw) : raw; this.slots[name] = { ...v, session: s }; }
       catch (error) { this.slots[name] = { error: error.message, name: '읽을 수 없는 저장본' }; }
     }
   }
@@ -135,7 +144,7 @@ export class Workshop {
       h('div', { class: 'row header-actions' }, this.statusEl, this.b('설정', () => this.showSettings(), 'ghost small'), this.b('닫기', () => this.api.hideContainer(), 'ghost small')));
     const tools = h('div', { class: 'toolbar' }, h('div', { class: 'toolbar-files' }, this.b('＋ 새 작업', () => this.newWork()), this.b('캐릭터 불러오기', () => this.loadCharacters()), this.b('charx 열기', () => this.chooseCharx())), h('div', { class: 'toolbar-saves' }, this.b('임시 저장', async () => { await this.saveSlot('manual'); this.toast('수동 임시 저장본을 갱신했습니다.'); }), this.b('저장본 불러오기', () => this.showRecovery()), this.b('charx 내보내기', () => this.downloadCharx()), this.b(s.targetId ? '캐릭터에 저장' : '새 캐릭터로 저장', () => this.saveHost(), 'primary')), h('div', { class: 'mobile-switch' }, this.b('원고', () => { this.view = 'editor'; this.render(); }, 'small', { 'aria-pressed': this.view === 'editor' }), this.b('대화', () => { this.view = 'chat'; this.render(); }, 'small', { 'aria-pressed': this.view === 'chat' })));
     this.editor = h('section', { class: 'editor', 'aria-label': '제작 원고' });
-    const sidebar = h('nav', { class: 'sidebar', 'aria-label': '원고 구성' }, h('span', { class: 'eyebrow' }, 'MANUSCRIPT'), TABS.map(([id, name], i) => this.b([h('span', { class: 'navnum' }, String(i + 1).padStart(2, '0')), name, h('span', { class: 'navcount' }, id === 'lorebook' ? s.draft.globalLore?.length ?? 0 : id === 'regex' ? s.draft.customscript?.length ?? 0 : '')], () => { s.tab = id; if (id !== 'overview' && id !== 'assets') this.task = id === 'lua' ? 'lua' : id; this.view = 'editor'; this.touch(false); this.render(); }, 'navitem', { 'aria-current': s.tab === id ? 'page' : null })), h('div', { class: 'sidefoot muted' }, '대화로 구상하고,\n원고로 구체화하세요.', h('p', { style: 'margin-top:12px' }, `v${VERSION} · 3분 자동 저장`)));
+    const sidebar = h('nav', { class: 'sidebar', 'aria-label': '원고 구성' }, h('span', { class: 'eyebrow' }, 'MANUSCRIPT'), TABS.map(([id, name], i) => this.b([h('span', { class: 'navnum' }, String(i + 1).padStart(2, '0')), name, h('span', { class: 'navcount' }, id === 'lorebook' ? s.draft.globalLore?.length ?? 0 : id === 'regex' ? s.draft.customscript?.length ?? 0 : '')], () => { s.tab = id; if (Object.hasOwn(TASKS,id)) this.task = id; this.view = 'editor'; this.touch(false); this.render(); }, 'navitem', { 'aria-current': s.tab === id ? 'page' : null })), h('div', { class: 'sidefoot muted' }, '대화로 구상하고,\n원고로 구체화하세요.', h('p', { style: 'margin-top:12px' }, `v${VERSION} · 3분 자동 저장`)));
     const chat = this.renderChat();
     this.workspace = h('div', { class: 'workspace', 'data-view': this.view }, sidebar, this.editor, chat);
     this.root.replaceChildren(header, tools, this.workspace);
@@ -144,7 +153,7 @@ export class Workshop {
   renderEditor() {
     const h = this.h.bind(this), s = this.s;
     const title = TABS.find(([id]) => id === s.tab)?.[1] ?? '제작 노트';
-    const hint = { overview: '만들고 싶은 이야기와 작업 방향을 기록합니다.', description: '설정과 행동의 기준이 되는 본문입니다.', lorebook: '세계관과 인물을 항목별로 나눠 관리합니다.', regex: '치환 규칙과 HTML/CSS를 원문으로 편집하고 텍스트로 테스트합니다.', lua: '기존 이벤트와 효과를 유지하며 Lua 코드와 초기 변수를 편집합니다.', greeting: '사용자가 이야기 안으로 들어오는 첫 장면입니다.', assets: '이미지를 렌더링하지 않고 이름과 에셋 참조를 관리합니다.' };
+    const hint = { overview: '만들고 싶은 이야기와 작업 방향을 기록합니다.', description: '설정과 행동의 기준이 되는 본문입니다.', lorebook: '세계관과 인물을 항목별로 나눠 관리합니다.', regex: '치환 규칙과 HTML/CSS를 원문으로 편집하고 텍스트로 테스트합니다.', lua: '기존 이벤트와 효과를 유지하며 Lua 코드와 초기 변수를 편집합니다.', greeting: '사용자가 이야기 안으로 들어오는 첫 장면입니다.', assets: '이미지를 렌더링하지 않고 이름과 에셋 참조를 관리합니다.', preset: '가져온 프리셋의 블록·토글을 편집하고 공방 요청을 조립합니다. 본체 프리셋은 변경하지 않습니다.' };
     this.editor.replaceChildren(h('div', { class: 'sectionhead' }, h('span', { class: 'eyebrow' }, 'WORKING DRAFT'), h('h2', { style: 'margin-top:7px' }, title), h('p', { class: 'muted' }, hint[s.tab])));
     const body = h('div', { class: 'stack' }); this.editor.append(body);
     if (s.tab === 'overview') {
@@ -168,6 +177,7 @@ export class Workshop {
         h('p', { class: 'muted' }, '시작 상황 선택 요청은 첫 메시지·Lua·변수·필요 정규식을 묶어서 제안합니다.'));
       this.editorAction(body, 'greeting'); this.editorAction(body, 'choiceGreeting');
     } else if (s.tab === 'assets') this.renderAssets(body);
+    else if (s.tab === 'preset') renderPresetEditor(this,body);
   }
   editorAction(host, task) {
     host.append(this.h('div', { class: 'row' }, this.b('LLM과 ' + TASKS[task].label + ' 다듬기', () => { this.task = task; this.view = 'chat'; this.render(); this.requestInput?.focus(); }), this.b('프롬프트', () => this.showPrompt(task), 'small')));
@@ -256,7 +266,8 @@ export class Workshop {
     const sendLabel = this.job ? [h('span', { class: 'spinner', 'aria-hidden': 'true' }), '작업 중'] : this.task === 'workshop' ? '함께 구상하기 ↗' : '수정안 요청 ↗';
     const send = this.b(sendLabel, () => this.sendRequest(), 'primary fill', { disabled: !!this.job, 'data-action': 'send-request' }); this.sendButton = send;
     const scope = ['lorebook', 'regex'].includes(this.task) && (s.draft[this.task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? this.check('현재 선택한 항목만 수정', this.scopeOnly, v => { this.scopeOnly = v; }) : null;
-    panel.append(messages, h('div', { class: 'composer' }, h('div', { class: 'row' }, h('div', { class: 'fill' }, taskSelect), h('div', { style: 'width:113px' }, model)), scope, this.requestInput,
+    const composition = this.select(s.preset.mode,[['direct','직접 요청'],['preset','프리셋 요청']],v=>{s.preset.mode=v;this.presetChanged();if(v==='preset'&&!s.preset.preset){s.tab='preset';this.view='editor';}this.render();},'요청 구성');
+    panel.append(messages, h('div', { class: 'composer' }, h('div', { class: 'request-options' }, taskSelect, model, composition), scope, this.requestInput,
       h('div', { class: 'row' }, send, this.b('프롬프트', () => this.showPrompt(this.task), '', { 'data-action': 'prompt' }), this.job ? this.b('대기 중단', () => this.job?.stop?.(), 'danger small') : null), this.jobEl, h('p', { class: 'muted' }, 'Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다.')));
     queueMicrotask(() => { messages.scrollTop = messages.scrollHeight; });
     return panel;
@@ -281,11 +292,19 @@ export class Workshop {
     const scope = this.scopeOnly && ['lorebook', 'regex'].includes(task) && (s.draft[task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? (task === 'lorebook' ? 'l' : 'r') + (s.selected[task] ?? 0) : null;
     return { request, scope, text: request + (scope ? '\n[허용 편집 범위] 기존 항목 ' + scope + '만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다.' : '') };
   }
+  previewRequest(task=this.task,forcePreset=false) {
+    const usePreset=forcePreset||this.s.preset.mode==='preset';
+    const direct=composeMessages(usePreset?{...this.s,thread:[]}:this.s,task,this.requestWithScope(task).text,this.prompts[task]??defaultPrompt(task));
+    if(usePreset)return assemblePreset(this.s.preset,this.s,task,direct);
+    return {messages:direct,trace:[],issues:[],notes:[],globals:{}};
+  }
   async sendRequest() {
     assert(!this.job, '다른 LLM 요청이 진행 중입니다.');
-    const task = this.task, s = this.s, { request, scope, text } = this.requestWithScope(task);
+    const task = this.task, s = this.s, { request, scope } = this.requestWithScope(task);
     assert(request, 'LLM에게 전달할 요청을 적어 주세요.');
-    const messages = composeMessages(s, task, text, this.prompts[task] ?? defaultPrompt(task));
+    const report = this.previewRequest(task);
+    assert(!report.issues.length,'프리셋 조립 오류:\n'+report.issues.join('\n'));
+    const messages = report.messages;
     const chars = messages.reduce((n, m) => n + m.content.length, 0);
     assert(chars <= this.settings.maxInputChars, `전송 내용이 설정한 ${this.settings.maxInputChars.toLocaleString()}자 한도를 초과했습니다. 대화·참고자료·작업 범위를 직접 조정해 주세요. 자동으로 잘라 보내지 않습니다.`);
     const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
@@ -313,7 +332,7 @@ export class Workshop {
     await this.dialog(TASKS[task].label + ' · 프롬프트', body => {
       const saved = h('p', { class: 'muted' }, '저장한 템플릿이 다음 요청에 사용됩니다. 아래 편집 중인 내용은 저장 전까지 전송되지 않습니다.');
       const actual = h('pre', { class: 'diff' });
-      const preview = () => { try { actual.textContent = JSON.stringify(composeMessages(this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task)), null, 2); } catch (e) { actual.textContent = e.message; } };
+      const preview = () => { try { const report=this.previewRequest(task); actual.textContent=(report.issues.length?'전송할 수 없는 항목:\n'+report.issues.join('\n')+'\n\n':'')+JSON.stringify(report.messages, null, 2); } catch (e) { actual.textContent = e.message; } };
       const system = this.field('시스템 프롬프트 전체', draft.system, v => { draft.system = v; this.touch(false); }, { class: 'code', style: 'min-height:220px' });
       const user = this.field('사용자 프롬프트 템플릿', draft.user, v => { draft.user = v; this.touch(false); }, { class: 'code', style: 'min-height:230px' });
       body.append(saved, system, user, h('div', { class: 'row' }, this.b('프롬프트 저장', async () => {
@@ -344,8 +363,9 @@ export class Workshop {
     return true;
   }
   async replaceSession(session) {
+    const preset=session.preset?validatePresetState(session.preset):clone(this.savedPreset??newPresetState());
     this.job?.stop?.('작업이 바뀌어 이전 요청의 대기를 중단했습니다.');
-    this.s = session;
+    this.s = session; this.s.preset=preset;
     if (session.requestSettings) {
       const p = session.requestSettings;
       if (['model', 'submodel'].includes(p.model)) this.settings.model = p.model;
