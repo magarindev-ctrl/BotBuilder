@@ -4,8 +4,8 @@ import { clone, assert, tick } from './core.js';
 import { decodePreset, normalizePreset } from './preset-format.js';
 import { newPresetState, validatePresetState, toggleDefinitions, BLOCK_TYPES, moduleReferences } from './preset-engine.js';
 import { parseV2, compileV2, toggleDefault } from './preset-v2.js';
-import { activeModules } from './modules.js';
-import { chooseInstalledModules, renderModules } from './modules-ui.js';
+import { activeModules, presetRegexProfile } from './modules.js';
+import { chooseInstalledModules, renderModules, renderRuntimeInspection } from './modules-ui.js';
 
 export async function importPresetFile(app) {
   const file=await app.file('.risup,.risupreset,.json,.preset'); if(!file)return;
@@ -74,7 +74,12 @@ export function renderPresetEditor(app,host) {
     let globals=JSON.stringify(env.globals,null,2);
     host.append(app.field('추가 전역 변수 JSON · 문자열 값',globals,v=>globals=v,{class:'code'}),app.b('추가 변수 적용',()=>{const values=JSON.parse(globals);validatePresetState({...state,environment:{...env,globals:values}});env.globals=values;change();app.toast('추가 변수를 적용했습니다.');},'small'));
     if(moduleReferences(p).length)host.append(h('p',{class:'muted'},'모듈 참조: '+moduleReferences(p).join(', ')+' · 설치 모듈 선택에서 일치하는 ID·namespace를 선택하세요.'),app.check('모듈 연동 전체 제외',state.excluded.modules,v=>{state.excluded.modules=v;change();}),h('p',{class:'muted'},'전체 제외를 선택하면 선택한 모듈의 로어북·토글도 요청에 적용하지 않습니다.'));
-    if(p.regex?.length)host.append(app.check('프리셋 정규식을 제외하고 사용',state.excluded.regex,v=>{state.excluded.regex=v;change();}));
+    if(p.regex?.length) {
+      const profile=presetRegexProfile(p.regex);
+      if(profile.notApplicable.length)host.append(h('p',{class:'muted'},'프리셋에서 BB 단계에 적용하지 않는 항목: '+profile.notApplicable.join(', ')));
+      if(profile.blocking.length)host.append(h('p',{class:'warn'},'프리셋의 요청 관련 미지원 항목: '+profile.blocking.join(', ')),app.check('프리셋 정규식을 제외하고 사용',state.excluded.regex,v=>{state.excluded.regex=v;change();}));
+      renderRuntimeInspection(app,host,profile,item=>p.regex[item.index],'프리셋 정규식 처리 내역과 원문 확인');
+    }
     if(p.promptBlockOverlay?.enabled)host.append(app.check('보조 프롬프트 오버레이를 제외하고 사용',state.excluded.overlay,v=>{state.excluded.overlay=v;change();}));
     if(p.promptTemplate.some(b=>b.type==='jailbreak'))host.append(app.check('구형 추가 프롬프트 블록 사용',p.jailbreakToggle!==false,v=>{p.jailbreakToggle=v;change();}));
     if(p.promptTemplate.some(b=>b.type==='cot'))host.append(app.check('구형 CoT 블록 사용',p.chainOfThought!==false,v=>{p.chainOfThought=v;change();}));
@@ -88,6 +93,7 @@ export function renderPresetEditor(app,host) {
           h('p',{class:'muted'},'현재 요청: '+app.task+' · '+(state.mode==='preset'?'프리셋 요청':'직접 요청')+' · '+report.messages.reduce((n,m)=>n+m.content.length,0).toLocaleString()+'자'),
           h('details',{},h('summary',{},'블록별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.trace,null,2))),
           h('details',{},h('summary',{},'모듈별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.moduleTrace??[],null,2))),
+          h('details',{},h('summary',{},'프리셋 정규식 처리 결과'),h('pre',{class:'diff'},JSON.stringify(report.presetRegexTrace??[],null,2))),
           ...report.messages.map((m,i)=>h('section',{class:'card stack'},h('h3',{},`${i+1}. ${m.role}`),m.cachePoint?h('span',{class:'pill'},'캐시 지점'):null,h('pre',{class:'diff'},m.content))),
           h('p',{class:'muted'},report.notes.join('\n')));
       }catch(error){output.replaceChildren(h('p',{class:'warn'},error.message));}

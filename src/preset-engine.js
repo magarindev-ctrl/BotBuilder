@@ -4,7 +4,7 @@ import { assert, clone, bytes, parseVariables } from './core.js';
 import { normalizePreset, PRESET_LIMIT } from './preset-format.js';
 import { parseToggleTree, toggleDefault } from './preset-v2.js';
 import { calculatePreset } from './preset-calc.js';
-import { normalizeModules, validateModuleOptions, activeModules, moduleMatches, moduleOptions, runtimeFeatures } from './modules.js';
+import { normalizeModules, validateModuleOptions, activeModules, moduleMatches, moduleOptions, moduleRuntimeProfile, presetRegexProfile } from './modules.js';
 
 export function newPresetState() {
   return { schemaVersion: 1, mode: 'direct', preset: null, modules: [], moduleOptions: {}, values: {}, selected: 0, pane: 'blocks', environment: { userName: '사용자', persona: '', authorNote: '', memory: '', globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
@@ -145,7 +145,13 @@ function evaluate(nodes, context) {
       if(node.elseLine)text=active?text.replace(/(?:\r?\n)?[ \t]*$/,''):text.replace(/^[ \t]*\r?\n/,'');
       return mode==='keep'?text:mode==='legacy'?trimLines(text):trimBlankLines(text);
     }
-    const head=part(node.parts[0]).trim(), name=head.toLowerCase(), args=node.parts.slice(1).map(part);
+    const rawHead=part(node.parts[0]),head=rawHead.trim(),name=head.toLowerCase(),args=node.parts.slice(1).map(part);
+    // user_input is not registered in the audited native CBS tables. Native matcher
+    // falls back to literal syntax; it does not alias this to the latest user message.
+    if(name.replace(/[\s_-]/g,'')==='userinput') {
+      if(context.nativeLiterals&&context.nativeLiterals.size<10)context.nativeLiterals.add(head);
+      return '{{'+[rawHead,...args].join('::')+'}}';
+    }
     if(head.startsWith('? '))return calculatePreset(head.slice(2),context);
     if(name==='calc'){assert(args.length===1,'calc 인자 오류');return calculatePreset(args[0],context);}
     if(head.startsWith('//') || head.startsWith('!'))return '';
@@ -197,15 +203,16 @@ export function assemblePreset(rawState,session,task,directMessages) {
   const history=session.thread.filter(m=>!m.error&&['user','assistant'].includes(m.role)).map(m=>({role:m.role,content:m.content}));
   const chats=[...history,currentUser];
   const context={globals,variables,fields:{char:d.name??'',user:env.userName,description:d.desc??'',personality:d.personality??'',scenario:d.scenario??'',persona:env.persona,firstmessage:d.firstMessage??'',first_message:d.firstMessage??'',systemprompt:d.systemPrompt??'',lorebook:lore,chatindex:String(chats.length-1),lastusermessage:currentUser.content,lastcharmessage:history.findLast(m=>m.role==='assistant')?.content??'',original:p.mainPrompt,slot:''}};
-  const messages=[],trace=[],issues=[],moduleTrace=[],selectedModules=activeModules(state);let userCount=0;
+  const messages=[],trace=[],issues=[],moduleTrace=[],presetRegexTrace=[],selectedModules=activeModules(state);let userCount=0;
   const missing=moduleReferences(p).filter(ref=>!selectedModules.some(module=>moduleMatches(module,ref)));
   if(missing.length&&!state.excluded.modules)issues.push('프리셋 참조 모듈이 선택되지 않았습니다 ('+missing.join(', ')+'). 설치 모듈 선택에서 불러오거나 참고자료에서 모듈 연동 전체 제외를 선택하세요. 제외한 모듈은 요청에 포함되지 않습니다.');
-  context.modules=selectedModules;context.loreUsage={used:false};
+  context.modules=selectedModules;context.loreUsage={used:false};context.nativeLiterals=new Set();
   const moduleLore=[];let moduleSize=0;
   for(const module of state.modules) {
-    const options=moduleOptions(state,module),features=runtimeFeatures(module);
+    const options=moduleOptions(state,module),profile=moduleRuntimeProfile(module),features=profile.blocking;
     if(state.excluded.modules){moduleTrace.push({module:module.name,status:'excluded',reason:'모듈 연동 전체 제외'});continue;}
-    if(features.length){const status=options.skipRuntime?'excluded':'error';moduleTrace.push({module:module.name,type:'runtime',status,features});if(!options.skipRuntime)issues.push(module.name+': '+features.join(', ')+' 실행은 지원하지 않습니다. 모듈 탭에서 해당 처리를 명시적으로 제외하세요.');}
+    if(profile.notApplicable.length)moduleTrace.push({module:module.name,type:'runtime',status:'not-applicable',features:profile.notApplicable,items:profile.items.filter(item=>item.status==='not-applicable')});
+    if(features.length){const status=options.skipRuntime?'excluded':'error';moduleTrace.push({module:module.name,type:'runtime',status,features,items:profile.items.filter(item=>item.status==='unsupported')});if(!options.skipRuntime)issues.push(module.name+': '+features.join(', ')+' 실행은 지원하지 않습니다. 모듈 탭의 정규식·트리거 처리 내역을 확인하고 필요한 처리를 지원하거나 명시적으로 제외해야 합니다.');}
     for(const [index,entry] of module.lorebook.entries()) {
       const record={module:module.name,index,name:entry.comment||entry.key||'로어북',status:'excluded'};moduleTrace.push(record);
       if(options.excludedLore.includes(index))continue;
@@ -217,7 +224,11 @@ export function assemblePreset(rawState,session,task,directMessages) {
     }
   }
   lore=[lore,...moduleLore].filter(Boolean).join('\n\n');context.fields.lorebook=lore;context.loreUsage.used=false;
-  if(p.regex?.length&&!state.excluded.regex)issues.push('프리셋 정규식 파이프라인은 미지원입니다. 제외 여부를 설정하세요.');
+  if(p.regex?.length) {
+    const profile=presetRegexProfile(p.regex);
+    presetRegexTrace.push(...profile.items.map(item=>({...item,status:state.excluded.regex?'excluded':item.status==='unsupported'?'error':'not-applicable'})));
+    if(profile.blocking.length&&!state.excluded.regex)issues.push('프리셋 정규식: '+profile.blocking.join(', ')+' 처리는 아직 지원하지 않습니다. 참고자료에서 정규식 처리 내역을 확인하고 명시적으로 제외해야 합니다.');
+  }
   if(p.promptBlockOverlay?.enabled&&!state.excluded.overlay)issues.push('보조 프롬프트 오버레이는 미지원입니다. 제외 여부를 설정하세요.');
   for(const option of ['sendChatAsSystem','sendName','utilOverride','customChainOfThought']) if(p.promptSettings?.[option])issues.push('미지원 프롬프트 옵션: '+option+' (고급 JSON에서 해제하세요)');
   let size=0;
@@ -269,5 +280,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
   if(userCount!==1)issues.push('이번 공방 요청을 포함하는 채팅 블록이 정확히 1개여야 합니다. 현재 '+userCount+'회 포함됐습니다.');
   if(moduleLore.length&&!context.loreUsage.used)issues.push('선택 모듈의 로어북을 포함하는 블록이 없습니다. 로어북 블록 또는 {{lorebook}}을 사용하는 블록을 추가하세요.');
   for(const record of moduleTrace)if(record.status==='prepared')record.status=context.loreUsage.used?'included':'not-included';
-  return {messages,trace,moduleTrace,issues,globals,notes:['로어북 블록은 공방 현재안과 선택 모듈의 전체 포함 항목을 사용합니다. 본체의 키워드 활성화·토큰 예산 계산은 실행하지 않습니다.','모듈 토글은 공방 값이며 선택한 모듈의 사본을 사용합니다. 본체 모듈 활성화와 자동 동기화하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.']};
+  const notes=['로어북 블록은 공방 현재안과 선택 모듈의 전체 포함 항목을 사용합니다. 본체의 키워드 활성화·토큰 예산 계산은 실행하지 않습니다.','모듈 토글은 공방 값이며 선택한 모듈의 사본을 사용합니다. 본체 모듈 활성화와 자동 동기화하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.'];
+  if(context.nativeLiterals.size)notes.push('공식 내장 CBS로 정의되지 않은 '+[...context.nativeLiterals].map(name=>'{{'+name+'}}').join(', ')+' 표기를 리스처럼 원문으로 유지했습니다. 현재 사용자 요청문으로 치환한 것이 아닙니다.');
+  return {messages,trace,moduleTrace,presetRegexTrace,issues,globals,notes};
 }

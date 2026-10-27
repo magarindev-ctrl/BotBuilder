@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { assert } from './core.js';
-import { readInstalledModules, selectInstalledModules, moduleMatches, runtimeFeatures } from './modules.js';
+import { readInstalledModules, selectInstalledModules, moduleMatches, moduleRuntimeProfile } from './modules.js';
 
 export async function chooseInstalledModules(app,{references,validate,save}) {
   const session=app.s.sessionId,catalog=await readInstalledModules(app.api);
@@ -35,11 +35,22 @@ export function renderModules(app,host) {
   if(!modules.length){host.append(h('p',{class:'empty'},'설치 모듈 선택 버튼에서 사용할 모듈을 선택하세요.'));return;}
   host.append(h('p',{class:'muted'},'선택 시점의 사본입니다. 본체에서 모듈을 수정했다면 설치 모듈 선택에서 다시 적용하세요. 바뀐 모듈의 제외 설정은 초기화됩니다.'));
   for(const module of modules) {
-    const option=state.moduleOptions[module.id]??={skipRuntime:false,excludedLore:[]},features=runtimeFeatures(module);
+    const option=state.moduleOptions[module.id]??={skipRuntime:false,excludedLore:[]},profile=moduleRuntimeProfile(module),features=profile.blocking;
     const card=h('section',{class:'card stack',style:'overflow-wrap:anywhere'},h('h3',{},module.name),h('p',{class:'muted'},module.id+(module.namespace?' · '+module.namespace:'')),h('p',{},module.description),h('p',{class:'muted'},'로어북 '+module.lorebook.length+'개 · 토글 정의 '+(module.customModuleToggle?'있음':'없음')+' · 에셋 이름 '+module.assets.length+'개'));
-    if(features.length)card.append(h('p',{class:'warn'},'별도 처리가 필요한 항목: '+features.join(', ')),app.check('이 모듈의 정규식·트리거·JS·MCP·배경 처리를 제외',option.skipRuntime,value=>{option.skipRuntime=value;change();}),h('p',{class:'muted'},'제외를 선택해야 로어북·토글만 사용해 전송할 수 있습니다. 해당 기능은 실행되지 않습니다.'));
+    if(profile.notApplicable.length)card.append(h('p',{class:'muted'},'BB 요청 단계에 적용하지 않는 항목: '+profile.notApplicable.join(', ')+'. 출력·표시 후처리는 구조화된 수정안에 적용하지 않으며, 배경 코드와 일반 수동·표시·출력 트리거도 실행하지 않습니다.'));
+    if(features.length)card.append(h('p',{class:'warn'},'요청 관련 미지원 항목: '+features.join(', ')),app.check('이 모듈의 요청 관련 미지원 처리를 제외',option.skipRuntime,value=>{option.skipRuntime=value;change();}),h('p',{class:'muted'},'입력·전처리·요청 처리와 Lua·JS 콜백은 요청 내용을 바꿀 수 있습니다. 제외하면 해당 처리를 실행하지 않고 로어북·토글만 사용합니다.'));
+    renderRuntimeInspection(app,card,profile,item=>item.kind==='regex'?module.regex[item.index]:item.kind==='trigger'?module.trigger[item.index]:item.kind==='background'?module.backgroundEmbedding:item.kind==='cjs'?module.cjs:module.mcp,'정규식·트리거 처리 내역과 원문 확인');
     const details=h('details',{},h('summary',{},'모듈 로어북 포함 항목 확인'));
     for(const [i,entry] of module.lorebook.entries())details.append(h('div',{class:'card stack'},app.check((i+1)+'. '+(entry.comment||entry.key||'로어북'),!option.excludedLore.includes(i),value=>{option.excludedLore=option.excludedLore.filter(index=>index!==i);if(!value)option.excludedLore.push(i);change();}),h('pre',{class:'diff'},entry.content)));
     card.append(details);host.append(card);
   }
+}
+export function renderRuntimeInspection(app,host,profile,getRaw,title) {
+  if(!profile.items.length)return;
+  const h=app.h.bind(app),inspection=h('details',{},h('summary',{},title));
+  for(const item of profile.items) {
+    const raw=getRaw(item);
+    inspection.append(h('details',{class:'card'},h('summary',{},item.name+' · '+item.phase+' · '+(item.status==='unsupported'?'미지원 처리':'BB 단계에 미적용')),h('p',{class:'muted'},item.reason),h('pre',{class:'diff'},typeof raw==='string'?raw:JSON.stringify(raw,null,2))));
+  }
+  host.append(inspection);
 }

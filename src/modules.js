@@ -49,9 +49,40 @@ export function validateModuleOptions(state) {
 }
 export const activeModules=state=>state.excluded?.modules?[]:state.modules??[];
 export const moduleMatches=(module,reference)=>module.id===reference||Boolean(module.namespace&&module.namespace===reference);
-export function runtimeFeatures(module) {
-  return [module.regex.length?'정규식 '+module.regex.length+'개':'',module.trigger.length?'트리거 '+module.trigger.length+'개':'',module.cjs.trim()?'JS':'',module.mcp?'MCP':'',module.backgroundEmbedding.trim()?'배경 코드':''].filter(Boolean);
+export function moduleRuntimeProfile(module) {
+  const items=[];
+  const requestTriggerNames={start:'시작 트리거',input:'입력 트리거',request:'요청 트리거'};
+  const add=(kind,index,name,phase,category,blocking,reason)=>items.push({kind,index,name,phase,category,status:blocking?'unsupported':'not-applicable',reason});
+  for(const [index,rule] of module.regex.entries()) {
+    const name=rule?.comment||'정규식 '+(index+1),phase=rule?.type??'unknown';
+    if(phase==='editdisplay')add('regex',index,name,phase,'표시 정규식',false,'리스 채팅 화면의 표시 처리입니다. BB는 원문·수정안을 텍스트로 표시하므로 적용하지 않습니다.');
+    else if(phase==='editoutput')add('regex',index,name,phase,'출력 정규식',false,'리스 채팅 응답의 후처리입니다. BB의 구조화된 JSON 응답에는 적용하지 않습니다.');
+    else if(rule?.in==='')add('regex',index,name,phase,'빈 IN 정규식',false,'리스와 같이 빈 IN 규칙은 실행하지 않습니다.');
+    else if(phase==='editinput')add('regex',index,name,phase,'입력 정규식',true,'입력문을 바꿀 수 있으나 BB 요청 파이프라인에서는 아직 지원하지 않습니다.');
+    else if(phase==='editprocess')add('regex',index,name,phase,'전처리 정규식',true,'모델에 보내는 내용을 바꿀 수 있으나 아직 지원하지 않습니다.');
+    else add('regex',index,name,phase,'유형 미확인 정규식',true,'적용 유형을 확인할 수 없어 요청과 무관하다고 판단하지 않았습니다.');
+  }
+  for(const [index,trigger] of module.trigger.entries()) {
+    const name=trigger?.comment||'트리거 '+(index+1),phase=trigger?.type??'unknown',first=trigger?.effect?.[0]?.type;
+    // Native runTrigger checks code/Lua before filtering trigger.type. A manual label alone
+    // does not prove that a callback script cannot affect input/request processing.
+    if(first==='triggerlua'||first==='triggercode')add('trigger',index,name,phase,'Lua·JS 콜백 트리거',true,'코드 트리거는 실행 시점 표시와 별개로 콜백을 등록할 수 있어 코드 확인이 필요합니다.');
+    else if(['manual','display','output'].includes(phase))add('trigger',index,name,phase,({manual:'수동 트리거',display:'표시 트리거',output:'출력 트리거'})[phase],false,'리스 채팅의 수동·표시·응답 후처리 단계입니다. BB 제작 요청에서는 실행하지 않습니다.');
+    else add('trigger',index,name,phase,Object.hasOwn(requestTriggerNames,phase)?requestTriggerNames[phase]:'유형 미확인 트리거',true,'모델 요청이나 변수 상태를 바꿀 수 있으나 아직 지원하지 않습니다.');
+  }
+  if(module.cjs.trim())add('cjs',0,'모듈 JS','script','모듈 JS',true,'JS 실행·콜백 등록은 지원하지 않습니다.');
+  if(module.mcp)add('mcp',0,'MCP','tools','MCP',true,'모듈의 MCP 도구 연동은 지원하지 않습니다.');
+  if(module.backgroundEmbedding.trim())add('background',0,'배경 코드','display','배경 화면 코드',false,'리스 화면을 꾸미는 코드입니다. BB는 배경 코드를 렌더링하거나 실행하지 않습니다.');
+  const summarize=status=>{
+    const counts=new Map();for(const item of items)if(item.status===status)counts.set(item.category,(counts.get(item.category)??0)+1);
+    return [...counts].map(([name,count])=>name+' '+count+'개');
+  };
+  return {items,blocking:summarize('unsupported'),notApplicable:summarize('not-applicable')};
 }
+export function runtimeFeatures(module) {
+  return moduleRuntimeProfile(module).blocking;
+}
+export const presetRegexProfile=regex=>moduleRuntimeProfile({regex,trigger:[],cjs:'',backgroundEmbedding:''});
 export async function readInstalledModules(api) {
   assert(typeof api.getDatabase==='function','이 호스트에는 설치 모듈 조회 API가 없습니다.');
   const db=await api.getDatabase(['modules']);

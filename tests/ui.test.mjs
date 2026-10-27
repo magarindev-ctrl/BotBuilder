@@ -49,10 +49,29 @@ test('runtime exclusion controls block dispatch until explicitly changed and per
     await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify({...modulePreset(),moduleIntergration:'script'})),'p.json');
     x.app.s.preset=selectInstalledModules(x.app.s.preset,installedModules(),['script-id']);x.app.s.preset.pane='modules';x.app.s.tab='preset';x.app.render();
     x.app.s.requests.workshop='검토';await assert.rejects(x.app.sendRequest(),/실행은 지원하지/);assert.equal(x.calls.length,0);
-    const row=[...x.dom.window.document.querySelectorAll('label')].find(label=>label.textContent.includes('이 모듈의 정규식'));
+    const row=[...x.dom.window.document.querySelectorAll('label')].find(label=>label.textContent.includes('이 모듈의 요청 관련'));
     const revision=x.app.s.promptRevision,checkbox=row.querySelector('input');checkbox.checked=true;checkbox.dispatchEvent(new x.dom.window.Event('change'));
     assert.ok(x.app.s.promptRevision>revision);await x.app.sendRequest();assert.equal(x.calls.length,1);assert.equal(globalThis.__moduleExecuted,undefined);
     await savePresetWorkspace(x.app);assert.equal(JSON.parse(x.store.get(PREFIX+'preset-workspace')).moduleOptions['script-id'].skipRuntime,true);
+  }finally{x.close();}
+});
+test('presentation-only modules allow dispatch and preserve structured chapter text; diagnostic sources remain text',async()=>{
+  const x=await make({},{schemaVersion:1,task:'workshop',data:{reply:'## 제1장',changes:[]}});try {
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify({...modulePreset(),moduleIntergration:'presentation'})),'p.json');
+    x.app.s.preset=selectInstalledModules(x.app.s.preset,installedModules(),['presentation-id']);x.app.s.preset.pane='modules';x.app.render();
+    assert.match(x.dom.window.document.body.textContent,/출력 정규식 1개/);assert.match(x.dom.window.document.body.textContent,/챕터 표기 수정/);
+    assert.equal(x.dom.window.document.querySelectorAll('.editor pre b').length,0);
+    x.app.s.requests.workshop='제작하자';await x.app.sendRequest();assert.equal(x.calls.length,1);assert.equal(x.app.s.thread.at(-1).content,'## 제1장');
+    assert.equal(x.app.s.preset.moduleOptions['presentation-id'].skipRuntime,false);assert.equal(globalThis.__moduleExecuted,undefined);
+  }finally{x.close();}
+});
+test('preset postprocessing diagnostics and literal user_input allow structured requests without changing exclusion settings',async()=>{
+  const x=await make();try {
+    const preset={mainPrompt:'',name:'후처리 프리셋',regex:installedModules()[2].regex,promptTemplate:[{type:'plain',role:'system',text:'{{user_input}}'},{type:'chat',rangeStart:0,rangeEnd:'end'}]};
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(preset)),'p.json');x.app.s.preset.pane='context';x.app.render();
+    assert.match(x.dom.window.document.body.textContent,/프리셋 정규식 처리 내역/);assert.match(x.dom.window.document.body.textContent,/챕터 표기 수정/);
+    x.app.s.requests.workshop='이번 제작 요청';await x.app.sendRequest();assert.equal(x.calls.length,1);assert.equal(x.calls[0].messages[0].content,'{{user_input}}');
+    assert.equal(x.app.s.preset.excluded.regex,false);assert.equal(x.app.s.thread.at(-1).error,undefined);
   }finally{x.close();}
 });
 test('binary preset import, local save, reload and both recovery slots preserve editable toggles',async()=>{

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeModule, normalizeModules, readInstalledModules, selectInstalledModules, moduleMatches, moduleOptions } from '../src/modules.js';
+import { normalizeModule, normalizeModules, readInstalledModules, selectInstalledModules, moduleMatches, moduleOptions, moduleRuntimeProfile } from '../src/modules.js';
 import { newPresetState, validatePresetState, toggleDefinitions, presetValues, assemblePreset, renderPresetText } from '../src/preset-engine.js';
 import { newSession } from '../src/core.js';
 import { installedModules, modulePreset } from './modules-fixture.mjs';
@@ -55,10 +55,62 @@ test('unresolved references, missing lore destinations and explicit global exclu
 });
 test('runtime components block until explicitly excluded and no module code is executed',()=>{
   const state=selectInstalledModules({...stateFor(),preset:{...modulePreset(),moduleIntergration:'script'}},installedModules(),['script-id']);
-  assert.match(report(state).issues.join(),/정규식.*트리거.*JS.*MCP.*배경/);
+  assert.match(report(state).issues.join(),/전처리 정규식.*콜백 트리거.*모듈 JS.*MCP/);
+  assert.doesNotMatch(report(state).issues.join(),/배경/);
   assert.equal(globalThis.__moduleExecuted,undefined);
   state.moduleOptions['script-id'].skipRuntime=true;const result=report(state);
   assert.deepEqual(result.issues,[]);assert.match(result.messages[1].content,/실행 제외 후/);assert.equal(globalThis.__moduleExecuted,undefined);
+});
+test('63 output rules and presentation features do not block BB requests or alter response data',()=>{
+  const source=installedModules(),module=source[2];
+  module.regex=Array.from({length:63},(_,i)=>({...module.regex[0],comment:'챕터 수정 '+i}));
+  const state=selectInstalledModules({...stateFor(),preset:{...modulePreset(),moduleIntergration:'presentation'}},source,['presentation-id']);
+  const result=report(state);assert.deepEqual(result.issues,[]);assert.equal(state.moduleOptions['presentation-id'].skipRuntime,false);
+  assert.ok(result.moduleTrace.some(row=>row.status==='not-applicable'&&row.features.includes('출력 정규식 63개')));
+  assert.equal(globalThis.__moduleExecuted,undefined);
+});
+test('input/process and unknown rules remain blocked while output/display and empty IN are scoped out',()=>{
+  const module=normalizeModule({...installedModules()[2],regex:[
+    {type:'editinput',in:'a',out:'b'},{type:'editprocess',in:'a',out:'b'},
+    {type:'editoutput',in:'a',out:'b'},{type:'editdisplay',in:'a',out:'b'},
+    {type:'editprocess',in:'',out:'b'},{type:'unknown',in:'a',out:'b'}
+  ]});
+  const profile=moduleRuntimeProfile(module);
+  assert.equal(profile.items.filter(item=>item.status==='unsupported').length,3);
+  assert.equal(profile.items.find(item=>item.kind==='regex'&&item.index===4).status,'not-applicable');
+  assert.deepEqual(profile.blocking,['입력 정규식 1개','전처리 정규식 1개','유형 미확인 정규식 1개']);
+});
+test('Lua and JS callback triggers remain relevant despite display/manual/output event labels',()=>{
+  const module=normalizeModule({...installedModules()[2],trigger:['manual','display','output'].map(type=>({type,conditions:[],effect:[{type:'triggerlua',code:'listenEdit("editInput", function() end)'}]}))});
+  assert.deepEqual(moduleRuntimeProfile(module).blocking,['Lua·JS 콜백 트리거 3개']);
+  module.trigger[0].effect[0].type='triggercode';assert.equal(moduleRuntimeProfile(module).blocking[0],'Lua·JS 콜백 트리거 3개');
+  module.trigger.push({type:'constructor',conditions:[],effect:[]});assert.ok(moduleRuntimeProfile(module).blocking.includes('유형 미확인 트리거 1개'));
+});
+test('legacy explicit runtime exclusions remain intact with phase-specific diagnostics',()=>{
+  const state=selectInstalledModules({...stateFor(),preset:{...modulePreset(),moduleIntergration:'script'}},installedModules(),['script-id']);
+  state.moduleOptions['script-id'].skipRuntime=true;const restored=validatePresetState(state),result=report(restored);
+  assert.deepEqual(result.issues,[]);assert.equal(restored.moduleOptions['script-id'].skipRuntime,true);
+  assert.ok(result.moduleTrace.some(row=>row.status==='excluded'&&row.items.some(item=>item.phase==='editprocess')));
+  assert.ok(result.moduleTrace.some(row=>row.status==='not-applicable'&&row.items.some(item=>item.kind==='background')));
+});
+test('preset output/display regex and native-literal user_input do not block or duplicate the current request',()=>{
+  const state={...stateFor(),preset:{mainPrompt:'',regex:installedModules()[2].regex,promptTemplate:[{type:'plain',role:'system',text:'유저 인풋 {{user_input}}'},{type:'chat',rangeStart:0,rangeEnd:'end'}]}};
+  const result=report(state);assert.deepEqual(result.issues,[]);
+  assert.equal(result.messages[0].content,'유저 인풋 {{user_input}}');assert.equal(result.messages.filter(m=>m.content.includes('이번 요청')).length,1);
+  assert.ok(result.notes.some(note=>note.includes('{{user_input}}')&&note.includes('원문')));
+  assert.equal(result.presetRegexTrace.every(item=>item.status==='not-applicable'),true);assert.equal(state.excluded.regex,false);
+  assert.equal(renderPresetText('{{ user_input }}',{fields:{},variables:{},globals:{}}),'{{ user_input }}');
+});
+test('preset input/process regex remain explicit blockers and saved exclusions still apply',()=>{
+  const state={...stateFor(),preset:{mainPrompt:'',regex:[...installedModules()[2].regex,{type:'editinput',in:'a',out:'b'},{type:'editprocess',in:'a',out:'b'}],promptTemplate:[{type:'chat',rangeStart:0,rangeEnd:'end'}]}};
+  let result=report(state);assert.match(result.issues.join(),/입력 정규식 1개, 전처리 정규식 1개/);assert.doesNotMatch(result.issues.join(),/표시 정규식|출력 정규식/);
+  state.excluded.regex=true;result=report(state);assert.deepEqual(result.issues,[]);assert.equal(result.presetRegexTrace.every(item=>item.status==='excluded'),true);
+});
+test('reported if user_input block is omitted like native CBS while the chat block contains the request once',()=>{
+  const state={...stateFor(),preset:{mainPrompt:'',promptTemplate:[{type:'plain',role:'user',text:'{{#if {{user_input}}}}\n{{user_input}}\n{{/if}}'},{type:'chat',rangeStart:0,rangeEnd:'end'}]}};
+  const result=report(state);assert.deepEqual(result.issues,[]);assert.equal(result.trace[0].status,'empty');
+  assert.equal(result.messages.length,1);assert.equal(result.messages[0].role,'user');assert.match(result.messages[0].content,/이번 요청/);
+  assert.doesNotMatch(JSON.stringify(result.messages),/user_input/);
 });
 test('unsupported lore decorators are identified and per-entry exclusion allows supported entries',()=>{
   const state=selectInstalledModules(stateFor(),installedModules(),['world-id']);state.modules[0].lorebook[0].content='@@position pt_main\n문구';

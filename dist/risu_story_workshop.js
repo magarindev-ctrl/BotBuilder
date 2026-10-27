@@ -1,7 +1,7 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.3.0
+//@version 0.3.1
 
 /*
 봇빌더 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
@@ -9992,7 +9992,7 @@ details[open] > summary { margin-bottom: 9px; }
   };
 
   // src/core.js
-  var VERSION = "0.3.0";
+  var VERSION = "0.3.1";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
@@ -13038,9 +13038,36 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
   }
   var activeModules = (state) => state.excluded?.modules ? [] : state.modules ?? [];
   var moduleMatches = (module, reference) => module.id === reference || Boolean(module.namespace && module.namespace === reference);
-  function runtimeFeatures(module) {
-    return [module.regex.length ? "\uC815\uADDC\uC2DD " + module.regex.length + "\uAC1C" : "", module.trigger.length ? "\uD2B8\uB9AC\uAC70 " + module.trigger.length + "\uAC1C" : "", module.cjs.trim() ? "JS" : "", module.mcp ? "MCP" : "", module.backgroundEmbedding.trim() ? "\uBC30\uACBD \uCF54\uB4DC" : ""].filter(Boolean);
+  function moduleRuntimeProfile(module) {
+    const items = [];
+    const requestTriggerNames = { start: "\uC2DC\uC791 \uD2B8\uB9AC\uAC70", input: "\uC785\uB825 \uD2B8\uB9AC\uAC70", request: "\uC694\uCCAD \uD2B8\uB9AC\uAC70" };
+    const add = (kind, index, name, phase, category, blocking, reason) => items.push({ kind, index, name, phase, category, status: blocking ? "unsupported" : "not-applicable", reason });
+    for (const [index, rule] of module.regex.entries()) {
+      const name = rule?.comment || "\uC815\uADDC\uC2DD " + (index + 1), phase = rule?.type ?? "unknown";
+      if (phase === "editdisplay") add("regex", index, name, phase, "\uD45C\uC2DC \uC815\uADDC\uC2DD", false, "\uB9AC\uC2A4 \uCC44\uD305 \uD654\uBA74\uC758 \uD45C\uC2DC \uCC98\uB9AC\uC785\uB2C8\uB2E4. BB\uB294 \uC6D0\uBB38\xB7\uC218\uC815\uC548\uC744 \uD14D\uC2A4\uD2B8\uB85C \uD45C\uC2DC\uD558\uBBC0\uB85C \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      else if (phase === "editoutput") add("regex", index, name, phase, "\uCD9C\uB825 \uC815\uADDC\uC2DD", false, "\uB9AC\uC2A4 \uCC44\uD305 \uC751\uB2F5\uC758 \uD6C4\uCC98\uB9AC\uC785\uB2C8\uB2E4. BB\uC758 \uAD6C\uC870\uD654\uB41C JSON \uC751\uB2F5\uC5D0\uB294 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      else if (rule?.in === "") add("regex", index, name, phase, "\uBE48 IN \uC815\uADDC\uC2DD", false, "\uB9AC\uC2A4\uC640 \uAC19\uC774 \uBE48 IN \uADDC\uCE59\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      else if (phase === "editinput") add("regex", index, name, phase, "\uC785\uB825 \uC815\uADDC\uC2DD", true, "\uC785\uB825\uBB38\uC744 \uBC14\uAFC0 \uC218 \uC788\uC73C\uB098 BB \uC694\uCCAD \uD30C\uC774\uD504\uB77C\uC778\uC5D0\uC11C\uB294 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      else if (phase === "editprocess") add("regex", index, name, phase, "\uC804\uCC98\uB9AC \uC815\uADDC\uC2DD", true, "\uBAA8\uB378\uC5D0 \uBCF4\uB0B4\uB294 \uB0B4\uC6A9\uC744 \uBC14\uAFC0 \uC218 \uC788\uC73C\uB098 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      else add("regex", index, name, phase, "\uC720\uD615 \uBBF8\uD655\uC778 \uC815\uADDC\uC2DD", true, "\uC801\uC6A9 \uC720\uD615\uC744 \uD655\uC778\uD560 \uC218 \uC5C6\uC5B4 \uC694\uCCAD\uACFC \uBB34\uAD00\uD558\uB2E4\uACE0 \uD310\uB2E8\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+    }
+    for (const [index, trigger] of module.trigger.entries()) {
+      const name = trigger?.comment || "\uD2B8\uB9AC\uAC70 " + (index + 1), phase = trigger?.type ?? "unknown", first = trigger?.effect?.[0]?.type;
+      if (first === "triggerlua" || first === "triggercode") add("trigger", index, name, phase, "Lua\xB7JS \uCF5C\uBC31 \uD2B8\uB9AC\uAC70", true, "\uCF54\uB4DC \uD2B8\uB9AC\uAC70\uB294 \uC2E4\uD589 \uC2DC\uC810 \uD45C\uC2DC\uC640 \uBCC4\uAC1C\uB85C \uCF5C\uBC31\uC744 \uB4F1\uB85D\uD560 \uC218 \uC788\uC5B4 \uCF54\uB4DC \uD655\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
+      else if (["manual", "display", "output"].includes(phase)) add("trigger", index, name, phase, { manual: "\uC218\uB3D9 \uD2B8\uB9AC\uAC70", display: "\uD45C\uC2DC \uD2B8\uB9AC\uAC70", output: "\uCD9C\uB825 \uD2B8\uB9AC\uAC70" }[phase], false, "\uB9AC\uC2A4 \uCC44\uD305\uC758 \uC218\uB3D9\xB7\uD45C\uC2DC\xB7\uC751\uB2F5 \uD6C4\uCC98\uB9AC \uB2E8\uACC4\uC785\uB2C8\uB2E4. BB \uC81C\uC791 \uC694\uCCAD\uC5D0\uC11C\uB294 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      else add("trigger", index, name, phase, Object.hasOwn(requestTriggerNames, phase) ? requestTriggerNames[phase] : "\uC720\uD615 \uBBF8\uD655\uC778 \uD2B8\uB9AC\uAC70", true, "\uBAA8\uB378 \uC694\uCCAD\uC774\uB098 \uBCC0\uC218 \uC0C1\uD0DC\uB97C \uBC14\uAFC0 \uC218 \uC788\uC73C\uB098 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    if (module.cjs.trim()) add("cjs", 0, "\uBAA8\uB4C8 JS", "script", "\uBAA8\uB4C8 JS", true, "JS \uC2E4\uD589\xB7\uCF5C\uBC31 \uB4F1\uB85D\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (module.mcp) add("mcp", 0, "MCP", "tools", "MCP", true, "\uBAA8\uB4C8\uC758 MCP \uB3C4\uAD6C \uC5F0\uB3D9\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (module.backgroundEmbedding.trim()) add("background", 0, "\uBC30\uACBD \uCF54\uB4DC", "display", "\uBC30\uACBD \uD654\uBA74 \uCF54\uB4DC", false, "\uB9AC\uC2A4 \uD654\uBA74\uC744 \uAFB8\uBBF8\uB294 \uCF54\uB4DC\uC785\uB2C8\uB2E4. BB\uB294 \uBC30\uACBD \uCF54\uB4DC\uB97C \uB80C\uB354\uB9C1\uD558\uAC70\uB098 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const summarize = (status) => {
+      const counts = /* @__PURE__ */ new Map();
+      for (const item of items) if (item.status === status) counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
+      return [...counts].map(([name, count]) => name + " " + count + "\uAC1C");
+    };
+    return { items, blocking: summarize("unsupported"), notApplicable: summarize("not-applicable") };
   }
+  var presetRegexProfile = (regex) => moduleRuntimeProfile({ regex, trigger: [], cjs: "", backgroundEmbedding: "" });
   async function readInstalledModules(api2) {
     assert(typeof api2.getDatabase === "function", "\uC774 \uD638\uC2A4\uD2B8\uC5D0\uB294 \uC124\uCE58 \uBAA8\uB4C8 \uC870\uD68C API\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const db = await api2.getDatabase(["modules"]);
@@ -13287,7 +13314,11 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         if (node.elseLine) text = active ? text.replace(/(?:\r?\n)?[ \t]*$/, "") : text.replace(/^[ \t]*\r?\n/, "");
         return mode === "keep" ? text : mode === "legacy" ? trimLines(text) : trimBlankLines(text);
       }
-      const head = part(node.parts[0]).trim(), name = head.toLowerCase(), args = node.parts.slice(1).map(part);
+      const rawHead = part(node.parts[0]), head = rawHead.trim(), name = head.toLowerCase(), args = node.parts.slice(1).map(part);
+      if (name.replace(/[\s_-]/g, "") === "userinput") {
+        if (context.nativeLiterals && context.nativeLiterals.size < 10) context.nativeLiterals.add(head);
+        return "{{" + [rawHead, ...args].join("::") + "}}";
+      }
       if (head.startsWith("? ")) return calculatePreset(head.slice(2), context);
       if (name === "calc") {
         assert(args.length === 1, "calc \uC778\uC790 \uC624\uB958");
@@ -13378,24 +13409,26 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     const history = session.thread.filter((m) => !m.error && ["user", "assistant"].includes(m.role)).map((m) => ({ role: m.role, content: m.content }));
     const chats = [...history, currentUser];
     const context = { globals, variables: variables2, fields: { char: d.name ?? "", user: env.userName, description: d.desc ?? "", personality: d.personality ?? "", scenario: d.scenario ?? "", persona: env.persona, firstmessage: d.firstMessage ?? "", first_message: d.firstMessage ?? "", systemprompt: d.systemPrompt ?? "", lorebook: lore, chatindex: String(chats.length - 1), lastusermessage: currentUser.content, lastcharmessage: history.findLast((m) => m.role === "assistant")?.content ?? "", original: p.mainPrompt, slot: "" } };
-    const messages = [], trace = [], issues = [], moduleTrace = [], selectedModules = activeModules(state);
+    const messages = [], trace = [], issues = [], moduleTrace = [], presetRegexTrace = [], selectedModules = activeModules(state);
     let userCount = 0;
     const missing = moduleReferences(p).filter((ref) => !selectedModules.some((module) => moduleMatches(module, ref)));
     if (missing.length && !state.excluded.modules) issues.push("\uD504\uB9AC\uC14B \uCC38\uC870 \uBAA8\uB4C8\uC774 \uC120\uD0DD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 (" + missing.join(", ") + "). \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uBD88\uB7EC\uC624\uAC70\uB098 \uCC38\uACE0\uC790\uB8CC\uC5D0\uC11C \uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678\uB97C \uC120\uD0DD\uD558\uC138\uC694. \uC81C\uC678\uD55C \uBAA8\uB4C8\uC740 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     context.modules = selectedModules;
     context.loreUsage = { used: false };
+    context.nativeLiterals = /* @__PURE__ */ new Set();
     const moduleLore = [];
     let moduleSize = 0;
     for (const module of state.modules) {
-      const options = moduleOptions(state, module), features = runtimeFeatures(module);
+      const options = moduleOptions(state, module), profile = moduleRuntimeProfile(module), features = profile.blocking;
       if (state.excluded.modules) {
         moduleTrace.push({ module: module.name, status: "excluded", reason: "\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678" });
         continue;
       }
+      if (profile.notApplicable.length) moduleTrace.push({ module: module.name, type: "runtime", status: "not-applicable", features: profile.notApplicable, items: profile.items.filter((item) => item.status === "not-applicable") });
       if (features.length) {
         const status = options.skipRuntime ? "excluded" : "error";
-        moduleTrace.push({ module: module.name, type: "runtime", status, features });
-        if (!options.skipRuntime) issues.push(module.name + ": " + features.join(", ") + " \uC2E4\uD589\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uD574\uB2F9 \uCC98\uB9AC\uB97C \uBA85\uC2DC\uC801\uC73C\uB85C \uC81C\uC678\uD558\uC138\uC694.");
+        moduleTrace.push({ module: module.name, type: "runtime", status, features, items: profile.items.filter((item) => item.status === "unsupported") });
+        if (!options.skipRuntime) issues.push(module.name + ": " + features.join(", ") + " \uC2E4\uD589\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC758 \uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uACE0 \uD544\uC694\uD55C \uCC98\uB9AC\uB97C \uC9C0\uC6D0\uD558\uAC70\uB098 \uBA85\uC2DC\uC801\uC73C\uB85C \uC81C\uC678\uD574\uC57C \uD569\uB2C8\uB2E4.");
       }
       for (const [index, entry] of module.lorebook.entries()) {
         const record = { module: module.name, index, name: entry.comment || entry.key || "\uB85C\uC5B4\uBD81", status: "excluded" };
@@ -13420,7 +13453,11 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     lore = [lore, ...moduleLore].filter(Boolean).join("\n\n");
     context.fields.lorebook = lore;
     context.loreUsage.used = false;
-    if (p.regex?.length && !state.excluded.regex) issues.push("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uD30C\uC774\uD504\uB77C\uC778\uC740 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
+    if (p.regex?.length) {
+      const profile = presetRegexProfile(p.regex);
+      presetRegexTrace.push(...profile.items.map((item) => ({ ...item, status: state.excluded.regex ? "excluded" : item.status === "unsupported" ? "error" : "not-applicable" })));
+      if (profile.blocking.length && !state.excluded.regex) issues.push("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD: " + profile.blocking.join(", ") + " \uCC98\uB9AC\uB294 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uCC38\uACE0\uC790\uB8CC\uC5D0\uC11C \uC815\uADDC\uC2DD \uCC98\uB9AC \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uACE0 \uBA85\uC2DC\uC801\uC73C\uB85C \uC81C\uC678\uD574\uC57C \uD569\uB2C8\uB2E4.");
+    }
     if (p.promptBlockOverlay?.enabled && !state.excluded.overlay) issues.push("\uBCF4\uC870 \uD504\uB86C\uD504\uD2B8 \uC624\uBC84\uB808\uC774\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
     for (const option of ["sendChatAsSystem", "sendName", "utilOverride", "customChainOfThought"]) if (p.promptSettings?.[option]) issues.push("\uBBF8\uC9C0\uC6D0 \uD504\uB86C\uD504\uD2B8 \uC635\uC158: " + option + " (\uACE0\uAE09 JSON\uC5D0\uC11C \uD574\uC81C\uD558\uC138\uC694)");
     let size = 0;
@@ -13497,7 +13534,9 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     if (userCount !== 1) issues.push("\uC774\uBC88 \uACF5\uBC29 \uC694\uCCAD\uC744 \uD3EC\uD568\uD558\uB294 \uCC44\uD305 \uBE14\uB85D\uC774 \uC815\uD655\uD788 1\uAC1C\uC5EC\uC57C \uD569\uB2C8\uB2E4. \uD604\uC7AC " + userCount + "\uD68C \uD3EC\uD568\uB410\uC2B5\uB2C8\uB2E4.");
     if (moduleLore.length && !context.loreUsage.used) issues.push("\uC120\uD0DD \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC744 \uD3EC\uD568\uD558\uB294 \uBE14\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uBE14\uB85D \uB610\uB294 {{lorebook}}\uC744 \uC0AC\uC6A9\uD558\uB294 \uBE14\uB85D\uC744 \uCD94\uAC00\uD558\uC138\uC694.");
     for (const record of moduleTrace) if (record.status === "prepared") record.status = context.loreUsage.used ? "included" : "not-included";
-    return { messages, trace, moduleTrace, issues, globals, notes: ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uACFC \uC120\uD0DD \uBAA8\uB4C8\uC758 \uC804\uCCB4 \uD3EC\uD568 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uBAA8\uB4C8 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uAC12\uC774\uBA70 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uC0AC\uBCF8\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uBAA8\uB4C8 \uD65C\uC131\uD654\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."] };
+    const notes = ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uACFC \uC120\uD0DD \uBAA8\uB4C8\uC758 \uC804\uCCB4 \uD3EC\uD568 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uBAA8\uB4C8 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uAC12\uC774\uBA70 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uC0AC\uBCF8\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uBAA8\uB4C8 \uD65C\uC131\uD654\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."];
+    if (context.nativeLiterals.size) notes.push("\uACF5\uC2DD \uB0B4\uC7A5 CBS\uB85C \uC815\uC758\uB418\uC9C0 \uC54A\uC740 " + [...context.nativeLiterals].map((name) => "{{" + name + "}}").join(", ") + " \uD45C\uAE30\uB97C \uB9AC\uC2A4\uCC98\uB7FC \uC6D0\uBB38\uC73C\uB85C \uC720\uC9C0\uD588\uC2B5\uB2C8\uB2E4. \uD604\uC7AC \uC0AC\uC6A9\uC790 \uC694\uCCAD\uBB38\uC73C\uB85C \uCE58\uD658\uD55C \uAC83\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
+    return { messages, trace, moduleTrace, presetRegexTrace, issues, globals, notes };
   }
 
   // src/modules-ui.js
@@ -13558,12 +13597,14 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     }
     host.append(h("p", { class: "muted" }, "\uC120\uD0DD \uC2DC\uC810\uC758 \uC0AC\uBCF8\uC785\uB2C8\uB2E4. \uBCF8\uCCB4\uC5D0\uC11C \uBAA8\uB4C8\uC744 \uC218\uC815\uD588\uB2E4\uBA74 \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694. \uBC14\uB010 \uBAA8\uB4C8\uC758 \uC81C\uC678 \uC124\uC815\uC740 \uCD08\uAE30\uD654\uB429\uB2C8\uB2E4."));
     for (const module of modules) {
-      const option = state.moduleOptions[module.id] ??= { skipRuntime: false, excludedLore: [] }, features = runtimeFeatures(module);
+      const option = state.moduleOptions[module.id] ??= { skipRuntime: false, excludedLore: [] }, profile = moduleRuntimeProfile(module), features = profile.blocking;
       const card = h("section", { class: "card stack", style: "overflow-wrap:anywhere" }, h("h3", {}, module.name), h("p", { class: "muted" }, module.id + (module.namespace ? " \xB7 " + module.namespace : "")), h("p", {}, module.description), h("p", { class: "muted" }, "\uB85C\uC5B4\uBD81 " + module.lorebook.length + "\uAC1C \xB7 \uD1A0\uAE00 \uC815\uC758 " + (module.customModuleToggle ? "\uC788\uC74C" : "\uC5C6\uC74C") + " \xB7 \uC5D0\uC14B \uC774\uB984 " + module.assets.length + "\uAC1C"));
-      if (features.length) card.append(h("p", { class: "warn" }, "\uBCC4\uB3C4 \uCC98\uB9AC\uAC00 \uD544\uC694\uD55C \uD56D\uBAA9: " + features.join(", ")), app.check("\uC774 \uBAA8\uB4C8\uC758 \uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70\xB7JS\xB7MCP\xB7\uBC30\uACBD \uCC98\uB9AC\uB97C \uC81C\uC678", option.skipRuntime, (value) => {
+      if (profile.notApplicable.length) card.append(h("p", { class: "muted" }, "BB \uC694\uCCAD \uB2E8\uACC4\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9: " + profile.notApplicable.join(", ") + ". \uCD9C\uB825\xB7\uD45C\uC2DC \uD6C4\uCC98\uB9AC\uB294 \uAD6C\uC870\uD654\uB41C \uC218\uC815\uC548\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC73C\uBA70, \uBC30\uACBD \uCF54\uB4DC\uC640 \uC77C\uBC18 \uC218\uB3D9\xB7\uD45C\uC2DC\xB7\uCD9C\uB825 \uD2B8\uB9AC\uAC70\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      if (features.length) card.append(h("p", { class: "warn" }, "\uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uD56D\uBAA9: " + features.join(", ")), app.check("\uC774 \uBAA8\uB4C8\uC758 \uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uCC98\uB9AC\uB97C \uC81C\uC678", option.skipRuntime, (value) => {
         option.skipRuntime = value;
         change();
-      }), h("p", { class: "muted" }, "\uC81C\uC678\uB97C \uC120\uD0DD\uD574\uC57C \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB9CC \uC0AC\uC6A9\uD574 \uC804\uC1A1\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD574\uB2F9 \uAE30\uB2A5\uC740 \uC2E4\uD589\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      }), h("p", { class: "muted" }, "\uC785\uB825\xB7\uC804\uCC98\uB9AC\xB7\uC694\uCCAD \uCC98\uB9AC\uC640 Lua\xB7JS \uCF5C\uBC31\uC740 \uC694\uCCAD \uB0B4\uC6A9\uC744 \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC81C\uC678\uD558\uBA74 \uD574\uB2F9 \uCC98\uB9AC\uB97C \uC2E4\uD589\uD558\uC9C0 \uC54A\uACE0 \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB9CC \uC0AC\uC6A9\uD569\uB2C8\uB2E4."));
+      renderRuntimeInspection(app, card, profile, (item) => item.kind === "regex" ? module.regex[item.index] : item.kind === "trigger" ? module.trigger[item.index] : item.kind === "background" ? module.backgroundEmbedding : item.kind === "cjs" ? module.cjs : module.mcp, "\uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uACFC \uC6D0\uBB38 \uD655\uC778");
       const details = h("details", {}, h("summary", {}, "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uD3EC\uD568 \uD56D\uBAA9 \uD655\uC778"));
       for (const [i, entry] of module.lorebook.entries()) details.append(h("div", { class: "card stack" }, app.check(i + 1 + ". " + (entry.comment || entry.key || "\uB85C\uC5B4\uBD81"), !option.excludedLore.includes(i), (value) => {
         option.excludedLore = option.excludedLore.filter((index) => index !== i);
@@ -13573,6 +13614,15 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       card.append(details);
       host.append(card);
     }
+  }
+  function renderRuntimeInspection(app, host, profile, getRaw, title) {
+    if (!profile.items.length) return;
+    const h = app.h.bind(app), inspection = h("details", {}, h("summary", {}, title));
+    for (const item of profile.items) {
+      const raw = getRaw(item);
+      inspection.append(h("details", { class: "card" }, h("summary", {}, item.name + " \xB7 " + item.phase + " \xB7 " + (item.status === "unsupported" ? "\uBBF8\uC9C0\uC6D0 \uCC98\uB9AC" : "BB \uB2E8\uACC4\uC5D0 \uBBF8\uC801\uC6A9")), h("p", { class: "muted" }, item.reason), h("pre", { class: "diff" }, typeof raw === "string" ? raw : JSON.stringify(raw, null, 2))));
+    }
+    host.append(inspection);
   }
 
   // src/preset-ui.js
@@ -13723,10 +13773,15 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         state.excluded.modules = v;
         change();
       }), h("p", { class: "muted" }, "\uC804\uCCB4 \uC81C\uC678\uB97C \uC120\uD0DD\uD558\uBA74 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB3C4 \uC694\uCCAD\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
-      if (p.regex?.length) host.append(app.check("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.regex, (v) => {
-        state.excluded.regex = v;
-        change();
-      }));
+      if (p.regex?.length) {
+        const profile = presetRegexProfile(p.regex);
+        if (profile.notApplicable.length) host.append(h("p", { class: "muted" }, "\uD504\uB9AC\uC14B\uC5D0\uC11C BB \uB2E8\uACC4\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9: " + profile.notApplicable.join(", ")));
+        if (profile.blocking.length) host.append(h("p", { class: "warn" }, "\uD504\uB9AC\uC14B\uC758 \uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uD56D\uBAA9: " + profile.blocking.join(", ")), app.check("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.regex, (v) => {
+          state.excluded.regex = v;
+          change();
+        }));
+        renderRuntimeInspection(app, host, profile, (item) => p.regex[item.index], "\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uCC98\uB9AC \uB0B4\uC5ED\uACFC \uC6D0\uBB38 \uD655\uC778");
+      }
       if (p.promptBlockOverlay?.enabled) host.append(app.check("\uBCF4\uC870 \uD504\uB86C\uD504\uD2B8 \uC624\uBC84\uB808\uC774\uB97C \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.overlay, (v) => {
         state.excluded.overlay = v;
         change();
@@ -13756,6 +13811,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
             h("p", { class: "muted" }, "\uD604\uC7AC \uC694\uCCAD: " + app.task + " \xB7 " + (state.mode === "preset" ? "\uD504\uB9AC\uC14B \uC694\uCCAD" : "\uC9C1\uC811 \uC694\uCCAD") + " \xB7 " + report.messages.reduce((n, m) => n + m.content.length, 0).toLocaleString() + "\uC790"),
             h("details", {}, h("summary", {}, "\uBE14\uB85D\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.trace, null, 2))),
             h("details", {}, h("summary", {}, "\uBAA8\uB4C8\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.moduleTrace ?? [], null, 2))),
+            h("details", {}, h("summary", {}, "\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uCC98\uB9AC \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.presetRegexTrace ?? [], null, 2))),
             ...report.messages.map((m, i) => h("section", { class: "card stack" }, h("h3", {}, `${i + 1}. ${m.role}`), m.cachePoint ? h("span", { class: "pill" }, "\uCE90\uC2DC \uC9C0\uC810") : null, h("pre", { class: "diff" }, m.content))),
             h("p", { class: "muted" }, report.notes.join("\n"))
           );

@@ -260,7 +260,7 @@ try {
   await frame.getByRole('alert').filter({hasText:'실행은 지원하지 않습니다'}).waitFor();
   assert.equal(await frame.evaluate(()=>window.__calls.length),5);assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);
   await frame.getByRole('button',{name:'모듈',exact:true}).click();
-  await frame.getByRole('checkbox',{name:'이 모듈의 정규식·트리거·JS·MCP·배경 처리를 제외',exact:true}).check();
+  await frame.getByRole('checkbox',{name:'이 모듈의 요청 관련 미지원 처리를 제외',exact:true}).check();
   await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
   await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['script-id'].skipRuntime===true);
   await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
@@ -268,6 +268,39 @@ try {
   await frame.waitForFunction(()=>window.__calls.length===6&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);assert.deepEqual(await frame.evaluate(()=>window.__hostWrites),[]);
   results.push({name:'module runtime features block dispatch until explicitly excluded; exclusions persist and no module JS executes',passed:true});
+  await frame.locator('[data-action="select-modules"]').click();
+  await frame.getByRole('checkbox',{name:'실행 모듈 · script-id',exact:true}).uncheck();
+  await frame.getByRole('checkbox',{name:'출력·표시 모듈 · presentation-id',exact:true}).check();
+  await frame.getByRole('button',{name:'선택 모듈 적용',exact:true}).click();
+  await frame.getByText('BB 요청 단계에 적용하지 않는 항목:',{exact:false}).waitFor();
+  assert.equal(await frame.getByRole('checkbox',{name:'이 모듈의 요청 관련 미지원 처리를 제외',exact:true}).count(),0);
+  await frame.getByText('정규식·트리거 처리 내역과 원문 확인',{exact:true}).click();
+  await frame.getByText('챕터 표기 수정 · editoutput · BB 단계에 미적용',{exact:true}).click();
+  assert.match(await frame.locator('.editor').innerText(),/### Chapter \$1/);
+  assert.equal(await frame.locator('.editor pre b').count(),0);
+  await frame.locator('.toast.bad').waitFor({state:'hidden'});
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-runtime-phases.png',animations:'disabled'});
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===7&&!document.querySelector('[data-action="send-request"]').disabled);
+  assert.equal(await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['presentation-id'].skipRuntime),false);
+  assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);
+  results.push({name:'output/display rules, ordinary post-chat triggers and background code do not block BB requests; diagnostic source remains text',passed:true});
+  const postPreset={...samplePreset(),name:'후처리 호환 프리셋',regex:installedModules()[2].regex,promptTemplate:[{type:'lorebook'},{type:'plain',role:'user',name:'유저 인풋',text:'{{#if {{user_input}}}}\n{{user_input}}\n{{/if}}'},{type:'chat',rangeStart:0,rangeEnd:'end'}]};
+  const postChooser=page.waitForEvent('filechooser');await frame.locator('[data-action="import-preset"]').click();
+  await (await postChooser).setFiles({name:'post-preset.risup',mimeType:'application/octet-stream',buffer:Buffer.from(await encodePreset(postPreset))});
+  await frame.waitForFunction(()=>document.querySelector('[aria-label="프리셋 이름"]')?.value==='후처리 호환 프리셋');
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('이전과 다른 이번 요청 USER_INPUT_CURRENT');
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  const postTrace=JSON.parse(await frame.locator('.editor details').filter({has:frame.locator('summary').filter({hasText:'블록별 포함·제외 결과'})}).locator('pre').textContent());
+  assert.equal(postTrace[1].status,'empty');
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-preset-phases.png',animations:'disabled'});
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===8&&!document.querySelector('[data-action="send-request"]').disabled);
+  assert.equal(await frame.evaluate(()=>window.__calls[7].messages.filter(m=>m.content.includes('USER_INPUT_CURRENT')).length),1);
+  assert.equal(await frame.evaluate(()=>window.__calls[7].messages.some(m=>m.content.includes('{{user_input}}'))),false);
+  assert.equal(await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).excluded.regex),false);
+  results.push({name:'preset postprocessing rules allow dispatch and the reported if user_input block is omitted without duplicating the current request',passed:true});
   await frame.getByRole('combobox',{name:'요청 구성'}).selectOption('direct');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -277,6 +310,6 @@ try {
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 11, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 13, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
