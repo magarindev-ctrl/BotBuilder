@@ -1,0 +1,32 @@
+{
+  "scope": "Actual distributable, Edge headless, sandbox+CSP, mocked API. No live RisuBard/LLM verification.",
+  "passed": 5,
+  "results": [
+    {
+      "name": "desktop two-pane layout",
+      "passed": true,
+      "sizes": {
+        "overflow": false,
+        "editor": 848,
+        "chat": 420
+      }
+    },
+    {
+      "name": "review then model request and conversation reply",
+      "passed": true
+    },
+    {
+      "name": "explicit proposal apply updates manuscript",
+      "passed": true
+    },
+    {
+      "name": "RE2JS executes under CSP and displays HTML as text",
+      "passed": true
+    },
+    {
+      "name": "mobile pane switch without horizontal overflow",
+      "passed": true
+    }
+  ],
+  "errors": []
+}
