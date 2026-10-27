@@ -1,10 +1,10 @@
 //@name risu_story_workshop
-//@display-name 이야기 공방
+//@display-name 봇빌더
 //@api 3.0
-//@version 0.2.1
+//@version 0.2.2
 
 /*
-이야기 공방 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
+봇빌더 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
 RPack mapping: RisuAI f50b5942ec6aa59aa3c56049ac687ca09667fec7, SHA256 428e939c41617140ef2fad0420d9163cc80ce7c9b2f5e620223a25acc8afd498. Used only within RisuAI-compatible plugin runtime under the RPack MIT option.
 
 RE2JS license:
@@ -3187,7 +3187,7 @@ h3 { font-size: 14px; font-weight: 650; }
 .brandmark {
   display: grid; place-items: center; width: 39px; height: 39px; flex-shrink: 0;
   border: 1px solid var(--brand-line); border-radius: 50% 50% 10px 10px;
-  color: var(--accent); font-size: 22px; font-family: Georgia, serif;
+  color: var(--accent); font-size: 17px; font-weight: 700; font-family: Georgia, serif;
 }
 .document-title { flex: 1 1 180px; flex-wrap: nowrap; overflow: hidden; }
 .document-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -9992,7 +9992,7 @@ details[open] > summary { margin-bottom: 9px; }
   };
 
   // src/core.js
-  var VERSION = "0.2.1";
+  var VERSION = "0.2.2";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
@@ -13837,8 +13837,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
           if (this.slots.autosave || this.slots.manual) await this.showRecovery(true);
         }
       };
-      await this.api.registerSetting("\uC774\uC57C\uAE30 \uACF5\uBC29", open, "\u2726", "html");
-      await this.api.registerButton({ name: "\uC774\uC57C\uAE30 \uACF5\uBC29", icon: "\u2726", iconType: "html", location: "hamburger" }, open);
+      await this.api.registerSetting("\uBD07\uBE4C\uB354", open, "BB", "html");
+      await this.api.registerButton({ name: "\uBD07\uBE4C\uB354", icon: "BB", iconType: "html", location: "hamburger" }, open);
       this.autoTimer = setInterval(() => this.autosave().catch((error) => this.toast("\uC790\uB3D9 \uC800\uC7A5 \uC2E4\uD328: " + error.message, true)), 18e4);
       this.elapsedTimer = setInterval(() => this.jobStatus(), 1e3);
       await this.api.onUnload(() => this.destroy());
@@ -13915,7 +13915,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const header = h(
         "header",
         { class: "topbar" },
-        h("div", { class: "brand" }, h("div", { class: "brandmark", "aria-hidden": "true" }, "\u2726"), h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "STORY WORKSHOP"), h("h1", {}, "\uC774\uC57C\uAE30 \uACF5\uBC29"))),
+        h("div", { class: "brand" }, h("div", { class: "brandmark", "aria-hidden": "true" }, "BB"), h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "BOT BUILDER"), h("h1", {}, "\uBD07\uBE4C\uB354"))),
         h("div", { class: "row document-title" }, this.titleEl, h("span", { class: "pill" }, s.targetId ? "\uAE30\uC874 \uCE90\uB9AD\uD130" : "\uC0C8 \uC81C\uC791 \uC6D0\uACE0")),
         h("div", { class: "row header-actions" }, this.statusEl, this.b("\uC124\uC815", () => this.showSettings(), "ghost small"), this.b("\uB2EB\uAE30", () => this.api.hideContainer(), "ghost small"))
       );
@@ -14593,8 +14593,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
   if (api) {
     const app = new Workshop(api, document);
     app.init().catch((error) => {
-      console.error("[\uC774\uC57C\uAE30 \uACF5\uBC29]", error);
-      document.body.textContent = "\uC774\uC57C\uAE30 \uACF5\uBC29\uC744 \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: " + error.message;
+      console.error("[\uBD07\uBE4C\uB354]", error);
+      document.body.textContent = "\uBD07\uBE4C\uB354\uB97C \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: " + error.message;
     });
   }
 })();

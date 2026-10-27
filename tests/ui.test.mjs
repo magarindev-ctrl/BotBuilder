@@ -71,7 +71,7 @@ test('changing a preset toggle discards a pending response and older snapshots s
 });
 test('workshop renders manuscript + persistent chat, with prompt beside every send action', async () => {
   const x = await make(); try {
-    assert.match(x.dom.window.document.body.textContent, /이야기 공방/); assert.equal(x.dom.window.document.querySelectorAll('.editor').length, 1); assert.equal(x.dom.window.document.querySelectorAll('.conversation').length, 1);
+    assert.match(x.dom.window.document.body.textContent, /봇빌더/); assert.equal(x.dom.window.document.querySelectorAll('.editor').length, 1); assert.equal(x.dom.window.document.querySelectorAll('.conversation').length, 1);
     assert.ok(x.dom.window.document.querySelector('[data-action="send-request"]')); assert.ok(x.dom.window.document.querySelector('[data-action="prompt"]'));
     const presetTab=[...x.dom.window.document.querySelectorAll('.navitem')].find(e=>e.textContent.includes('프롬프트 프리셋'));presetTab.click();await wait();
     assert.ok(x.dom.window.document.querySelector('[data-action="import-preset"]'));assert.equal(x.app.task,'workshop');

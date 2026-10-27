@@ -91,8 +91,8 @@ export class Workshop {
     await this.readSlots();
     this.render();
     const open = async () => { await this.api.showContainer('fullscreen'); this.render(); if (!this.opened) { this.opened = true; if (this.slots.autosave || this.slots.manual) await this.showRecovery(true); } };
-    await this.api.registerSetting('이야기 공방', open, '✦', 'html');
-    await this.api.registerButton({ name: '이야기 공방', icon: '✦', iconType: 'html', location: 'hamburger' }, open);
+    await this.api.registerSetting('봇빌더', open, 'BB', 'html');
+    await this.api.registerButton({ name: '봇빌더', icon: 'BB', iconType: 'html', location: 'hamburger' }, open);
     this.autoTimer = setInterval(() => this.autosave().catch(error => this.toast('자동 저장 실패: ' + error.message, true)), 180000);
     this.elapsedTimer = setInterval(() => this.jobStatus(), 1000);
     await this.api.onUnload(() => this.destroy());
@@ -139,7 +139,7 @@ export class Workshop {
   render() {
     const h = this.h.bind(this), s = this.s;
     this.statusEl = h('span', { class: 'status-text', 'aria-live': 'polite' }); this.titleEl = h('strong', { class: 'document-name', title: s.draft.name }, s.draft.name);
-    const header = h('header', { class: 'topbar' }, h('div', { class: 'brand' }, h('div', { class: 'brandmark', 'aria-hidden': 'true' }, '✦'), h('div', { class: 'stack', style: 'gap:4px' }, h('span', { class: 'eyebrow' }, 'STORY WORKSHOP'), h('h1', {}, '이야기 공방'))),
+    const header = h('header', { class: 'topbar' }, h('div', { class: 'brand' }, h('div', { class: 'brandmark', 'aria-hidden': 'true' }, 'BB'), h('div', { class: 'stack', style: 'gap:4px' }, h('span', { class: 'eyebrow' }, 'BOT BUILDER'), h('h1', {}, '봇빌더'))),
       h('div', { class: 'row document-title' }, this.titleEl, h('span', { class: 'pill' }, s.targetId ? '기존 캐릭터' : '새 제작 원고')),
       h('div', { class: 'row header-actions' }, this.statusEl, this.b('설정', () => this.showSettings(), 'ghost small'), this.b('닫기', () => this.api.hideContainer(), 'ghost small')));
     const tools = h('div', { class: 'toolbar' }, h('div', { class: 'toolbar-files' }, this.b('＋ 새 작업', () => this.newWork()), this.b('캐릭터 불러오기', () => this.loadCharacters()), this.b('charx 열기', () => this.chooseCharx())), h('div', { class: 'toolbar-saves' }, this.b('임시 저장', async () => { await this.saveSlot('manual'); this.toast('수동 임시 저장본을 갱신했습니다.'); }), this.b('저장본 불러오기', () => this.showRecovery()), this.b('charx 내보내기', () => this.downloadCharx()), this.b(s.targetId ? '캐릭터에 저장' : '새 캐릭터로 저장', () => this.saveHost(), 'primary')), h('div', { class: 'mobile-switch' }, this.b('원고', () => { this.view = 'editor'; this.render(); }, 'small', { 'aria-pressed': this.view === 'editor' }), this.b('대화', () => { this.view = 'chat'; this.render(); }, 'small', { 'aria-pressed': this.view === 'chat' })));

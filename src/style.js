@@ -83,7 +83,7 @@ h3 { font-size: 14px; font-weight: 650; }
 .brandmark {
   display: grid; place-items: center; width: 39px; height: 39px; flex-shrink: 0;
   border: 1px solid var(--brand-line); border-radius: 50% 50% 10px 10px;
-  color: var(--accent); font-size: 22px; font-family: Georgia, serif;
+  color: var(--accent); font-size: 17px; font-weight: 700; font-family: Georgia, serif;
 }
 .document-title { flex: 1 1 180px; flex-wrap: nowrap; overflow: hidden; }
 .document-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
