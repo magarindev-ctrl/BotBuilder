@@ -18,6 +18,17 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
   const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
+test('preset OOC prefill stays configured while response leftovers are removed before conversation and proposal handling',async()=>{
+  const x=await make();try {
+    const preset={...samplePreset(),promptSettings:{assistantPrefill:'## OOC Response\n'}};
+    await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(preset)),'p.json');
+    x.app.api.runLLMModel=async options=>{x.calls.push(options);return {type:'success',result:'## OOC Response\n```json\n'+JSON.stringify({schemaVersion:1,task:x.app.task,data:x.app.task==='workshop'?{reply:'리아의 장르부터 정해볼까요?',changes:[]}:{text:'원고 안의 ## 제목과 {중괄호}는 유지합니다.'}})+'\n```\n부가 설명'};};
+    x.app.s.requests.workshop='같이 만들자';await x.app.sendRequest();assert.equal(x.app.s.thread.at(-1).content,'리아의 장르부터 정해볼까요?');assert.equal(x.app.s.thread.at(-1).error,undefined);
+    assert.equal(x.calls[0].messages.at(-1).content,'## OOC Response\n');
+    x.app.task='description';x.app.s.requests.description='설명을 작성해줘';await x.app.sendRequest();
+    assert.equal(x.app.s.candidates.length,1);assert.equal(x.app.s.draft.desc,'');assert.equal(x.app.s.candidates[0].packet.data.text,'원고 안의 ## 제목과 {중괄호}는 유지합니다.');
+  }finally{x.close();}
+});
 test('installed-module dialog selects referenced modules read-only and persists modules/toggles through import and recovery',async()=>{
   const x=await make();let y;try {
     const modules=installedModules(),before=JSON.stringify(modules),reads=[];

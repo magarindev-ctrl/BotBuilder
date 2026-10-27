@@ -1,5 +1,5 @@
 import { CSS } from './style.js';
-import { VERSION, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
@@ -335,7 +335,7 @@ export class Workshop {
       const preview = () => { try { const report=this.previewRequest(task); actual.textContent=(report.issues.length?'전송할 수 없는 항목:\n'+report.issues.join('\n')+'\n\n':'')+JSON.stringify(report.messages, null, 2); } catch (e) { actual.textContent = e.message; } };
       const system = this.field('시스템 프롬프트 전체', draft.system, v => { draft.system = v; this.touch(false); }, { class: 'code', style: 'min-height:220px' });
       const user = this.field('사용자 프롬프트 템플릿', draft.user, v => { draft.user = v; this.touch(false); }, { class: 'code', style: 'min-height:230px' });
-      body.append(saved, system, user, h('div', { class: 'row' }, this.b('프롬프트 저장', async () => {
+      body.append(saved, system, user, h('details',{},h('summary',{},'JSON 응답 형식과 예시'),h('pre',{class:'diff'},formatFor(task))), h('div', { class: 'row' }, this.b('프롬프트 저장', async () => {
         composeMessages(this.s, task, this.s.requests[task] ?? '', draft);
         await this.store('prompt:' + task, draft); this.prompts[task] = clone(draft); this.s.promptRevision++; this.touch(false); preview(); saved.textContent = '저장했습니다. 다음 요청부터 이 프롬프트를 사용합니다.';
       }, 'primary'), this.b('기본값으로 초기화', async () => {

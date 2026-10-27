@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 18,
+  "passed": 19,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -144,6 +144,10 @@
     },
     {
       "name": "preset postprocessing rules allow dispatch and the reported if user_input block is omitted without duplicating the current request",
+      "passed": true
+    },
+    {
+      "name": "task-specific JSON examples are visible and OOC/trailing response residue is stripped before conversation rendering",
       "passed": true
     },
     {

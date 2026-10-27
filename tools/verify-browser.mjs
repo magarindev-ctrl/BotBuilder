@@ -14,7 +14,7 @@ const moduleFixture=JSON.stringify(installedModules()).split('<').join(String.fr
 const setup = `
 const store = new Map(); let chars = ${JSON.stringify([c])};
 const installedModules=${moduleFixture};window.__moduleSource=JSON.stringify(installedModules);
-window.__calls = [];window.__dbReads=[];window.__hostWrites=[];
+window.__calls = [];window.__dbReads=[];window.__hostWrites=[];window.__wrapResponse=false;
 window.risuai = {
  pluginStorage:{getItem:async k=>store.get(k)??null,setItem:async(k,v)=>store.set(k,v),removeItem:async k=>store.delete(k)},
  registerSetting:async(n,cb)=>{window.__open=cb;},registerButton:async()=>({id:'mock'}),onUnload:async cb=>window.__unload=cb,
@@ -25,7 +25,7 @@ window.risuai = {
  runLLMModel:async o=>{window.__calls.push(o);await new Promise(r=>setTimeout(r,60));
  const task = o.messages.findLast(m=>m.role==='user').content.split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
  const data = task==='workshop'?{reply:'기억을 거래하는 항구 도시를 배경으로 시작해볼까요? 사용자의 역할부터 함께 정해보면 좋겠습니다.',changes:[]}:{text:'기억을 거래하는 항구 도시의 기록관. 사람들의 사라진 과거를 찾아주며, 자신의 기억만은 되찾지 못하고 있다.'};
- return {type:'success',result:JSON.stringify({schemaVersion:1,task,data})};},
+ const result=JSON.stringify({schemaVersion:1,task,data});return {type:'success',result:window.__wrapResponse?'## OOC Response\\n'+result+'\\n응답 뒤의 부가 설명':result};},
  saveAsset:async()=> 'assets/mock',readImage:async()=>new Uint8Array([1,2,3])
 };`;
 const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;width:100%;height:100%;background:#765a80}iframe{border:0;width:100%;height:100%}</style><iframe id="plugin" style="display:none!important" sandbox="allow-scripts allow-modals allow-downloads"></iframe><script>addEventListener('message',e=>{const f=document.getElementById('plugin');if(e.source!==f.contentWindow)return;if(e.data?.workshopFrame==='show'){Object.assign(f.style,{position:'fixed',inset:'0',width:'100%',height:'100%',backgroundColor:'transparent'});f.style.setProperty('display','block','important');}else if(e.data?.workshopFrame==='hide')f.style.setProperty('display','none','important');});</script>`;
@@ -301,6 +301,21 @@ try {
   assert.equal(await frame.evaluate(()=>window.__calls[7].messages.some(m=>m.content.includes('{{user_input}}'))),false);
   assert.equal(await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).excluded.regex),false);
   results.push({name:'preset postprocessing rules allow dispatch and the reported if user_input block is omitted without duplicating the current request',passed:true});
+  await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('workshop');
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('리아의 제작 방향을 함께 정하자.');
+  await frame.locator('[data-action="prompt"]').click();
+  await frame.getByText('JSON 응답 형식과 예시',{exact:true}).click();
+  const outputGuide=frame.getByRole('dialog').locator('details').filter({has:frame.locator('summary').filter({hasText:'JSON 응답 형식과 예시'})});
+  assert.match(await outputGuide.innerText(),/올바른 출력 예시/);assert.match(await outputGuide.innerText(),/잘못된 출력 예시/);
+  await frame.getByRole('button',{name:'창 닫기',exact:true}).click();
+  await frame.evaluate(()=>window.__wrapResponse=true);
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===9&&!document.querySelector('[data-action="send-request"]').disabled);
+  const cleanedReply=await frame.locator('.message.assistant .bubble').last().innerText();
+  assert.match(cleanedReply,/항구 도시/);assert.doesNotMatch(cleanedReply,/OOC Response|schemaVersion|부가 설명/);
+  assert.ok(await frame.evaluate(()=>window.__calls[8].messages.some(m=>m.content.includes('올바른 출력 예시')&&m.content.includes('잘못된 출력 예시'))));
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-json-output.png',animations:'disabled'});
+  results.push({name:'task-specific JSON examples are visible and OOC/trailing response residue is stripped before conversation rendering',passed:true});
   await frame.getByRole('combobox',{name:'요청 구성'}).selectOption('direct');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -310,6 +325,6 @@ try {
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 13, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 14, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ReadableStream } from 'node:stream/web';
-import { blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, defaultPrompt, composeMessages, parseResponse, applyPacket, mergeCharacter, saveExisting, callModel, regexTest, clone, editable } from '../src/core.js';
+import { blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, defaultPrompt, responseExamples, TASKS, composeMessages, parseResponse, applyPacket, mergeCharacter, saveExisting, callModel, regexTest, clone, editable } from '../src/core.js';
 import { characterToCard, cardToCharacter, encodeModule, decodeModule, exportCharx, importCharx, unpack } from '../src/charx.js';
 
 const envelope = (task, data) => JSON.stringify({ schemaVersion: 1, task, data });
@@ -12,10 +12,37 @@ test('templates expand only once and include complete working context + conversa
   assert.equal(messages.length, 2); assert.match(messages[1].content, /<<USER_REQUEST>>/); assert.match(messages[1].content, /earlier idea/);
   assert.throws(() => composeMessages(s, 'description', 'x', { system: '', user: '<<USER_REQUEST>>' }), /누락/);
 });
-test('responses reject arbitrary keys, wrong task, code fences, invalid range, prototype keys', () => {
+test('responses retain strict key, task, range and prototype validation after wrapper cleanup', () => {
   const c = blankCharacter();
-  for (const raw of ['```json\n' + envelope('description', { text: 'x' }) + '\n```', envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));
+  for (const raw of [envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));
   assert.throws(() => parseResponse(envelope('lorebook', { upsert: [{ ref: null, entry: { key: 'x', content: 'y', activationPercent: 101 } }], remove: [] }), 'lorebook', c));
+});
+test('task-specific output examples validate and distinguish dialogue from explicit manuscript changes',()=>{
+  for(const task of Object.keys(TASKS)) {
+    const examples=responseExamples(task);for(const example of examples)assert.deepEqual(parseResponse(JSON.stringify(example),task,blankCharacter()),example);
+    const messages=composeMessages(newSession(),task,'이번 요청',defaultPrompt(task));
+    assert.match(messages[1].content,/올바른 출력 예시/);assert.match(messages[1].content,/잘못된 출력 예시/);assert.match(messages[1].content,/## OOC Response/);
+  }
+  assert.deepEqual(responseExamples('workshop')[0].data.changes,[]);assert.equal(responseExamples('workshop')[1].data.changes[0].task,'description');
+});
+test('OOC headings, code fences, BOM and trailing explanations are removed around one valid response',()=>{
+  const packet={schemaVersion:1,task:'workshop',data:{reply:"현재 이름은 '리아'로 설정되어 있습니다.\n\n1. 원하는 장르를 알려주세요.",changes:[]}},json=JSON.stringify(packet);
+  for(const raw of ['## OOC Response\n'+json,'```json\n'+json+'\n```','\uFEFF설명입니다.\n```JSON\n'+json+'\n```\n완료했습니다.','{note}\n'+json+'\n{"usage":1}'])assert.deepEqual(parseResponse(raw,'workshop',blankCharacter()),packet);
+});
+test('wrapper cleanup preserves JSON string content including braces, escaped quotes and embedded code fences',()=>{
+  const text=['## 제목','```lua','local t = { marker = "}" }','```','literal='+JSON.stringify('"[x]{y}"')].join('\n');
+  const packet={schemaVersion:1,task:'description',data:{text}};
+  assert.deepEqual(parseResponse('앞 설명 [OOC]\n```json\n'+JSON.stringify(packet)+'\n```\n뒷 설명','description',blankCharacter()),packet);
+});
+test('multiple response objects, arrays, nested envelopes and damaged JSON are never guessed or repaired',()=>{
+  const good=envelope('description',{text:'x'});
+  assert.throws(()=>parseResponse('prefix\n'+good+'\n'+good,'description',blankCharacter()),/여러 개/);
+  for(const raw of ['```json\n['+good+']\n```','prefix {"wrapper":'+good+'}','prefix {"schemaVersion":1,"task":"description","data":{"text":"bad",}}','prefix {"schemaVersion":1,"task":"description","data":{"text":"unfinished}'])assert.throws(()=>parseResponse(raw,'description',blankCharacter()));
+});
+test('cleanup keeps size limits and does not discard schema errors from the candidate object',()=>{
+  assert.throws(()=>parseResponse('x'.repeat(1048577)+envelope('description',{text:'x'}),'description',blankCharacter()),/1MiB/);
+  assert.throws(()=>parseResponse('## OOC\n'+envelope('description',{text:'x',unknown:true})+'\nend','description',blankCharacter()),/허용하지 않는/);
+  assert.throws(()=>parseResponse('## OOC\n'+envelope('greeting',{text:'x'}),'description',blankCharacter()),/작업 종류/);
 });
 test('proposal validation and apply preserve unrelated native fields', () => {
   const c = blankCharacter(); c.globalLore = [{ ...lore('one'), custom: 'keep', id: 'a' }, lore('two')]; c.chats[0].message.push({ data: 'conversation' });
