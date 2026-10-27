@@ -6,12 +6,80 @@ import { decodePreset, normalizePreset, PRESET_LIMIT } from '../src/preset-forma
 import { parseToggleTree, toggleDefault, compileV2, parseV2 } from '../src/preset-v2.js';
 import { newPresetState, validatePresetState, toggleDefinitions, presetValues, renderPresetText, assemblePreset } from '../src/preset-engine.js';
 import { newSession } from '../src/core.js';
+import { calculatePreset } from '../src/preset-calc.js';
+import { transform } from 'esbuild';
+import { readFile } from 'node:fs/promises';
 import { encodePreset, samplePreset } from './preset-fixture.mjs';
 
 const stateFor=p=>({...newPresetState(),mode:'preset',preset:normalizePreset(p)});
 const context={fields:{char:'별 {{unknown}}',slot:'{{unknown}}'},globals:{toggle_x:'1'},variables:{x:'7'}};
 const request=[{role:'system',content:'작업 규칙'},{role:'user',content:'이번 요청 {{not_a_macro}}'}];
 const assemble=(p,session=newSession())=>assemblePreset(p,session,'workshop',request);
+let referenceFactory;
+async function reference(variables={},globals={}) {
+  if(!referenceFactory) {
+    const source=await readFile(new URL('./fixtures/risubard-cbs-reference.ts',import.meta.url),'utf8');
+    const {code}=await transform(source,{loader:'ts',format:'esm'});
+    referenceFactory=(await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))).nativeReference;
+  }
+  return referenceFactory(variables,globals);
+}
+
+test('user-reported #if_pure expression with /if closing responds to the imported OOC toggle',()=>{
+  const source="# User's input{{#if_pure {{? {{getglobalvar::toggle_OOC}}=2}}}}(What Cattleya have to respond!){{/if}}";
+  for(const value of ['0','1','2']) {
+    const text=renderPresetText(source,{...context,globals:{toggle_OOC:value}});
+    assert.equal(text,"# User's input"+(value==='2'?'(What Cattleya have to respond!)':''));
+  }
+  assert.equal(renderPresetText('{{#if_pure 1}}\n  kept\n{{/if}}',context),'\n  kept\n');
+  assert.equal(renderPresetText('{{#if 2}}hidden{{/if}}',context),'');
+  assert.equal(renderPresetText('{{#if_pure 1}}A{{#if 1}}B{{/}}C{{/if}}',context),'ABC');
+});
+test('infix ? and calc results match pinned upstream RPN functions with local variable bindings',async()=>{
+  const variables={score:'7'},globals={toggle_OOC:'2'};const native=await reference(variables,globals);
+  const expressions=['0=2','1=2','2=2','2==2','2!=1','1<=2','3>=2','2+3*4','(2+3)*4','2^3^2','-3+5','2*-3','1&&0','1||0','!0','null=0','$score+1','@toggle_OOC=2','(@toggle_OOC=2)&($score>5)','1/0','0/0'];
+  for(const source of expressions) {
+    const expected=String(native.calcString(source));
+    assert.equal(calculatePreset(source,{variables,globals}),expected,source);
+    assert.equal(renderPresetText('{{? '+source+'}}',{...context,variables,globals}),expected,source);
+    assert.equal(renderPresetText('{{calc::'+source+'}}',{...context,variables,globals}),expected,source);
+  }
+  assert.throws(()=>calculatePreset('1'.repeat(65537)),/65,536/);
+  assert.throws(()=>calculatePreset('('.repeat(51)+'1'+')'.repeat(51)),/중첩/);
+});
+test('condition booleans, right-to-left when operators and whitespace match pinned upstream blocks',async()=>{
+  const globals={toggle_OOC:'2',toggle_x:'1'},variables={score:'7'},native=await reference(variables,globals);
+  const headers=['#if 1','#if true','#if 2','#if false','#if_pure 1','#if_pure 0','#when 1','#when 2','#when::keep::1','#when::legacy::1','#when::1::or::0::and::0','#when::1::and::0::or::1','#when::not::0','#when::2::is::2','#when::1::isnot::2','#when::2::>::1','#when::1::<::2','#when::2::>=::2','#when::2::<=::2','#when::var::score','#when::score::vis::7','#when::score::visnot::8','#when::toggle::x','#when::OOC::tis::2','#when::OOC::tisnot::1'];
+  const body='\n  first\n    second\n';
+  for(const header of headers) {
+    const expected=native.blockEndMatcher(body,native.blockStartMatcher(header,{globalChatVariables:globals}),{});
+    assert.equal(renderPresetText('{{'+header+'}}'+body+'{{/}}',{...context,variables,globals}),expected,header);
+  }
+  assert.equal(renderPresetText('{{#when::0}}yes{{:else}}no{{/}}',context),'no');
+});
+test('cache blocks mark preceding role-filtered messages without adding prompt text',()=>{
+  const p={mainPrompt:'',promptTemplate:[{type:'plain',role:'system',text:'system'},{type:'plain',role:'user',text:'user'},{type:'plain',role:'bot',text:'assistant'},{type:'cache',depth:2,role:'all'},{type:'chat',rangeStart:0,rangeEnd:'end'},{type:'cache',depth:1,role:'system'}]};
+  const report=assemble(stateFor(p));assert.deepEqual(report.issues,[]);
+  assert.deepEqual(report.messages.slice(0,3).map(m=>m.cachePoint),[true,true,true]);
+  assert.equal(report.messages.length,4);assert.equal(report.messages[3].cachePoint,undefined);
+  assert.equal(report.trace[3].status,'metadata');assert.deepEqual(report.trace[3].targets,[2,1]);
+  p.promptTemplate[3].depth=0;p.promptTemplate[5].enabled=false;
+  assert.equal(assemble(stateFor(p)).messages.some(m=>m.cachePoint),false);
+  p.promptTemplate[3].depth=-1;assert.match(assemble(stateFor(p)).issues.join(),/깊이/);
+});
+test('standalone and inline :else branches preserve the native keep and normal whitespace rules',async()=>{
+  const native=await reference();
+  for(const header of ['#when::1','#when::0','#when::keep::1','#when::keep::0'])for(const body of [' A {{:else}} B ','\n  A\n{{:else}}\n  B\n','A\n  {{:else}} \nB']) {
+    const expected=native.blockEndMatcher(body,native.blockStartMatcher(header,{}),{});
+    assert.equal(renderPresetText('{{'+header+'}}'+body+'{{/}}',context),expected,header+': '+body);
+  }
+});
+test('empty comma-separated module references do not block; real references explain explicit exclusion',()=>{
+  const s=stateFor({...samplePreset(),moduleIntergration:' , , '});assert.deepEqual(assemble(s).issues,[]);
+  s.preset.moduleIntergration='module-a, module-b,module-a';const error=assemble(s).issues.join();
+  assert.match(error,/module-a, module-b/);assert.match(error,/참고자료/);assert.match(error,/포함되지 않습니다/);
+  assert.equal(s.excluded.modules,false);
+});
 
 test('upstream-compatible AES-GCM + gzip + MessagePack + RPack preset formats decode',async()=>{
   for(const [name,options] of [['a.risup',{}],['a.risupreset',{rpack:false}],['old.risupreset',{rpack:false,version:0,field:'pres'}]]) {
@@ -67,7 +135,8 @@ test('CBS evaluates nested branches, comments and variables without reparsing in
   assert.equal(renderPresetText('{{getvar::constructor}}',context),'null');
   assert.throws(()=>renderPresetText('{{getglobalvar::missing}}',context),/전역 변수/);
   assert.throws(()=>renderPresetText('{{unknown}}',context),/지원하지 않는/);
-  assert.throws(()=>renderPresetText('{{#if 1}}x{{/when}}',context),/일치/);
+  assert.equal(renderPresetText('{{#if 1}}x{{/when}}',context),'x');
+  assert.throws(()=>renderPresetText('x{{/if}}',context),/열린 CBS/);
   assert.throws(()=>renderPresetText('{{#if 1}}'.repeat(60)+'x'+'{{/if}}'.repeat(60),context),/중첩/);
 });
 test('assembly keeps block order, roles, selected conditions, history and current request once',()=>{
@@ -110,7 +179,7 @@ test('external modules, regex and overlays require explicit exclusion; unsupport
   const s=stateFor({...samplePreset(),moduleIntergration:'module',regex:[{}],promptBlockOverlay:{enabled:true}});
   assert.equal(assemble(s).issues.length,3);
   s.excluded={modules:true,regex:true,overlay:true};assert.deepEqual(assemble(s).issues,[]);
-  s.preset.promptTemplate.unshift({type:'cache'});assert.match(assemble(s).issues.join(),/유형/);
+  s.preset.promptTemplate.unshift({type:'futureFeature'});assert.match(assemble(s).issues.join(),/유형/);
   s.preset.promptTemplate[0].enabled=false;s.preset.promptTemplate[1].text='{{run_host_code}}';
   assert.match(assemble(s).issues.join(),/CBS/);
   s.preset.promptTemplate[1].enabled=false;s.preset.promptSettings.sendName=true;

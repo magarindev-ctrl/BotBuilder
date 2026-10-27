@@ -1,7 +1,7 @@
 //@name risu_story_workshop
 //@display-name 이야기 공방
 //@api 3.0
-//@version 0.2.0
+//@version 0.2.1
 
 /*
 이야기 공방 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
@@ -77,10 +77,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Preset adapters: adapted from RisuBard promptV2.ts, util.ts and preset wire format at commit e5412a4878ae3a0073ffce8e06aed8f288dd9c53.
+Preset adapters: adapted from RisuBard promptV2.ts, util.ts, parser/parser.svelte.ts, process/infunctions.ts and preset wire format at commit e5412a4878ae3a0073ffce8e06aed8f288dd9c53.
 Upstream: https://github.com/rpaddict/RisuBard (copyright upstream contributors; GPL-3.0).
 Workshop distribution license: GPL-3.0-only. Corresponding source: src/, tools/build.mjs and package-lock.json in this project.
-Changes: independent DOM UI, local workshop context and bounded CBS subset; no host stores or Svelte components.
+Changes: independent DOM UI, local workshop context and bounded CBS subset/RPN arithmetic with local variable bindings; no host stores or Svelte components. Tests include pinned upstream pure-function excerpts for differential verification; these fixtures are not bundled.
 
 msgpackr license:
 MIT License
@@ -9992,7 +9992,7 @@ details[open] > summary { margin-bottom: 9px; }
   };
 
   // src/core.js
-  var VERSION = "0.2.0";
+  var VERSION = "0.2.1";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
@@ -12873,6 +12873,111 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     return { body: wrapper[2], activation: { join: joins[0] ?? "and", conditions } };
   }
 
+  // src/preset-calc.js
+  var precedence = { "+": 2, "-": 2, "*": 3, "/": 3, "^": 4, "%": 3, "<": 1, ">": 1, "|": 1, "&": 1, "\u2264": 1, "\u2265": 1, "=": 1, "\u2260": 1, "!": 5 };
+  var isOperator = (char) => Object.hasOwn(precedence, char);
+  var isNumber = (token) => Boolean(parseFloat(token)) || token === "0";
+  function toRPN(expression) {
+    expression = expression.replace(/\s+/g, "");
+    const tokens = [], output = [], stack = [];
+    let pending = "";
+    for (let i = 0; i < expression.length; i++) {
+      const char = expression[i];
+      if (char === "-" && (i === 0 || isOperator(expression[i - 1]) || expression[i - 1] === "(")) pending += char;
+      else if (isOperator(char)) {
+        tokens.push(pending || "0", char);
+        pending = "";
+      } else pending += char;
+    }
+    tokens.push(pending || "0");
+    for (const token of tokens) {
+      if (isNumber(token)) output.push(token);
+      else if (isOperator(token)) {
+        while (stack.length && (token === "!" ? precedence[token] < precedence[stack.at(-1)] : precedence[token] <= precedence[stack.at(-1)])) output.push(stack.pop());
+        stack.push(token);
+      }
+    }
+    while (stack.length) output.push(stack.pop());
+    return output;
+  }
+  function calculate(tokens) {
+    const stack = [];
+    for (const token of tokens) {
+      if (isNumber(token)) {
+        stack.push(parseFloat(token));
+        continue;
+      }
+      const b = stack.pop(), a = stack.pop();
+      switch (token) {
+        case "+":
+          stack.push(a + b);
+          break;
+        case "-":
+          stack.push(a - b);
+          break;
+        case "*":
+          stack.push(a * b);
+          break;
+        case "/":
+          stack.push(a / b);
+          break;
+        case "^":
+          stack.push(a ** b);
+          break;
+        case "%":
+          stack.push(a % b);
+          break;
+        case "<":
+          stack.push(a < b ? 1 : 0);
+          break;
+        case ">":
+          stack.push(a > b ? 1 : 0);
+          break;
+        case "\u2264":
+          stack.push(a <= b ? 1 : 0);
+          break;
+        case "\u2265":
+          stack.push(a >= b ? 1 : 0);
+          break;
+        case "=":
+          stack.push(a === b ? 1 : 0);
+          break;
+        case "\u2260":
+          stack.push(a !== b ? 1 : 0);
+          break;
+        case "|":
+          stack.push(a || b);
+          break;
+        case "&":
+          stack.push(a && b);
+          break;
+        case "!":
+          stack.push(b ? 0 : 1);
+          break;
+      }
+    }
+    return stack.length ? stack.pop() : 0;
+  }
+  function calculatePreset(source, { variables: variables2 = {}, globals = {} } = {}) {
+    assert(source.length <= 65536, "CBS \uACC4\uC0B0\uC2DD\uC740 65,536\uC790 \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    const read = (map, key2) => {
+      const n = parseFloat(Object.hasOwn(map, key2) ? map[key2] : "");
+      return Number.isNaN(n) ? "0" : String(n);
+    };
+    const execute = (text) => calculate(toRPN(text.replace(/\$([a-zA-Z0-9_]+)/g, (_, key2) => read(variables2, key2)).replace(/@([a-zA-Z0-9_]+)/g, (_, key2) => read(globals, key2)).replace(/&&/g, "&").replace(/\|\|/g, "|").replace(/<=/g, "\u2264").replace(/>=/g, "\u2265").replace(/==/g, "=").replace(/!=/g, "\u2260").replace(/null/gi, "0")));
+    const depth = [""];
+    for (const char of source) {
+      if (char === "(") {
+        assert(depth.length < 50, "CBS \uACC4\uC0B0\uC2DD \uAD04\uD638 \uC911\uCCA9\uC774 \uB108\uBB34 \uAE4A\uC2B5\uB2C8\uB2E4.");
+        depth.push("");
+      } else if (char === ")" && depth.length > 1) {
+        const value = execute(depth.pop());
+        depth[depth.length - 1] += value;
+      } else depth[depth.length - 1] += char;
+    }
+    return String(execute(depth.join("")));
+  }
+
   // src/preset-engine.js
   function newPresetState() {
     return { schemaVersion: 1, mode: "direct", preset: null, values: {}, selected: 0, pane: "blocks", environment: { userName: "\uC0AC\uC6A9\uC790", persona: "", authorNote: "", memory: "", globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
@@ -12957,18 +13062,20 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const children = [];
       while (cursor < nodes.length) {
         const node = nodes[cursor++], head = node.kind === "macro" ? (node.parts[0][0]?.text ?? "").trim() : "";
-        if (head === "else" || head === "#else") {
+        if (["else", "#else", ":else"].includes(head)) {
           assert(closing, "\uB2E8\uB3C5 else \uBB38\uC785\uB2C8\uB2E4.");
-          return { children, otherwise: true };
+          const before = children.at(-1), after = nodes[cursor];
+          const elseLine = head === ":else" && closing === "when" && (!before || before.kind === "text" && /(?:^|\n)[ \t]*$/.test(before.text)) && (!after || after.kind === "text" && /^[ \t]*(?:\r?\n|$)/.test(after.text));
+          return { children, otherwise: true, elseLine };
         }
         if (head.startsWith("/") && !head.startsWith("//")) {
-          assert(head.slice(1) === closing, "CBS \uBE14\uB85D\uC758 \uB2EB\uB294 \uD0DC\uADF8\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+          assert(closing, "\uC5F4\uB9B0 CBS \uBE14\uB85D\uC774 \uC5C6\uB294 \uB2EB\uB294 \uD0DC\uADF8\uC785\uB2C8\uB2E4: " + head);
           return { children, otherwise: false };
         }
         if (head.startsWith("#")) {
           const name = head.split(/\s/)[0].slice(1), first = group(name, depth + 1);
           const second = first.otherwise ? group(name, depth + 1) : { children: [] };
-          children.push({ kind: "block", name, opening: node, yes: first.children, no: second.children });
+          children.push({ kind: "block", name, opening: node, yes: first.children, no: second.children, elseLine: first.elseLine });
         } else children.push(node);
       }
       assert(!closing, "CBS \uBE14\uB85D \uB2EB\uB294 \uD0DC\uADF8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4: " + closing);
@@ -12976,14 +13083,86 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     }
     return group(null).children;
   }
-  var truth = (value) => !["", "0", "false", "null", "undefined", "NaN"].includes(String(value).trim());
-  function logic(values) {
-    if (values.length === 1) return truth(values[0]);
-    assert(values.length % 2 === 1, "\uC870\uAC74\uC2DD\uC758 \uAC12\uACFC and/or \uC218\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
-    const joins = values.filter((_, i) => i % 2 === 1);
-    assert(joins.every((v) => v === "and" || v === "or") && joins.every((v) => v === joins[0]), "\uD63C\uD569 \uC870\uAC74\uC2DD\uC740 and \uB610\uB294 or\uB85C \uB098\uB220 \uC911\uCCA9\uD574 \uC8FC\uC138\uC694.");
-    const flags = values.filter((_, i) => i % 2 === 0).map(truth);
-    return joins[0] === "or" ? flags.some(Boolean) : flags.every(Boolean);
+  var truth = (value) => value === "1" || value === "true";
+  function whenCondition(values, context) {
+    const stack = [...values];
+    let mode = "normal";
+    const global = (key2) => {
+      assert(Object.hasOwn(context.globals, key2), "\uAC12\uC774 \uC5C6\uB294 \uC804\uC5ED \uBCC0\uC218: " + key2);
+      return context.globals[key2];
+    };
+    const local = (key2) => Object.hasOwn(context.variables, key2) ? context.variables[key2] : "null";
+    while (stack.length > 1) {
+      const b = stack.pop(), op = stack.pop();
+      let value;
+      const left = () => {
+        assert(stack.length, "CBS \uC870\uAC74\uC2DD\uC758 \uC67C\uCABD \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4: " + op);
+        return stack.pop();
+      };
+      if (op === "keep" || op === "legacy") {
+        mode = op;
+        stack.push(b);
+        continue;
+      }
+      switch (op) {
+        case "not":
+          value = !truth(b);
+          break;
+        case "and":
+          value = truth(left()) && truth(b);
+          break;
+        case "or":
+          value = truth(left()) || truth(b);
+          break;
+        case "is":
+          value = left() === b;
+          break;
+        case "isnot":
+          value = left() !== b;
+          break;
+        case ">":
+          value = parseFloat(left()) > parseFloat(b);
+          break;
+        case "<":
+          value = parseFloat(left()) < parseFloat(b);
+          break;
+        case ">=":
+          value = parseFloat(left()) >= parseFloat(b);
+          break;
+        case "<=":
+          value = parseFloat(left()) <= parseFloat(b);
+          break;
+        case "var":
+          value = truth(local(b));
+          break;
+        case "toggle":
+          value = truth(global("toggle_" + b));
+          break;
+        case "vis":
+          value = local(left()) === b;
+          break;
+        case "visnot":
+          value = local(left()) !== b;
+          break;
+        case "tis":
+          value = global("toggle_" + left()) === b;
+          break;
+        case "tisnot":
+          value = global("toggle_" + left()) !== b;
+          break;
+        default:
+          throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 CBS \uC870\uAC74 \uC5F0\uC0B0\uC790: " + op);
+      }
+      stack.push(value ? "1" : "0");
+    }
+    return { active: truth(stack[0]), mode };
+  }
+  var trimLines = (text) => text.split("\n").map((line) => line.trimStart()).join("\n").trim();
+  function trimBlankLines(text) {
+    const lines = text.split("\n");
+    while (lines.length && !lines[0].trim()) lines.shift();
+    while (lines.length && !lines.at(-1).trim()) lines.pop();
+    return lines.join("\n");
   }
   function evaluate(nodes, context) {
     const render = (list) => {
@@ -12999,14 +13178,21 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       if (node.kind === "text") return node.text;
       if (node.kind === "block") {
         assert(["if", "if_pure", "when"].includes(node.name), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 CBS \uBE14\uB85D: #" + node.name);
-        let values;
+        let active, mode = node.name === "if_pure" ? "keep" : "legacy";
         if (node.name === "when") {
-          values = node.opening.parts.slice(1).map(part);
-          if (values[0] === "keep") values.shift();
-        } else values = [part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/, "")];
-        return render(logic(values) ? node.yes : node.no);
+          const values = node.opening.parts.length > 1 ? node.opening.parts.slice(1).map(part) : [part(node.opening.parts[0]).replace(/^#when\s*/, "")];
+          ({ active, mode } = whenCondition(values, context));
+        } else active = truth(part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/, ""));
+        let text = render(active ? node.yes : node.no);
+        if (node.elseLine) text = active ? text.replace(/(?:\r?\n)?[ \t]*$/, "") : text.replace(/^[ \t]*\r?\n/, "");
+        return mode === "keep" ? text : mode === "legacy" ? trimLines(text) : trimBlankLines(text);
       }
       const head = part(node.parts[0]).trim(), name = head.toLowerCase(), args = node.parts.slice(1).map(part);
+      if (head.startsWith("? ")) return calculatePreset(head.slice(2), context);
+      if (name === "calc") {
+        assert(args.length === 1, "calc \uC778\uC790 \uC624\uB958");
+        return calculatePreset(args[0], context);
+      }
       if (head.startsWith("//") || head.startsWith("!")) return "";
       if (Object.hasOwn(context.fields, name)) {
         assert(!args.length, "\uC778\uC790 \uC5C6\uB294 CBS \uD45C\uAE30\uC785\uB2C8\uB2E4: " + head);
@@ -13030,11 +13216,17 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         assert(Number.isFinite(x) && Number.isFinite(y), "\uC22B\uC790 \uBE44\uAD50\uC5D0 \uC22B\uC790\uAC00 \uC544\uB2CC \uAC12\uC774 \uC788\uC2B5\uB2C8\uB2E4.");
         return { greater: x > y, greater_equal: x >= y, less: x < y, less_equal: x <= y }[name] ? "1" : "0";
       }
-      if (name === "and") return args.every(truth) ? "1" : "0";
-      if (name === "or") return args.some(truth) ? "1" : "0";
+      if (name === "and") {
+        assert(args.length === 2, "and \uC778\uC790 \uC624\uB958");
+        return args[0] === "1" && args[1] === "1" ? "1" : "0";
+      }
+      if (name === "or") {
+        assert(args.length === 2, "or \uC778\uC790 \uC624\uB958");
+        return args[0] === "1" || args[1] === "1" ? "1" : "0";
+      }
       if (name === "not") {
         assert(args.length === 1, "not \uC778\uC790 \uC624\uB958");
-        return truth(args[0]) ? "0" : "1";
+        return args[0] === "1" ? "0" : "1";
       }
       if (name === "trim") {
         if (args.length) return args.join("::").trim();
@@ -13064,7 +13256,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
   }
   var roles = { system: "system", user: "user", bot: "assistant", assistant: "assistant" };
   var role = (value) => Object.hasOwn(roles, value) ? roles[value] : void 0;
-  var BLOCK_TYPES = [["plain", "\uC77C\uBC18 \uD504\uB86C\uD504\uD2B8"], ["chat", "\uC81C\uC791 \uB300\uD654"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["persona", "\uD398\uB974\uC18C\uB098"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["authornote", "\uC791\uAC00 \uB178\uD2B8"], ["postEverything", "\uB9C8\uC9C0\uB9C9 \uC9C0\uC2DC"], ["memory", "\uBA54\uBAA8\uB9AC \uC785\uB825"], ["chatML", "ChatML"], ["jailbreak", "\uAD6C\uD615 \uCD94\uAC00 \uD504\uB86C\uD504\uD2B8"], ["cot", "\uAD6C\uD615 CoT \uBE14\uB85D"], ["cache", "\uCE90\uC2DC \uC9C0\uC810 (\uBBF8\uC9C0\uC6D0)"]];
+  var BLOCK_TYPES = [["plain", "\uC77C\uBC18 \uD504\uB86C\uD504\uD2B8"], ["chat", "\uC81C\uC791 \uB300\uD654"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["persona", "\uD398\uB974\uC18C\uB098"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["authornote", "\uC791\uAC00 \uB178\uD2B8"], ["postEverything", "\uB9C8\uC9C0\uB9C9 \uC9C0\uC2DC"], ["memory", "\uBA54\uBAA8\uB9AC \uC785\uB825"], ["chatML", "ChatML"], ["jailbreak", "\uAD6C\uD615 \uCD94\uAC00 \uD504\uB86C\uD504\uD2B8"], ["cot", "\uAD6C\uD615 CoT \uBE14\uB85D"], ["cache", "\uCE90\uC2DC \uC9C0\uC810"]];
+  var moduleReferences = (preset) => [...new Set((preset?.moduleIntergration ?? "").split(",").map((id) => id.trim()).filter(Boolean))];
   function assemblePreset(rawState, session, task, directMessages) {
     const state = validatePresetState(rawState), p = state.preset;
     assert(p, "\uBA3C\uC800 \uD504\uB9AC\uC14B \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.");
@@ -13077,7 +13270,8 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     const context = { globals, variables: variables2, fields: { char: d.name ?? "", user: env.userName, description: d.desc ?? "", personality: d.personality ?? "", scenario: d.scenario ?? "", persona: env.persona, firstmessage: d.firstMessage ?? "", first_message: d.firstMessage ?? "", systemprompt: d.systemPrompt ?? "", lorebook: lore, chatindex: String(chats.length - 1), lastusermessage: currentUser.content, lastcharmessage: history.findLast((m) => m.role === "assistant")?.content ?? "", original: p.mainPrompt, slot: "" } };
     const messages = [], trace = [], issues = [];
     let userCount = 0;
-    if (p.moduleIntergration && !state.excluded.modules) issues.push("\uC678\uBD80 \uBAA8\uB4C8 \uCC38\uC870\uB294 \uAC00\uC838\uC628 \uD30C\uC77C\uB9CC\uC73C\uB85C \uC7AC\uD604\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
+    const modules = moduleReferences(p);
+    if (modules.length && !state.excluded.modules) issues.push("\uC678\uBD80 \uBAA8\uB4C8 \uC5F0\uB3D9\uC740 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (" + modules.join(", ") + "). \uC81C\uC678\uD558\uB824\uBA74 \uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B \u2192 \uCC38\uACE0\uC790\uB8CC \u2192 \uD30C\uC77C \uBC16 \uBAA8\uB4C8 \uC5F0\uB3D9\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9\uC744 \uC120\uD0DD\uD558\uC138\uC694. \uC81C\uC678\uD558\uBA74 \uBAA8\uB4C8 \uB0B4\uC6A9\uC740 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     if (p.regex?.length && !state.excluded.regex) issues.push("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uD30C\uC774\uD504\uB77C\uC778\uC740 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
     if (p.promptBlockOverlay?.enabled && !state.excluded.overlay) issues.push("\uBCF4\uC870 \uD504\uB86C\uD504\uD2B8 \uC624\uBC84\uB808\uC774\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uC81C\uC678 \uC5EC\uBD80\uB97C \uC124\uC815\uD558\uC138\uC694.");
     for (const option of ["sendChatAsSystem", "sendName", "utilOverride", "customChainOfThought"]) if (p.promptSettings?.[option]) issues.push("\uBBF8\uC9C0\uC6D0 \uD504\uB86C\uD504\uD2B8 \uC635\uC158: " + option + " (\uACE0\uAE09 JSON\uC5D0\uC11C \uD574\uC81C\uD558\uC138\uC694)");
@@ -13123,6 +13317,18 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
             position = regex.lastIndex;
           }
           assert(position > 0 && !text.slice(position).trim(), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 ChatML \uD615\uC2DD\uC785\uB2C8\uB2E4.");
+        } else if (b.type === "cache") {
+          const depth = b.depth ?? 1, filter = b.role ?? "all";
+          assert(Number.isInteger(depth) && depth >= 0 && depth <= 3e3, "\uCE90\uC2DC \uAE4A\uC774\uB294 0~3,000 \uC815\uC218\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+          assert(["system", "user", "assistant", "all"].includes(filter), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uCE90\uC2DC \uB300\uC0C1 \uC5ED\uD560: " + filter);
+          record.status = "metadata";
+          record.targets = [];
+          for (let pointer = messages.length - 1; pointer >= 0 && record.targets.length < depth; pointer--) if (filter === "all" || messages[pointer].role === filter) {
+            messages[pointer].cachePoint = true;
+            record.targets.push(pointer);
+          }
+          record.reason = "\uC55E\uC120 \uBA54\uC2DC\uC9C0\uC758 cachePoint \uD45C\uC2DD\uB9CC \uC124\uC815\uD569\uB2C8\uB2E4. \uC2E4\uC81C \uCE90\uC2DC\uB294 \uBCF8\uCCB4\xB7\uBAA8\uB378 \uC81C\uACF5\uC790 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4.";
+          continue;
         } else throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uBE14\uB85D \uC720\uD615: " + b.type);
         record.status = messages.length > before ? "included" : "empty";
         record.messages = messages.length - before;
@@ -13275,10 +13481,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         change();
         app.toast("\uCD94\uAC00 \uBCC0\uC218\uB97C \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.");
       }, "small"));
-      if (p.moduleIntergration) host.append(app.check("\uD30C\uC77C \uBC16 \uBAA8\uB4C8 \uC5F0\uB3D9\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.modules, (v) => {
+      if (moduleReferences(p).length) host.append(h("p", { class: "muted" }, "\uC678\uBD80 \uBAA8\uB4C8 \uCC38\uC870: " + moduleReferences(p).join(", ")), app.check("\uD30C\uC77C \uBC16 \uBAA8\uB4C8 \uC5F0\uB3D9\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.modules, (v) => {
         state.excluded.modules = v;
         change();
-      }));
+      }), h("p", { class: "muted" }, "\uBAA8\uB4C8 \uC5F0\uB3D9\uC740 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC81C\uC678\uD558\uBA74 \uC6D0\uBCF8 \uD504\uB9AC\uC14B\uC5D0\uC11C \uBAA8\uB4C8\uC774 \uCD94\uAC00\uD558\uB358 \uB0B4\uC6A9\uC774 \uBE60\uC9D1\uB2C8\uB2E4."));
       if (p.regex?.length) host.append(app.check("\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD\uC744 \uC81C\uC678\uD558\uACE0 \uC0AC\uC6A9", state.excluded.regex, (v) => {
         state.excluded.regex = v;
         change();
@@ -13311,7 +13517,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
             report.issues.length ? h("div", { class: "warn" }, "\uC804\uC1A1\uD560 \uC218 \uC5C6\uB294 \uD56D\uBAA9: ", h("ul", {}, report.issues.map((x) => h("li", {}, x)))) : h("p", { class: "pill" }, "\uC870\uB9BD \uAC80\uC0AC \uD1B5\uACFC \xB7 " + report.messages.length + "\uAC1C \uBA54\uC2DC\uC9C0"),
             h("p", { class: "muted" }, "\uD604\uC7AC \uC694\uCCAD: " + app.task + " \xB7 " + report.messages.reduce((n, m) => n + m.content.length, 0).toLocaleString() + "\uC790"),
             h("details", {}, h("summary", {}, "\uBE14\uB85D\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.trace, null, 2))),
-            ...report.messages.map((m, i) => h("section", { class: "card stack" }, h("h3", {}, `${i + 1}. ${m.role}`), h("pre", { class: "diff" }, m.content))),
+            ...report.messages.map((m, i) => h("section", { class: "card stack" }, h("h3", {}, `${i + 1}. ${m.role}`), m.cachePoint ? h("span", { class: "pill" }, "\uCE90\uC2DC \uC9C0\uC810") : null, h("pre", { class: "diff" }, m.content))),
             h("p", { class: "muted" }, report.notes.join("\n"))
           );
         } catch (error) {
@@ -13330,6 +13536,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const b3 = { type: addType, name: BLOCK_TYPES.find(([key2]) => key2 === addType)?.[1] ?? addType };
       if (["plain", "jailbreak", "cot", "chatML"].includes(addType)) Object.assign(b3, { text: "", role: "system", type2: "normal" });
       if (addType === "chat") Object.assign(b3, { rangeStart: 0, rangeEnd: "end" });
+      if (addType === "cache") Object.assign(b3, { depth: 1, role: "all" });
       list.push(b3);
       state.selected = list.length - 1;
       change();
@@ -13383,6 +13590,14 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
         b.rangeEnd = v === "end" ? "end" : Number(v);
         change();
       }, { tag: "input" }), h("p", { class: "muted" }, "\uACF5\uBC29 \uC81C\uC791 \uB300\uD654 \uB4A4\uC5D0 \uC774\uBC88 \uC694\uCCAD\uC744 \uC0AC\uC6A9\uC790 \uBA54\uC2DC\uC9C0\uB85C \uB123\uC2B5\uB2C8\uB2E4. \uC774\uBC88 \uC694\uCCAD\uC774 \uC804\uCCB4 \uBE14\uB85D\uC5D0\uC11C \uC815\uD655\uD788 \uD55C \uBC88 \uD3EC\uD568\uB3FC\uC57C \uC804\uC1A1\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."));
+    } else if (b.type === "cache") {
+      edit.append(app.field("\uCE90\uC2DC \uAE4A\uC774 \xB7 \uC55E\uC120 \uBA54\uC2DC\uC9C0 \uAC1C\uC218", b.depth ?? 1, (v) => {
+        b.depth = Number(v);
+        change();
+      }, { tag: "input", type: "number", min: 0, max: 3e3 }), h("label", { class: "field" }, h("span", {}, "\uCE90\uC2DC \uB300\uC0C1 \uC5ED\uD560"), app.select(b.role ?? "all", [["all", "\uC804\uCCB4"], ["system", "system"], ["user", "user"], ["assistant", "assistant"]], (v) => {
+        b.role = v;
+        change();
+      }, "\uCE90\uC2DC \uB300\uC0C1 \uC5ED\uD560")), h("p", { class: "muted" }, "\uC774 \uBE14\uB85D \uC55E\uC758 \uB300\uC0C1 \uBA54\uC2DC\uC9C0\uC5D0 cachePoint\uB97C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8 \uD14D\uC2A4\uD2B8\uB294 \uCD94\uAC00\uD558\uC9C0 \uC54A\uC73C\uBA70, \uC2E4\uC81C \uCE90\uC2DC\uB294 \uBCF8\uCCB4\uC640 \uBAA8\uB378 \uC81C\uACF5\uC790 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4."));
     } else if (["plain", "jailbreak", "cot", "chatML"].includes(b.type)) {
       if (b.type !== "chatML") edit.append(h("label", { class: "field" }, h("span", {}, "\uC5ED\uD560"), app.select(b.role ?? "system", [["system", "system"], ["user", "user"], ["bot", "assistant"]], (v) => {
         b.role = v;

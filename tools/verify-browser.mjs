@@ -195,6 +195,31 @@ try {
   await frame.getByRole('alert').filter({hasText:'지원하지 않는 CBS'}).waitFor();
   assert.equal(await frame.evaluate(()=>window.__calls.length),3);
   results.push({name:'unsupported preset syntax stops before model dispatch',passed:true});
+  await frame.getByRole('textbox',{name:'블록 본문',exact:true}).fill("# User's input{{#if_pure {{? {{getglobalvar::toggle_OOC}}=2}}}}(What Cattleya have to respond!){{/if}}");
+  await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
+  await frame.getByText('토글 정의 원문 편집',{exact:true}).click();
+  await frame.getByRole('textbox',{name:'토글 정의',exact:true}).fill(samplePreset().customPromptTemplateToggle+'\nOOC=OOC=select=꺼짐,1,2');
+  await frame.getByRole('button',{name:'토글 목록 갱신',exact:true}).click();
+  await frame.getByRole('combobox',{name:'OOC',exact:true}).selectOption('2');
+  await frame.getByRole('button',{name:'프롬프트 블록',exact:true}).click();
+  await frame.getByRole('combobox',{name:'추가할 블록 유형',exact:true}).selectOption('cache');
+  await frame.getByRole('button',{name:'블록 추가',exact:true}).click();
+  await frame.getByRole('combobox',{name:'캐시 대상 역할',exact:true}).selectOption('user');
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  assert.match(await frame.locator('.editor').innerText(),/What Cattleya have to respond!/);
+  await frame.locator('.editor section.card .pill').filter({hasText:'캐시 지점'}).waitFor();
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(()=>window.__calls.length===4&&!document.querySelector('[data-action="send-request"]').disabled);
+  assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.role==='user'&&m.cachePoint===true)));
+  assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.content.includes('(What Cattleya have to respond!)'))));
+  await frame.locator('.toast.bad').waitFor({state:'hidden'});
+  await page.locator('#plugin').screenshot({path:'artifacts/workshop-cbs-compat.png',animations:'disabled'});
+  await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
+  await frame.getByRole('combobox',{name:'OOC',exact:true}).selectOption('1');
+  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  assert.doesNotMatch(await frame.locator('.editor').innerText(),/What Cattleya have to respond!/);
+  results.push({name:'reported if_pure/infix syntax responds to OOC toggles under CSP and cachePoint reaches the model API',passed:true});
   await frame.getByRole('combobox',{name:'요청 구성'}).selectOption('direct');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -204,6 +229,6 @@ try {
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 9, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 10, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

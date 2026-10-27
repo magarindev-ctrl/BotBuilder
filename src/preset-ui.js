@@ -2,7 +2,7 @@
 // Workshop UI for Risu/RisuBard-compatible block/toggle data, independent of host UI stores.
 import { clone, assert, tick } from './core.js';
 import { decodePreset, normalizePreset } from './preset-format.js';
-import { newPresetState, validatePresetState, toggleDefinitions, BLOCK_TYPES } from './preset-engine.js';
+import { newPresetState, validatePresetState, toggleDefinitions, BLOCK_TYPES, moduleReferences } from './preset-engine.js';
 import { parseV2, compileV2, toggleDefault } from './preset-v2.js';
 
 export async function importPresetFile(app) {
@@ -64,7 +64,7 @@ export function renderPresetEditor(app,host) {
     host.append(app.field('사용자 이름',env.userName,v=>{env.userName=v;change();},{tag:'input'}),app.field('페르소나 블록 입력',env.persona,v=>{env.persona=v;change();}),app.field('작가 노트 블록 입력',env.authorNote,v=>{env.authorNote=v;change();}),app.field('메모리 블록 입력 · 본체 메모리와 별도',env.memory,v=>{env.memory=v;change();}),h('p',{class:'muted'},'캐릭터 설명·로어북은 공방 현재안을 사용합니다. 로어북 블록에는 전체 항목을 넣으며 본체의 활성화 조건·메모리 검색은 실행하지 않습니다.'));
     let globals=JSON.stringify(env.globals,null,2);
     host.append(app.field('추가 전역 변수 JSON · 문자열 값',globals,v=>globals=v,{class:'code'}),app.b('추가 변수 적용',()=>{const values=JSON.parse(globals);validatePresetState({...state,environment:{...env,globals:values}});env.globals=values;change();app.toast('추가 변수를 적용했습니다.');},'small'));
-    if(p.moduleIntergration)host.append(app.check('파일 밖 모듈 연동을 제외하고 사용',state.excluded.modules,v=>{state.excluded.modules=v;change();}));
+    if(moduleReferences(p).length)host.append(h('p',{class:'muted'},'외부 모듈 참조: '+moduleReferences(p).join(', ')),app.check('파일 밖 모듈 연동을 제외하고 사용',state.excluded.modules,v=>{state.excluded.modules=v;change();}),h('p',{class:'muted'},'모듈 연동은 아직 지원하지 않습니다. 제외하면 원본 프리셋에서 모듈이 추가하던 내용이 빠집니다.'));
     if(p.regex?.length)host.append(app.check('프리셋 정규식을 제외하고 사용',state.excluded.regex,v=>{state.excluded.regex=v;change();}));
     if(p.promptBlockOverlay?.enabled)host.append(app.check('보조 프롬프트 오버레이를 제외하고 사용',state.excluded.overlay,v=>{state.excluded.overlay=v;change();}));
     if(p.promptTemplate.some(b=>b.type==='jailbreak'))host.append(app.check('구형 추가 프롬프트 블록 사용',p.jailbreakToggle!==false,v=>{p.jailbreakToggle=v;change();}));
@@ -78,7 +78,7 @@ export function renderPresetEditor(app,host) {
         output.replaceChildren(report.issues.length?h('div',{class:'warn'},'전송할 수 없는 항목: ',h('ul',{},report.issues.map(x=>h('li',{},x)))):h('p',{class:'pill'},'조립 검사 통과 · '+report.messages.length+'개 메시지'),
           h('p',{class:'muted'},'현재 요청: '+app.task+' · '+report.messages.reduce((n,m)=>n+m.content.length,0).toLocaleString()+'자'),
           h('details',{},h('summary',{},'블록별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.trace,null,2))),
-          ...report.messages.map((m,i)=>h('section',{class:'card stack'},h('h3',{},`${i+1}. ${m.role}`),h('pre',{class:'diff'},m.content))),
+          ...report.messages.map((m,i)=>h('section',{class:'card stack'},h('h3',{},`${i+1}. ${m.role}`),m.cachePoint?h('span',{class:'pill'},'캐시 지점'):null,h('pre',{class:'diff'},m.content))),
           h('p',{class:'muted'},report.notes.join('\n')));
       }catch(error){output.replaceChildren(h('p',{class:'warn'},error.message));}
     };
@@ -93,6 +93,7 @@ function renderBlocks(app,host) {
     const b={type:addType,name:BLOCK_TYPES.find(([key])=>key===addType)?.[1]??addType};
     if(['plain','jailbreak','cot','chatML'].includes(addType))Object.assign(b,{text:'',role:'system',type2:'normal'});
     if(addType==='chat')Object.assign(b,{rangeStart:0,rangeEnd:'end'});
+    if(addType==='cache')Object.assign(b,{depth:1,role:'all'});
     list.push(b);state.selected=list.length-1;change();redraw();
   },'small')));
   const i=Math.min(Math.max(Number(state.selected)||0,0),Math.max(0,list.length-1));state.selected=i;
@@ -104,6 +105,8 @@ function renderBlocks(app,host) {
   edit.append(h('div',{class:'row'},app.b('위로',()=>move(-1),'small'),app.b('아래로',()=>move(1),'small'),app.b('복제',()=>{list.splice(i+1,0,clone(b));state.selected++;change();redraw();},'small'),app.b('블록 삭제',async()=>{if(await app.confirm('블록을 삭제할까요?',b.name||b.type)){list.splice(i,1);change();redraw();}},'small danger')));
   if(b.type==='chat') {
     edit.append(app.field('대화 시작 번호 · 음수는 뒤에서',b.rangeStart??0,v=>{b.rangeStart=Number(v);change();},{tag:'input',type:'number'}),app.field('대화 끝 번호 · end는 끝까지',b.rangeEnd??'end',v=>{b.rangeEnd=v==='end'?'end':Number(v);change();},{tag:'input'}),h('p',{class:'muted'},'공방 제작 대화 뒤에 이번 요청을 사용자 메시지로 넣습니다. 이번 요청이 전체 블록에서 정확히 한 번 포함돼야 전송할 수 있습니다.'));
+  } else if(b.type==='cache') {
+    edit.append(app.field('캐시 깊이 · 앞선 메시지 개수',b.depth??1,v=>{b.depth=Number(v);change();},{tag:'input',type:'number',min:0,max:3000}),h('label',{class:'field'},h('span',{},'캐시 대상 역할'),app.select(b.role??'all',[['all','전체'],['system','system'],['user','user'],['assistant','assistant']],v=>{b.role=v;change();},'캐시 대상 역할')),h('p',{class:'muted'},'이 블록 앞의 대상 메시지에 cachePoint를 표시합니다. 프롬프트 텍스트는 추가하지 않으며, 실제 캐시는 본체와 모델 제공자 설정을 따릅니다.'));
   } else if(['plain','jailbreak','cot','chatML'].includes(b.type)) {
     if(b.type!=='chatML')edit.append(h('label',{class:'field'},h('span',{},'역할'),app.select(b.role??'system',[['system','system'],['user','user'],['bot','assistant']],v=>{b.role=v;change();},'블록 역할')));
     renderText(app,edit,b,'text');

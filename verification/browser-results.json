@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 12,
+  "passed": 13,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -88,6 +88,10 @@
     },
     {
       "name": "unsupported preset syntax stops before model dispatch",
+      "passed": true
+    },
+    {
+      "name": "reported if_pure/infix syntax responds to OOC toggles under CSP and cachePoint reaches the model API",
       "passed": true
     },
     {

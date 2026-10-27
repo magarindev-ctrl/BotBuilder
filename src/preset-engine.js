@@ -3,6 +3,7 @@
 import { assert, clone, bytes, parseVariables } from './core.js';
 import { normalizePreset, PRESET_LIMIT } from './preset-format.js';
 import { parseToggleTree, toggleDefault } from './preset-v2.js';
+import { calculatePreset } from './preset-calc.js';
 
 export function newPresetState() {
   return { schemaVersion: 1, mode: 'direct', preset: null, values: {}, selected: 0, pane: 'blocks', environment: { userName: '사용자', persona: '', authorNote: '', memory: '', globals: {} }, excluded: { regex: false, modules: false, overlay: false } };
@@ -69,27 +70,51 @@ function tokenize(source) {
     const children=[];
     while(cursor<nodes.length) {
       const node=nodes[cursor++], head=node.kind==='macro'?(node.parts[0][0]?.text??'').trim():'';
-      if(head==='else' || head==='#else') { assert(closing,'단독 else 문입니다.'); return {children,otherwise:true}; }
-      if(head.startsWith('/') && !head.startsWith('//')) { assert(head.slice(1)===closing,'CBS 블록의 닫는 태그가 일치하지 않습니다.'); return {children,otherwise:false}; }
+      if(['else','#else',':else'].includes(head)) {
+        assert(closing,'단독 else 문입니다.');
+        const before=children.at(-1),after=nodes[cursor];
+        const elseLine=head===':else'&&closing==='when'&&(!before||(before.kind==='text'&&/(?:^|\n)[ \t]*$/.test(before.text)))&&(!after||(after.kind==='text'&&/^[ \t]*(?:\r?\n|$)/.test(after.text)));
+        return {children,otherwise:true,elseLine};
+      }
+      // Native CBS closes the nearest block with any / tag, including #if_pure ... /if.
+      if(head.startsWith('/') && !head.startsWith('//')) { assert(closing,'열린 CBS 블록이 없는 닫는 태그입니다: '+head); return {children,otherwise:false}; }
       if(head.startsWith('#')) {
         const name=head.split(/\s/)[0].slice(1), first=group(name,depth+1);
         const second=first.otherwise?group(name,depth+1):{children:[]};
-        children.push({kind:'block',name,opening:node,yes:first.children,no:second.children});
+        children.push({kind:'block',name,opening:node,yes:first.children,no:second.children,elseLine:first.elseLine});
       } else children.push(node);
     }
     assert(!closing,'CBS 블록 닫는 태그가 없습니다: '+closing); return {children};
   }
   return group(null).children;
 }
-const truth = value => !['','0','false','null','undefined','NaN'].includes(String(value).trim());
-function logic(values) {
-  if(values.length===1)return truth(values[0]);
-  assert(values.length%2===1,'조건식의 값과 and/or 수가 맞지 않습니다.');
-  const joins=values.filter((_,i)=>i%2===1);
-  assert(joins.every(v=>v==='and'||v==='or') && joins.every(v=>v===joins[0]),'혼합 조건식은 and 또는 or로 나눠 중첩해 주세요.');
-  const flags=values.filter((_,i)=>i%2===0).map(truth);
-  return joins[0]==='or'?flags.some(Boolean):flags.every(Boolean);
+const truth = value => value==='1'||value==='true';
+function whenCondition(values,context) {
+  const stack=[...values];let mode='normal';
+  const global=key=>{assert(Object.hasOwn(context.globals,key),'값이 없는 전역 변수: '+key);return context.globals[key];};
+  const local=key=>Object.hasOwn(context.variables,key)?context.variables[key]:'null';
+  while(stack.length>1) {
+    const b=stack.pop(),op=stack.pop();let value;
+    const left=()=>{assert(stack.length,'CBS 조건식의 왼쪽 값이 없습니다: '+op);return stack.pop();};
+    if(op==='keep'||op==='legacy'){mode=op;stack.push(b);continue;}
+    switch(op) {
+      case 'not':value=!truth(b);break;
+      case 'and':value=truth(left())&&truth(b);break;
+      case 'or':value=truth(left())||truth(b);break;
+      case 'is':value=left()===b;break;case 'isnot':value=left()!==b;break;
+      case '>':value=parseFloat(left())>parseFloat(b);break;case '<':value=parseFloat(left())<parseFloat(b);break;
+      case '>=':value=parseFloat(left())>=parseFloat(b);break;case '<=':value=parseFloat(left())<=parseFloat(b);break;
+      case 'var':value=truth(local(b));break;case 'toggle':value=truth(global('toggle_'+b));break;
+      case 'vis':value=local(left())===b;break;case 'visnot':value=local(left())!==b;break;
+      case 'tis':value=global('toggle_'+left())===b;break;case 'tisnot':value=global('toggle_'+left())!==b;break;
+      default:throw new Error('지원하지 않는 CBS 조건 연산자: '+op);
+    }
+    stack.push(value?'1':'0');
+  }
+  return {active:truth(stack[0]),mode};
 }
+const trimLines=text=>text.split('\n').map(line=>line.trimStart()).join('\n').trim();
+function trimBlankLines(text){const lines=text.split('\n');while(lines.length&&!lines[0].trim())lines.shift();while(lines.length&&!lines.at(-1).trim())lines.pop();return lines.join('\n');}
 function evaluate(nodes, context) {
   const render = list => {
     let out='';
@@ -101,12 +126,18 @@ function evaluate(nodes, context) {
     if(node.kind==='text')return node.text;
     if(node.kind==='block') {
       assert(['if','if_pure','when'].includes(node.name),'지원하지 않는 CBS 블록: #'+node.name);
-      let values;
-      if(node.name==='when') { values=node.opening.parts.slice(1).map(part); if(values[0]==='keep')values.shift(); }
-      else values=[part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/,'')];
-      return render(logic(values)?node.yes:node.no);
+      let active,mode=node.name==='if_pure'?'keep':'legacy';
+      if(node.name==='when') {
+        const values=node.opening.parts.length>1?node.opening.parts.slice(1).map(part):[part(node.opening.parts[0]).replace(/^#when\s*/,'')];
+        ({active,mode}=whenCondition(values,context));
+      } else active=truth(part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/,''));
+      let text=render(active?node.yes:node.no);
+      if(node.elseLine)text=active?text.replace(/(?:\r?\n)?[ \t]*$/,''):text.replace(/^[ \t]*\r?\n/,'');
+      return mode==='keep'?text:mode==='legacy'?trimLines(text):trimBlankLines(text);
     }
     const head=part(node.parts[0]).trim(), name=head.toLowerCase(), args=node.parts.slice(1).map(part);
+    if(head.startsWith('? '))return calculatePreset(head.slice(2),context);
+    if(name==='calc'){assert(args.length===1,'calc 인자 오류');return calculatePreset(args[0],context);}
     if(head.startsWith('//') || head.startsWith('!'))return '';
     if(Object.hasOwn(context.fields,name)) { assert(!args.length,'인자 없는 CBS 표기입니다: '+head); return context.fields[name]; }
     if(name==='getglobalvar') { assert(args.length===1,'getglobalvar 인자 오류'); assert(Object.hasOwn(context.globals,args[0]),'값이 없는 전역 변수: '+args[0]+' (토글 또는 추가 전역 변수에서 설정하세요)'); return context.globals[args[0]]; }
@@ -118,9 +149,9 @@ function evaluate(nodes, context) {
       const x=Number(a),y=Number(b); assert(Number.isFinite(x)&&Number.isFinite(y),'숫자 비교에 숫자가 아닌 값이 있습니다.');
       return ({greater:x>y,greater_equal:x>=y,less:x<y,less_equal:x<=y})[name]?'1':'0';
     }
-    if(name==='and')return args.every(truth)?'1':'0';
-    if(name==='or')return args.some(truth)?'1':'0';
-    if(name==='not') { assert(args.length===1,'not 인자 오류'); return truth(args[0])?'0':'1'; }
+    if(name==='and'){assert(args.length===2,'and 인자 오류');return args[0]==='1'&&args[1]==='1'?'1':'0';}
+    if(name==='or'){assert(args.length===2,'or 인자 오류');return args[0]==='1'||args[1]==='1'?'1':'0';}
+    if(name==='not') { assert(args.length===1,'not 인자 오류'); return args[0]==='1'?'0':'1'; }
     if(name==='trim') { if(args.length)return args.join('::').trim(); context.trim=true; return ''; }
     if(name==='lower')return args.join('::').toLowerCase();
     if(name==='upper')return args.join('::').toUpperCase();
@@ -142,7 +173,8 @@ function range(block,count) {
 }
 const roles={system:'system',user:'user',bot:'assistant',assistant:'assistant'};
 const role = value => Object.hasOwn(roles,value)?roles[value]:undefined;
-export const BLOCK_TYPES = [['plain','일반 프롬프트'],['chat','제작 대화'],['description','캐릭터 설명'],['persona','페르소나'],['lorebook','로어북'],['authornote','작가 노트'],['postEverything','마지막 지시'],['memory','메모리 입력'],['chatML','ChatML'],['jailbreak','구형 추가 프롬프트'],['cot','구형 CoT 블록'],['cache','캐시 지점 (미지원)']];
+export const BLOCK_TYPES = [['plain','일반 프롬프트'],['chat','제작 대화'],['description','캐릭터 설명'],['persona','페르소나'],['lorebook','로어북'],['authornote','작가 노트'],['postEverything','마지막 지시'],['memory','메모리 입력'],['chatML','ChatML'],['jailbreak','구형 추가 프롬프트'],['cot','구형 CoT 블록'],['cache','캐시 지점']];
+export const moduleReferences=preset=>[...new Set((preset?.moduleIntergration??'').split(',').map(id=>id.trim()).filter(Boolean))];
 export function assemblePreset(rawState,session,task,directMessages) {
   const state=validatePresetState(rawState), p=state.preset;
   assert(p,'먼저 프리셋 파일을 가져오세요.');
@@ -154,7 +186,8 @@ export function assemblePreset(rawState,session,task,directMessages) {
   const chats=[...history,currentUser];
   const context={globals,variables,fields:{char:d.name??'',user:env.userName,description:d.desc??'',personality:d.personality??'',scenario:d.scenario??'',persona:env.persona,firstmessage:d.firstMessage??'',first_message:d.firstMessage??'',systemprompt:d.systemPrompt??'',lorebook:lore,chatindex:String(chats.length-1),lastusermessage:currentUser.content,lastcharmessage:history.findLast(m=>m.role==='assistant')?.content??'',original:p.mainPrompt,slot:''}};
   const messages=[], trace=[], issues=[]; let userCount=0;
-  if(p.moduleIntergration&&!state.excluded.modules)issues.push('외부 모듈 참조는 가져온 파일만으로 재현할 수 없습니다. 제외 여부를 설정하세요.');
+  const modules=moduleReferences(p);
+  if(modules.length&&!state.excluded.modules)issues.push('외부 모듈 연동은 아직 지원하지 않습니다 ('+modules.join(', ')+'). 제외하려면 프롬프트 프리셋 → 참고자료 → 파일 밖 모듈 연동을 제외하고 사용을 선택하세요. 제외하면 모듈 내용은 요청에 포함되지 않습니다.');
   if(p.regex?.length&&!state.excluded.regex)issues.push('프리셋 정규식 파이프라인은 미지원입니다. 제외 여부를 설정하세요.');
   if(p.promptBlockOverlay?.enabled&&!state.excluded.overlay)issues.push('보조 프롬프트 오버레이는 미지원입니다. 제외 여부를 설정하세요.');
   for(const option of ['sendChatAsSystem','sendName','utilOverride','customChainOfThought']) if(p.promptSettings?.[option])issues.push('미지원 프롬프트 옵션: '+option+' (고급 JSON에서 해제하세요)');
@@ -188,6 +221,14 @@ export function assemblePreset(rawState,session,task,directMessages) {
         let match,position=0;
         while((match=regex.exec(text))) { assert(!text.slice(position,match.index).trim(),'ChatML 시작 표기 앞에 해석할 수 없는 내용이 있습니다.'); push(match[1],match[2],i);position=regex.lastIndex; }
         assert(position>0&&!text.slice(position).trim(),'지원하지 않는 ChatML 형식입니다.');
+      } else if(b.type==='cache') {
+        const depth=b.depth??1,filter=b.role??'all';
+        assert(Number.isInteger(depth)&&depth>=0&&depth<=3000,'캐시 깊이는 0~3,000 정수여야 합니다.');
+        assert(['system','user','assistant','all'].includes(filter),'지원하지 않는 캐시 대상 역할: '+filter);
+        record.status='metadata';record.targets=[];
+        for(let pointer=messages.length-1;pointer>=0&&record.targets.length<depth;pointer--)if(filter==='all'||messages[pointer].role===filter){messages[pointer].cachePoint=true;record.targets.push(pointer);}
+        record.reason='앞선 메시지의 cachePoint 표식만 설정합니다. 실제 캐시는 본체·모델 제공자 설정을 따릅니다.';
+        continue;
       } else throw new Error('지원하지 않는 블록 유형: '+b.type);
       record.status=messages.length>before?'included':'empty';record.messages=messages.length-before;
     } catch(error) { record.status='error';record.error=error.message;issues.push((i+1)+'. '+record.name+': '+error.message); }

@@ -41,17 +41,21 @@ LLM과 대화하며 RisuBard용 캐릭터·시뮬레이션을 만들어 가는 A
 | 항목 | 공방 처리 |
 | --- | --- |
 | 파일 | `.risup`의 RPack·압축·MessagePack·AES-GCM, `.risupreset`, UTF-8 JSON. 입력·압축 해제 각각 8MiB 이하, 블록 500개 이하 |
-| 블록 | 일반·구형 추가 프롬프트·CoT, ChatML, 대화 범위, 설명·페르소나·작가 노트·로어북·메모리 입력·마지막 지시, assistant prefill. 구형 활성화 플래그가 있으면 유지 |
+| 블록 | 일반·구형 추가 프롬프트·CoT, ChatML, 대화 범위, 설명·페르소나·작가 노트·로어북·메모리 입력·마지막 지시, assistant prefill, 캐시 지점. 구형 활성화 플래그가 있으면 유지 |
 | v2 | 조건 추가·삭제, AND/OR, 같음·다름·대소 비교, 토글 그룹·설명·구분선 |
-| CBS | `char`, `user`, `description`, `personality`, `scenario`, `persona`, `firstmessage`/`first_message`, `systemprompt`, `lorebook`, `chatindex`, `lastusermessage`, `lastcharmessage`, `original`, `slot`; `getglobalvar`, `getvar`, 비교·논리 함수, `#if`/`#if_pure`/`#when`, else, 주석, trim·lower·upper |
+| CBS | `char`, `user`, `description`, `personality`, `scenario`, `persona`, `firstmessage`/`first_message`, `systemprompt`, `lorebook`, `chatindex`, `lastusermessage`, `lastcharmessage`, `original`, `slot`; `getglobalvar`, `getvar`, 비교·논리 함수, `#if`/`#if_pure`/`#when`, `:else`/else, 주석, trim·lower·upper, `{{? 계산식}}`·`{{calc::계산식}}` |
 | 자료 연결 | 설명·로어북은 공방 현재안, 대화는 공방 제작 대화. 로어북은 전체 항목을 넣고 본체의 키워드 활성화·검색·토큰 예산은 실행하지 않음. 페르소나·작가 노트·메모리는 공방 입력값 |
-| 별도 처리 | 외부 모듈·프리셋 정규식·보조 오버레이는 기본적으로 전송을 막고, 참고자료 탭에서 사용자가 명시적으로 제외 가능. 캐시 블록·지원하지 않는 CBS는 수정하거나 블록 사용을 꺼야 함 |
+| 별도 처리 | 외부 모듈·프리셋 정규식·보조 오버레이는 기본적으로 전송을 막고, 참고자료 탭에서 사용자가 명시적으로 제외 가능. 제외한 모듈 내용은 요청에 포함되지 않음. 지원하지 않는 CBS는 수정하거나 블록 사용을 꺼야 함 |
+
+v0.2.1에서는 리스처럼 닫는 태그가 가장 가까운 CBS 블록을 닫습니다. `{{#if_pure …}}…{{/if}}`와 `{{/}}`도 허용합니다. 조건식은 `1`·`true`만 참으로 처리하며 `#if`의 들여쓰기 제거와 `#if_pure`의 공백 보존을 구분합니다. `#when`은 비교·AND/OR·NOT·var/toggle·vis/tis 연산과 keep/legacy 모드를 처리합니다. 계산식의 산술·비교·논리·괄호·`$지역변수`·`@전역변수`는 확인한 RisuBard RPN 계산 방식에 맞추되 공방 값만 읽습니다. 식 길이 65,536자·괄호 중첩 49단계 한도를 적용하며 JavaScript를 실행하지 않습니다.
+
+캐시 블록은 앞선 메시지 중 대상 역할과 깊이에 맞는 항목에 `cachePoint: true`를 붙입니다. 전송 내용에서 표식을 확인할 수 있으며, 새로운 프롬프트 텍스트는 만들지 않습니다. 실제 캐시 사용과 과금은 본체·제공자 설정을 따르며 실서비스 동작은 별도 검증이 필요합니다.
 
 CBS는 지원 목록만 해석하며 코드 실행·본체 변수 변경은 제공하지 않습니다. 원고·사용자 요청·토글 입력값을 다시 CBS로 해석하지 않습니다. 감싸는 서식은 `{{slot}}`을 포함해야 합니다. 로어북·메모리·마지막 지시의 감싸는 서식도 공방 자료에 적용하는 자체 어댑터입니다. 본체의 첫 인사·예시 대화·새 채팅 표시는 제작 대화에 자동 삽입하지 않으며, `trimStartNewChat`·`maxThoughtTagDepth` 같은 해당 본체 전용 처리는 적용하지 않습니다. `sendChatAsSystem`·`sendName`·`utilOverride`·`customChainOfThought`가 활성화된 파일은 미지원 옵션을 표시하고 전송을 중단합니다. 입력은 기존 문자 수 한도를 그대로 적용하며 자동 토큰 절삭을 하지 않습니다.
 
 ## 현재 검증 범위
 
-버전은 **0.2.0**입니다. 자동 검증 47개와 실제 Edge에서 모의 API를 연결한 UI 검증 12개를 수행했습니다. 숨겨진 `srcdoc` iframe·투명 body·CSP, 18개 본문 배치 조건, 재열기와 프롬프트 창, 바이너리 프리셋 가져오기·토글·편집·실제 전달 메시지를 확인했습니다. 프리셋 파일은 확인한 공식 내보내기 형식대로 별도 생성한 검증용 파일이며 사용자 파일 검증은 아닙니다. 기준 소스는 RisuAI `f50b5942…`, RisuBard `e5412a48…`이며, 사용자의 실제 설치 버전과 동일하다고 가정하지 않습니다.
+버전은 **0.2.1**입니다. 자동 검증 53개와 실제 Edge에서 모의 API를 연결한 UI 검증 13개를 수행했습니다. 숨겨진 `srcdoc` iframe·투명 body·CSP, 18개 본문 배치 조건, 재열기와 프롬프트 창, 바이너리 프리셋 가져오기·토글·편집·실제 전달 메시지를 확인했습니다. 사용자가 제공한 `#if_pure`·계산식·`/if` 문장과 OOC 0/1/2 선택, 캐시 표식 전달을 검증했습니다. 계산·조건 결과는 고정 커밋의 공식 함수 발췌본과 대조했습니다. 전체 사용자 프리셋 파일은 아직 검증하지 않았습니다. 기준 소스는 RisuAI `f50b5942…`, RisuBard `e5412a48…`이며, 사용자의 실제 설치 버전과 동일하다고 가정하지 않습니다.
 
 **실제 RisuBard의 LLM 호출, Lua·상황 선택 단추 실행, 강제 종료 후 복구는 아직 확인하지 못했습니다.** 저장 API 완료와 디스크·동기화 반영 시점은 다를 수 있습니다. 설치 후 실제 환경에서 확인해야 합니다.
 
@@ -73,3 +77,5 @@ node tools/verify-browser.mjs
 유지보수용 소스는 `src/`에 나뉘어 있고 배포 시 하나의 JS로 합쳐집니다. DUSK는 편집 편의성을 검토하는 참고 자료로 사용했으며 소스와 화면을 복제하지 않았습니다. 포함한 외부 라이브러리의 고지는 `THIRD_PARTY_NOTICES.txt`와 배포 JS에 있습니다.
 
 프리셋 어댑터는 RisuBard의 [파일 입출력](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/storage/database.svelte.ts), [v2 조건·토글](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/promptV2.ts), [프롬프트 조립](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/process/index.svelte.ts)을 대조했습니다. 순수 조건·토글 함수를 수정해 사용하고 UI는 본체 저장소에 의존하지 않도록 작성했습니다. 해당 코드의 GPL 조건에 따라 프로젝트와 배포물은 **GPL-3.0-only**로 제공하며 전문은 `LICENSE`와 배포 JS에 포함합니다. 배포 JS를 재배포할 때 대응 소스·빌드 파일과 라이선스도 함께 제공하세요.
+
+CBS 호환성 보완은 [블록 파서](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/parser/parser.svelte.ts)와 [RPN 계산](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/process/infunctions.ts)을 대조·수정해 사용합니다. 테스트의 공식 함수 발췌본은 `tests/fixtures/risubard-cbs-reference.ts`이며 배포 JS에는 들어가지 않습니다.

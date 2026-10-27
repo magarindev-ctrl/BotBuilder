@@ -1,6 +1,6 @@
 import { RE2JS } from 're2js';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets'];

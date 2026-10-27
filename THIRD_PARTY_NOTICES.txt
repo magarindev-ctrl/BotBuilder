@@ -71,10 +71,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Preset adapters: adapted from RisuBard promptV2.ts, util.ts and preset wire format at commit e5412a4878ae3a0073ffce8e06aed8f288dd9c53.
+Preset adapters: adapted from RisuBard promptV2.ts, util.ts, parser/parser.svelte.ts, process/infunctions.ts and preset wire format at commit e5412a4878ae3a0073ffce8e06aed8f288dd9c53.
 Upstream: https://github.com/rpaddict/RisuBard (copyright upstream contributors; GPL-3.0).
 Workshop distribution license: GPL-3.0-only. Corresponding source: src/, tools/build.mjs and package-lock.json in this project.
-Changes: independent DOM UI, local workshop context and bounded CBS subset; no host stores or Svelte components.
+Changes: independent DOM UI, local workshop context and bounded CBS subset/RPN arithmetic with local variable bindings; no host stores or Svelte components. Tests include pinned upstream pure-function excerpts for differential verification; these fixtures are not bundled.
 
 msgpackr license:
 MIT License
