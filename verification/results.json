@@ -1,0 +1,175 @@
+{
+  "scope": "RisuAI storage source with memory backend and held timers; RE2JS under Node. Not a live RisuAI/browser test.",
+  "nodeVersion": "v24.19.0",
+  "risuCommit": "f50b5942ec6aa59aa3c56049ac687ca09667fec7",
+  "storageUrl": "https://raw.githubusercontent.com/kwaroran/Risuai/f50b5942ec6aa59aa3c56049ac687ca09667fec7/src/ts/process/pluginStorageStore.ts",
+  "storageBlob": "8cf7d67be41604cdb99aab76109d00f1e871cf25",
+  "re2js": {
+    "version": "2.9.0",
+    "integrity": "sha512-rZpqkd4ETP3GrQ5mDLzADr14OleeKdb/40lG84WE8absRfsVLJpWt2ifjtYYeoPqeouIkcxhTlurxIXfR5kR5Q==",
+    "bundleSha256": "5a1de57771263350dbd1588d33eda29238d32f0c365608c11e941391fc843239"
+  },
+  "total": 27,
+  "passed": 27,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "setItem resolves before the index is flushed",
+      "passed": true,
+      "durationMs": 0.53,
+      "evidence": {
+        "backendWrites": 0,
+        "scheduledFlushDelayMs": 1000
+      }
+    },
+    {
+      "name": "plugin-only reopen can read the same host store before flush",
+      "passed": true,
+      "durationMs": 0.47
+    },
+    {
+      "name": "host restart before flush loses an uncommitted draft",
+      "passed": true,
+      "durationMs": 0.1,
+      "evidence": {
+        "observedLoss": true,
+        "scope": "new host-store instance, memory backend"
+      }
+    },
+    {
+      "name": "flush alone does not persist an older database pointer",
+      "passed": true,
+      "durationMs": 0.22
+    },
+    {
+      "name": "flushed storage plus a persisted pointer survives recreation",
+      "passed": true,
+      "durationMs": 0.11
+    },
+    {
+      "name": "index write failure preserves the last persisted snapshot",
+      "passed": true,
+      "durationMs": 0.39
+    },
+    {
+      "name": "large value write failure preserves the earlier readable value",
+      "passed": true,
+      "durationMs": 0.44
+    },
+    {
+      "name": "automatic and manual slots and another prefix remain independent",
+      "passed": true,
+      "durationMs": 0.13
+    },
+    {
+      "name": "serialization failure leaves the current value unchanged",
+      "passed": true,
+      "durationMs": 0.07
+    },
+    {
+      "name": "RE2JS shared subset: literal-global",
+      "passed": true,
+      "durationMs": 2.41
+    },
+    {
+      "name": "RE2JS shared subset: first-only",
+      "passed": true,
+      "durationMs": 0.13
+    },
+    {
+      "name": "RE2JS shared subset: groups",
+      "passed": true,
+      "durationMs": 1.06
+    },
+    {
+      "name": "RE2JS shared subset: named-group",
+      "passed": true,
+      "durationMs": 0.64
+    },
+    {
+      "name": "RE2JS shared subset: group-number-fallback",
+      "passed": true,
+      "durationMs": 0.13
+    },
+    {
+      "name": "RE2JS shared subset: multiline",
+      "passed": true,
+      "durationMs": 0.2
+    },
+    {
+      "name": "RE2JS shared subset: case-insensitive",
+      "passed": true,
+      "durationMs": 0.16
+    },
+    {
+      "name": "RE2JS shared subset: dotall",
+      "passed": true,
+      "durationMs": 0.09
+    },
+    {
+      "name": "RE2JS shared subset: zero-width",
+      "passed": true,
+      "durationMs": 0.37
+    },
+    {
+      "name": "RE2JS shared subset: korean",
+      "passed": true,
+      "durationMs": 0.18
+    },
+    {
+      "name": "RE2JS shared subset: emoji-unicode",
+      "passed": true,
+      "durationMs": 0.05
+    },
+    {
+      "name": "RE2JS shared subset: risu-newline-and-data",
+      "passed": true,
+      "durationMs": 0.05
+    },
+    {
+      "name": "RE2JS shared subset: html-as-text",
+      "passed": true,
+      "durationMs": 0.07
+    },
+    {
+      "name": "RE2JS shared subset: empty-IN",
+      "passed": true,
+      "durationMs": 0
+    },
+    {
+      "name": "RE2JS rejects unsupported backreferences without native fallback",
+      "passed": true,
+      "durationMs": 0.18
+    },
+    {
+      "name": "RE2JS rejects unsupported lookahead without native fallback",
+      "passed": true,
+      "durationMs": 0.03
+    },
+    {
+      "name": "nested-quantifier non-match finishes in the non-backtracking engine",
+      "passed": true,
+      "durationMs": 1.62,
+      "evidence": {
+        "inputCodeUnits": 65536,
+        "nativeDangerousMatchNotExecuted": true
+      }
+    },
+    {
+      "name": "RE2JS runs with string code generation disabled and no Worker global",
+      "passed": true,
+      "durationMs": 17.74,
+      "evidence": {
+        "stringCodeGenerationAllowed": false,
+        "WorkerGlobal": "absent",
+        "browserCspNotExercised": true
+      }
+    }
+  ],
+  "notVerified": [
+    "Actual RisuAI UI and sandbox execution",
+    "Disk or account persistence and app termination",
+    "Actual LLM requests",
+    "Complete RisuAI regular-expression pipeline"
+  ]
+}
