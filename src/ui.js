@@ -1,8 +1,9 @@
 import { CSS } from './style.js';
-import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, compactLorePacket, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
+import { proposalDiff } from './core.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
 const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록' };
@@ -393,17 +394,24 @@ export class Workshop {
   candidateValid(c) { return c.sessionId === this.s.sessionId && c.targetId === this.s.targetId && c.revision === this.s.revision && c.promptRevision === this.s.promptRevision; }
   diffView(candidate) {
     const h = this.h.bind(this);
-    let after;
+    let rows;
     try {
-      after = applyPacket(candidate.before, candidate.packet);
+      rows = proposalDiff(candidate.before, candidate.packet);
     } catch (error) {
       return h("p", { class: "warn" }, "수정안을 해석할 수 없습니다: " + error.message);
     }
-    const changed = FIELDS.filter((f) => !equal(candidate.before[f], after[f]));
-    return h("details", {}, h("summary", {}, `변경 내용 ${changed.length}개 영역 확인`), changed.map((field) => field === "globalLore" ? this.loreDiffView(candidate) : h("section", { class: "stack", style: "gap:7px;margin:12px 0" }, h("h3", {}, fieldNames[field] ?? field), h("div", { class: "diff" }, h("pre", { class: "before" }, typeof candidate.before[field] === "string" ? candidate.before[field] : JSON.stringify(candidate.before[field], null, 2)), h("pre", { class: "after" }, typeof after[field] === "string" ? after[field] : JSON.stringify(after[field], null, 2))))));
+    const display = value => value === undefined ? '(없음)' : value === '' ? '(빈 문자열)' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    const numbered = (value, start) => value === '' ? '(구간 삭제)' : value.split(/\r\n|\r|\n/).map((line, i) => `${start + i} | ${line}`).join('\n');
+    const lines = (start, end) => start === end ? `${start}행` : `${start}–${end}행`;
+    return h('details', {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
+      h('p', { class: 'muted' }, '부분편집의 줄 번호는 검토용입니다. 실제 적용은 요청 당시 원문과 정확히 일치하는 구간을 사용합니다. 코드 실행 결과를 검증한 것은 아닙니다.'),
+      rows.map(row => h('section', { class: 'card stack', style: 'margin:12px 0' }, h('strong', {}, row.label),
+        h('span', { class: 'muted' }, row.mode === 'patch' ? `부분편집 · 기존 ${lines(row.startLine, row.endLine)} → ${row.after === '' ? '삭제' : '수정 ' + lines(row.afterStartLine, row.afterEndLine)}` : row.mode === 'add' ? '추가' : row.mode === 'remove' ? '삭제' : typeof row.after === 'string' ? '전체 문자열 교체' : '설정값 변경'),
+        h('div', { class: 'diff' }, h('pre', { class: 'before' }, row.mode === 'patch' ? numbered(row.before, row.startLine) : display(row.before)), h('pre', { class: 'after' }, row.mode === 'patch' ? numbered(row.after, row.afterStartLine) : display(row.after))))));
   }
   async applyCandidate(candidate) {
     assert(this.candidateValid(candidate), "현재 원고와 다른 시점의 수정안입니다. 다시 요청하세요.");
+    validateLoreSelection(candidate.packet, this.s);
     const next = applyPacket(this.s.draft, candidate.packet);
     assert(this.candidateValid(candidate), "원고가 바뀌었습니다.");
     this.s.loreIncluded = loreSelectionAfterPacket(this.s, candidate.packet);
@@ -448,8 +456,8 @@ export class Workshop {
       if (scope) {
         assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
       }
-      const changes = task === "workshop" ? packet.data.changes.length : task === "lorebook" ? packet.data.upsert.length + packet.data.remove.length : 1;
-      s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "로어북에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
+      const changes = proposalDiff(before, packet).length;
+      s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "원고에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
       if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
       this.touch(false);
     } catch (error) {
@@ -653,16 +661,4 @@ export class Workshop {
     });
   }
 
-  loreDiffView(candidate) {
-    const h = this.h.bind(this), packet = compactLorePacket(candidate.packet, candidate.before);
-    const changes = packet.task === "workshop" ? packet.data.changes : [packet];
-    const data = changes.find((change) => change.task === "lorebook")?.data;
-    if (!data) return h("p", { class: "muted" }, "로어북 변경 없음");
-    const rows = data.upsert.map((item) => {
-      const prior = item.ref === null ? null : candidate.before.globalLore[Number(item.ref.slice(1))];
-      const before = prior && Object.fromEntries(Object.keys(item.entry).map((key) => [key, prior[key]]));
-      return { label: (prior ? "수정 · " + item.ref : "추가") + " · " + (item.entry.comment || prior?.comment || item.entry.key || prior?.key || "로어북"), before, after: item.entry };
-    }).concat(data.remove.map((ref) => ({ label: "삭제 · " + ref, before: candidate.before.globalLore[Number(ref.slice(1))], after: null })));
-    return h("section", { class: "stack" }, h("h3", {}, `로어북 변경 ${rows.length}개 · 변경한 필드만 표시`), rows.map((row) => h("div", { class: "card stack" }, h("strong", {}, row.label), h("div", { class: "diff" }, h("pre", { class: "before" }, row.before === null ? "(새 항목)" : JSON.stringify(row.before, null, 2)), h("pre", { class: "after" }, row.after === null ? "(삭제)" : JSON.stringify(row.after, null, 2))))));
-  }
 }

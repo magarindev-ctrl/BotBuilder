@@ -23,6 +23,7 @@ window.risuai = {
  getCharacterFromIndex:async i=>structuredClone(chars[i]),setCharacterToIndex:async(i,c)=>{window.__hostWrites.push('setCharacter');chars[i]=structuredClone(c);},
  setDatabaseLite:async db=>{window.__hostWrites.push('setDatabase');chars=structuredClone(db.characters);},
  runLLMModel:async o=>{window.__calls.push(o);await new Promise(r=>setTimeout(r,60));
+ if(window.__responseOverride)return {type:'success',result:window.__responseOverride};
  const task = o.messages.findLast(m=>m.role==='user').content.split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
  const data = task==='workshop'?{reply:'기억을 거래하는 항구 도시를 배경으로 시작해볼까요? 사용자의 역할부터 함께 정해보면 좋겠습니다.',changes:[]}:{text:'기억을 거래하는 항구 도시의 기록관. 사람들의 사라진 과거를 찾아주며, 자신의 기억만은 되찾지 못하고 있다.'};
  const result=JSON.stringify({schemaVersion:1,task,data});return {type:'success',result:window.__wrapResponse?'## OOC Response\\n'+result+'\\n응답 뒤의 부가 설명':result};},
@@ -185,7 +186,8 @@ try {
   assert.equal(preview[0].role,'assistant');assert.match(preview[0].content,/편집된 규칙/);
   await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===3&&!document.querySelector('[data-action="send-request"]').disabled);
-  await frame.locator('[data-action="apply-candidate"]').waitFor();
+  assert.equal(await frame.locator('[data-action="apply-candidate"]').count(),0);
+  assert.match(await frame.locator('.message.assistant .bubble').last().innerText(),/적용할 변경 사항이 없습니다/);
   assert.deepEqual(await frame.evaluate(()=>window.__calls[2].messages),preview);
   await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
   await frame.waitForFunction(async()=>Boolean(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')));
@@ -324,6 +326,7 @@ try {
   await page.locator('#plugin').screenshot({ path: 'artifacts/workshop-mobile.png', animations: 'disabled' });
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
   await frame.evaluate(() => {
+    chars[0].desc = '유지할 첫 줄\n원래 설명\n유지할 마지막 줄';
     chars[0].globalLore = Array.from({length:75}, (_, i) => ({comment:`로어북 ${i+1} · 긴 제목 줄바꿈과 선택 구분 검사`, key:'entry-'+i, content:'BODY_'+i}));
   });
   await frame.getByRole('button',{name:'캐릭터 불러오기',exact:true}).click();
@@ -349,8 +352,41 @@ try {
   await page.setViewportSize({width:390,height:850});
   await page.locator('#plugin').screenshot({path:'artifacts/bb-lore-mobile.png',animations:'disabled'});
   results.push({name:'75 lorebook rows remain distinct at five widths; checkbox preserves list scroll and persists selection',passed:true,layouts:loreLayouts});
+  await page.setViewportSize({width:1440,height:1000});
+  await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('설명의 한 구간만 수정');
+  const beforeCalls=await frame.evaluate(()=>window.__calls.length);
+  await frame.evaluate(()=>{window.__responseOverride='## OOC\n'+JSON.stringify({schemaVersion:2,task:'description',data:{text:{edits:[{before:'원래 설명',after:'수정한 설명'}]}}})+'\n완료';});
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(n=>window.__calls.length===n+1&&!document.querySelector('[data-action="send-request"]').disabled,beforeCalls);
+  const patchCandidate=frame.locator('.candidate');
+  await patchCandidate.locator('summary').click();
+  assert.match(await patchCandidate.innerText(),/부분편집 · 기존 2행/);
+  assert.match(await patchCandidate.locator('.before').innerText(),/2 \| 원래 설명/);
+  assert.doesNotMatch(await patchCandidate.innerText(),/유지할 마지막 줄/);
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-desktop.png',animations:'disabled'});
+  await page.setViewportSize({width:390,height:844});
+  await frame.getByRole('button',{name:'대화',exact:true}).click();
+  await patchCandidate.locator('summary').click();
+  await patchCandidate.locator('.before').scrollIntoViewIfNeeded();
+  assert.equal(await frame.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-mobile.png',animations:'disabled'});
+  await patchCandidate.locator('[data-action="apply-candidate"]').click();
+  await frame.getByRole('button',{name:'원고',exact:true}).click();
+  await frame.locator('.navitem').filter({hasText:'캐릭터 설명'}).click();
+  assert.equal(await frame.getByRole('textbox',{name:'캐릭터 설명',exact:true}).inputValue(),'유지할 첫 줄\n수정한 설명\n유지할 마지막 줄');
+  results.push({name:'v2 compact patch is reviewed with line numbers on desktop/mobile and applies only its exact source span',passed:true});
+  await page.setViewportSize({width:1440,height:1000});
+  await frame.evaluate(()=>{window.__responseOverride=JSON.stringify({schemaVersion:2,task:'description',data:{text:{edits:[{before:'없는 원문',after:'적용하면 안 됨'}]}}});});
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('실패 구간 검증');
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(n=>window.__calls.length===n+2&&!document.querySelector('[data-action="send-request"]').disabled,beforeCalls);
+  assert.match(await frame.locator('.bubble.error').last().innerText(),/일치하는 구간이 없/);
+  assert.equal(await frame.locator('.candidate').count(),0);
+  assert.equal(await frame.getByRole('textbox',{name:'캐릭터 설명',exact:true}).inputValue(),'유지할 첫 줄\n수정한 설명\n유지할 마지막 줄');
+  results.push({name:'invalid source patch makes no candidate, leaves manuscript intact and does not retry',passed:true});
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 15, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 17, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

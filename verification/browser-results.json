@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 20,
+  "passed": 22,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -175,7 +175,7 @@
           "minTouch": 44
         },
         {
-          "width": 320,
+          "width": 360,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -183,7 +183,7 @@
           "minTouch": 44
         },
         {
-          "width": 390,
+          "width": 360,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -191,7 +191,7 @@
           "minTouch": 44
         },
         {
-          "width": 390,
+          "width": 768,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -199,6 +199,14 @@
           "minTouch": 44
         }
       ]
+    },
+    {
+      "name": "v2 compact patch is reviewed with line numbers on desktop/mobile and applies only its exact source span",
+      "passed": true
+    },
+    {
+      "name": "invalid source patch makes no candidate, leaves manuscript intact and does not retry",
+      "passed": true
     }
   ],
   "layouts": [

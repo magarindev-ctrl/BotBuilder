@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Workshop } from '../src/ui.js';
-import { PREFIX, newSession, snapshot } from '../src/core.js';
+import { PREFIX, newSession, snapshot, restoreSnapshot } from '../src/core.js';
 import { applyImportedPreset, importPresetFile, savePresetWorkspace, selectModules } from '../src/preset-ui.js';
 import { samplePreset, encodePreset } from './preset-fixture.mjs';
 import { installedModules, modulePreset } from './modules-fixture.mjs';
@@ -18,6 +18,45 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
   const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
+
+test('direct and preset requests review compact v2 patches, recover them, and apply only on explicit approval', async () => {
+  for (const mode of ['direct', 'preset']) {
+    const x = await make();
+    try {
+      if (mode === 'preset') await applyImportedPreset(x.app, new TextEncoder().encode(JSON.stringify(samplePreset())), 'preset.json');
+      x.app.s.draft.desc = '유지할 첫 줄\n원래 설명\n유지할 마지막 줄';
+      x.app.s.draft.triggerscript = [{ comment: '코드 이름', type: 'start', conditions: [], effect: [{ type: 'triggerlua', code: 'local mood = "calm"\nprint(mood)' }] }];
+      const packet = { schemaVersion: 2, task: 'workshop', data: { reply: '두 구간의 수정안을 제안합니다.', changes: [
+        { task: 'description', data: { text: { edits: [{ before: '원래 설명', after: '수정한 설명' }] } } },
+        { task: 'lua', data: { scripts: [{ ref: 's0_0', code: { edits: [{ before: '"calm"', after: '"curious"' }] } }], removeScripts: [], variables: {}, removeVariables: [] } }
+      ] } };
+      x.app.api.runLLMModel = async options => { x.calls.push(options); return { type: 'success', result: '## OOC\n' + JSON.stringify(packet) + '\n설명 끝' }; };
+      x.app.s.requests.workshop = '기존 설명과 Lua 일부를 고쳐줘'; await x.app.sendRequest();
+      assert.equal(x.calls.length, 1); assert.match(JSON.stringify(x.calls[0].messages), /schemaVersion/); assert.match(JSON.stringify(x.calls[0].messages), /before/);
+      assert.equal(x.app.s.candidates.length, 1); assert.match(x.app.s.draft.desc, /원래 설명/);
+      const candidate = x.app.s.candidates[0], view = x.app.diffView(candidate);
+      assert.match(view.textContent, /부분편집 · 기존 2행/); assert.doesNotMatch(view.textContent, /유지할 마지막 줄|print\(mood\)/);
+      await x.app.saveSlot('manual'); const recovered = restoreSnapshot(x.app.slots.manual);
+      assert.deepEqual(recovered.candidates[0].packet, packet); await x.app.replaceSession(recovered);
+      await x.app.applyCandidate(x.app.s.candidates[0]);
+      assert.equal(x.app.s.draft.desc, '유지할 첫 줄\n수정한 설명\n유지할 마지막 줄');
+      assert.equal(x.app.s.draft.triggerscript[0].effect[0].code, 'local mood = "curious"\nprint(mood)');
+      assert.equal(x.app.s.candidates[0].status, 'applied');
+    } finally { x.close(); }
+  }
+});
+
+test('failed patches do not retry or create candidates, and a later draft edit invalidates a valid patch', async () => {
+  const x = await make();
+  try {
+    x.app.task = 'description'; x.app.s.requests.description = '부분 수정'; x.app.s.draft.desc = 'same same';
+    x.app.api.runLLMModel = async options => { x.calls.push(options); return { type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: { edits: [{ before: 'same', after: 'changed' }] } } }) }; };
+    await x.app.sendRequest(); assert.equal(x.calls.length, 1); assert.equal(x.app.s.candidates.length, 0); assert.match(x.app.s.thread.at(-1).content, /여러 곳/); assert.equal(x.app.s.draft.desc, 'same same');
+    x.app.s.draft.desc = 'same'; x.app.touch(); await x.app.sendRequest(); assert.equal(x.app.s.candidates.length, 1);
+    x.app.s.draft.desc = 'manual edit'; x.app.touch();
+    await assert.rejects(x.app.applyCandidate(x.app.s.candidates[0]), /다른 시점/); assert.equal(x.app.s.draft.desc, 'manual edit');
+  } finally { x.close(); }
+});
 
 test('preset file picker accepts the expanded size range and rejects files over 32MiB', async () => {
   const x = await make();
