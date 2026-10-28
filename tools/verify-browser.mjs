@@ -385,8 +385,51 @@ try {
   assert.equal(await frame.locator('.candidate').count(),0);
   assert.equal(await frame.getByRole('textbox',{name:'캐릭터 설명',exact:true}).inputValue(),'유지할 첫 줄\n수정한 설명\n유지할 마지막 줄');
   results.push({name:'invalid source patch makes no candidate, leaves manuscript intact and does not retry',passed:true});
+  await frame.evaluate(() => {
+    chars[0].additionalAssets = Array.from({length:12}, (_, i) => [`에셋 ${i + 1}`, `assets/${i}`, 'png']);
+    chars[0].ccAssets = chars[0].additionalAssets.map(a => ({type:'x-risu-asset',name:a[0],uri:a[1]}));
+  });
+  await frame.getByRole('button',{name:'캐릭터 불러오기',exact:true}).click();
+  await frame.getByRole('button',{name:'현재 선택된 캐릭터',exact:true}).click();
+  await frame.getByRole('button',{name:'확인',exact:true}).click();
+  await frame.locator('.navitem').filter({hasText:'에셋 목록'}).click();
+  const assetWrites = await frame.evaluate(() => window.__hostWrites.length);
+  await frame.getByRole('checkbox',{name:'에셋 1 선택',exact:true}).check();
+  await frame.getByRole('checkbox',{name:'에셋 3 선택',exact:true}).check();
+  await frame.getByRole('button',{name:'선택 삭제',exact:true}).click();
+  await frame.getByRole('button',{name:'취소',exact:true}).click();
+  assert.equal(await frame.locator('[data-asset-row]').count(),12);
+  await frame.getByRole('button',{name:'선택 삭제',exact:true}).click();
+  await frame.getByRole('button',{name:'확인',exact:true}).click();
+  await frame.waitForFunction(() => document.querySelectorAll('[data-asset-row]').length === 10);
+  assert.equal(await frame.locator('[data-asset-row]').count(),10);
+  assert.equal(await frame.getByRole('textbox',{name:'에셋 1 이름',exact:true}).inputValue(),'에셋 2');
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-assets-desktop.png',animations:'disabled'});
+  for (const width of [320,390]) {
+    await page.setViewportSize({width,height:850});
+    assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
+    const rows = await frame.locator('[data-asset-row]').evaluateAll(nodes => nodes.map(n => { const r=n.getBoundingClientRect(); return {top:r.top,bottom:r.bottom}; }));
+    assert.ok(rows.every((r,i) => !i || r.top >= rows[i-1].bottom));
+  }
+  await frame.getByRole('button',{name:'전체 선택',exact:true}).click();
+  await frame.waitForFunction(() => document.querySelectorAll('[data-asset-row] input:checked').length === 10);
+  assert.equal(await frame.locator('[data-asset-row] input:checked').count(),10);
+  await frame.getByRole('button',{name:'선택 해제',exact:true}).click();
+  await frame.waitForFunction(() => document.querySelectorAll('[data-asset-row] input:checked').length === 0);
+  assert.equal(await frame.locator('[data-asset-row] input:checked').count(),0);
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-assets-mobile.png',animations:'disabled'});
+  await frame.getByRole('button',{name:'전체 삭제',exact:true}).click();
+  await frame.getByRole('button',{name:'확인',exact:true}).click();
+  await frame.waitForFunction(() => document.querySelectorAll('[data-asset-row]').length === 0);
+  assert.equal(await frame.locator('[data-asset-row]').count(),0);
+  assert.equal(await frame.getByRole('button',{name:'전체 삭제',exact:true}).isDisabled(),true);
+  await frame.getByRole('button',{name:'임시 저장',exact:true}).click();
+  await frame.waitForFunction(async () => JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft.additionalAssets.length === 0);
+  const storedAssets = await frame.evaluate(async () => ({draft:JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft,writes:window.__hostWrites.length}));
+  assert.deepEqual(storedAssets.draft.ccAssets,[]); assert.equal(storedAssets.writes,assetWrites);
+  results.push({name:'asset selection, cancelled/multiple/all deletion, metadata persistence and mobile layout at 320/390px; no implicit host writes',passed:true});
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 17, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 19, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

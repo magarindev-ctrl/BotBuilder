@@ -1,10 +1,10 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview } from './text-edits.js';
 
-export const VERSION = '0.4.0';
+export const VERSION = '0.4.1';
 export const PREFIX = 'risu-character-editor:v1:';
-export const FIELDS = ['name', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets'];
-const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets'];
+export const FIELDS = ['name', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
+const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
 const dangerous = new Set(['__proto__', 'prototype', 'constructor']);
 export const clone = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
 export const equal = (a, b) => stable(a) === stable(b);
@@ -33,6 +33,18 @@ export function editable(raw) {
   const r = {};
   for (const f of FIELDS) if (Object.hasOwn(raw, f)) r[f] = clone(raw[f]);
   return r;
+}
+export function removeAdditionalAssets(character, selected) {
+  const list = character.additionalAssets ?? [], removed = new Set(selected);
+  assert([...removed].every(entry => list.includes(entry)), '에셋 목록이 변경되었습니다. 다시 선택해 주세요.');
+  const additionalAssets = list.filter(entry => !removed.has(entry));
+  const removedNames = new Set([...removed].map(entry => entry[0]));
+  const keptNames = new Set(additionalAssets.map(entry => entry[0]));
+  const result = { ...character, additionalAssets };
+  if (Array.isArray(character.ccAssets)) result.ccAssets = character.ccAssets.filter(asset =>
+    asset.type === 'emotion' || (asset.type === 'icon' && asset.name === 'main') ||
+    !removedNames.has(asset.name) || keptNames.has(asset.name));
+  return result;
 }
 export function blankCharacter() {
   return { type: 'character', chaId: uid(), name: '이름 없는 이야기', desc: '', firstMessage: '', notes: '', chats: [{ id: uid(), name: 'Chat 1', message: [], note: '', localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: 'none', bias: [], emotionImages: [], globalLore: [], sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '', alternateGreetings: [], tags: [], creator: '', characterVersion: '1.0', personality: '', scenario: '', firstMsgIndex: -1, additionalText: '', defaultVariables: '', additionalAssets: [] };

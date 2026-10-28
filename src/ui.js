@@ -3,10 +3,10 @@ import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, mig
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
-import { proposalDiff } from './core.js';
+import { proposalDiff, removeAdditionalAssets } from './core.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
-const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록' };
+const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
 const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
 
 export class Workshop {
@@ -342,12 +342,29 @@ export class Workshop {
   }
   renderAssets(host) {
     const h = this.h.bind(this), s = this.s, list = s.draft.additionalAssets ??= [];
+    this.assetSelection = new Set(list.filter(entry => this.assetSelection?.has(entry)));
+    const selection = this.assetSelection, boxes = [], count = h('span', { class: 'muted', role: 'status', 'data-asset-count': '' });
+    const remove = this.b('선택 삭제', () => this.deleteAssets([...selection]), 'small danger', { disabled: !selection.size });
+    const refresh = () => {
+      count.textContent = `${list.length}개 중 ${selection.size}개 선택`;
+      remove.disabled = !selection.size;
+      for (const [box, entry] of boxes) box.checked = selection.has(entry);
+    };
     host.append(h('p', { class: 'muted' }, '등록 해제는 이 원고의 참조만 제거합니다. 공유될 수 있는 실제 파일은 삭제하지 않습니다.'));
+    host.append(h('div', { class: 'row' },
+      this.b('전체 선택', () => { list.forEach(entry => selection.add(entry)); refresh(); }, 'small', { disabled: !list.length }),
+      this.b('선택 해제', () => { selection.clear(); refresh(); }, 'small', { disabled: !list.length }), remove,
+      this.b('전체 삭제', () => this.deleteAssets([...list]), 'small danger', { disabled: !list.length }), count));
     const names = new Set();
     for (const [i, tuple] of list.entries()) {
       const duplicate = names.has(tuple[0]); names.add(tuple[0]);
-      host.append(h('div', { class: 'card stack' }, h('div', { class: 'assetrow' }, this.h('input', { value: tuple[0], 'aria-label': `에셋 ${i + 1} 이름`, onInput: e => { tuple[0] = e.target.value; this.touch(); } }), this.h('input', { value: tuple[1], 'aria-label': `에셋 ${i + 1} 참조`, onInput: e => { tuple[1] = e.target.value; this.touch(); } }), this.h('input', { value: tuple[2], 'aria-label': `에셋 ${i + 1} 확장자`, onInput: e => { tuple[2] = e.target.value; this.touch(); } }), this.b('해제', async () => { if (await this.confirm('에셋 등록을 해제할까요?', tuple[0])) { list.splice(i, 1); this.touch(); this.renderEditor(); } }, 'small danger')), duplicate || !tuple[1] ? h('p', { class: 'error muted' }, duplicate ? '중복된 에셋 이름입니다.' : '에셋 참조가 없습니다.') : null));
+      const box = h('input', { type: 'checkbox', checked: selection.has(tuple), 'aria-label': `에셋 ${i + 1} 선택`, onChange: e => { if (e.target.checked) selection.add(tuple); else selection.delete(tuple); refresh(); } });
+      boxes.push([box, tuple]);
+      host.append(h('div', { class: 'card stack', 'data-asset-row': '' },
+        h('label', { class: 'row muted', style: 'min-height:44px;cursor:pointer' }, box, `${i + 1}. 에셋 선택`),
+        h('div', { class: 'assetrow' }, this.h('input', { value: tuple[0], 'aria-label': `에셋 ${i + 1} 이름`, onInput: e => { tuple[0] = e.target.value; this.touch(); } }), this.h('input', { value: tuple[1], 'aria-label': `에셋 ${i + 1} 참조`, onInput: e => { tuple[1] = e.target.value; this.touch(); } }), this.h('input', { value: tuple[2], 'aria-label': `에셋 ${i + 1} 확장자`, onInput: e => { tuple[2] = e.target.value; this.touch(); } }), this.b('해제', () => this.deleteAssets([tuple]), 'small danger')), duplicate || !tuple[1] ? h('p', { class: 'error muted' }, duplicate ? '중복된 에셋 이름입니다.' : '에셋 참조가 없습니다.') : null));
     }
+    refresh();
     if (!list.length) host.append(h('div', { class: 'empty' }, '아직 등록한 이미지 에셋이 없습니다.'));
     host.append(this.b('이미지 파일 등록', async () => {
       const file = await this.file('image/*'); if (!file) return;
@@ -356,6 +373,15 @@ export class Workshop {
       const path = await this.api.saveAsset(data); assert(this.s.sessionId === target, '작업 대상이 바뀌어 참조를 추가하지 않았습니다.');
       const ext = file.name.split('.').pop().toLowerCase(); this.s.draft.additionalAssets.push([file.name.replace(/\.[^.]+$/, ''), path, ext]); this.touch(); this.renderEditor();
     }));
+  }
+  async deleteAssets(entries) {
+    if (!entries.length) return;
+    const session = this.s, draft = session.draft, revision = session.revision;
+    const names = entries.slice(0, 10).map(entry => entry[0]).join('\n');
+    if (!await this.confirm(`에셋 ${entries.length}개를 삭제할까요?`, `${names}${entries.length > 10 ? '\n외 ' + (entries.length - 10) + '개' : ''}\n\n현재 에셋 목록의 참조만 제거합니다. 대표 이미지·감정 이미지·공유 파일은 유지됩니다. 본체에는 저장 후 반영됩니다.`)) return;
+    assert(this.s === session && session.draft === draft && session.revision === revision, '원고가 변경되어 삭제하지 않았습니다. 다시 선택해 주세요.');
+    session.draft = removeAdditionalAssets(draft, entries);
+    this.touch(); this.renderEditor();
   }
   renderChat() {
     const h = this.h.bind(this), s = this.s;

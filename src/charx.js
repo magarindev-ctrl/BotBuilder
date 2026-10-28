@@ -98,15 +98,13 @@ export async function exportCharx(api, character, cardMeta) {
   const card = characterToCard(character, cardMeta?.card), files = {}, assets = [], refs = new Map();
   const names = (character.additionalAssets ?? []).map(a => a[0]);
   assert(names.every(n => typeof n === 'string' && n.trim()) && new Set(names).size === names.length, '에셋 이름이 비어 있거나 중복됩니다. 목록에서 수정해 주세요.');
-  let total = 0;
   async function add(type, name, path, ext) {
     assert(typeof path === 'string' && path, '누락된 에셋 참조: ' + name);
     const suffix = /^[a-zA-Z0-9]{1,8}$/.test(ext ?? '') ? ext : 'bin';
     let file = refs.get(path);
     if (!file) {
       file = `assets/${refs.size}.${suffix}`;
-      await tick(); const data = await assetBytes(api, path); total += data.length;
-      assert(total <= MAX_ARCHIVE, '에셋 합계가 100MiB를 초과했습니다.');
+      await tick(); const data = await assetBytes(api, path);
       files[file] = data; refs.set(path, file);
     }
     assets.push({ type, name, uri: 'embeded://' + file, ext: suffix });

@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.0
+//@version 0.4.1
 
 /*
+Modified 2026-10-28: v0.4.1 adds bulk asset unlinking with CCv3 metadata cleanup and removes the 100MiB asset limit from charx export.
 Modified 2026-10-28: v0.4.0 adds exact before/after text edits across authoring tasks, atomic validation, line-based review and response schema v2 with legacy v1 support.
 Modified 2026-10-28: v0.3.3 expands request capacity and adds lorebook selection; v0.3.4 fixes mobile lorebook lists; v0.3.5 adds sparse lorebook responses and diffs. v0.3.6 synchronizes these changes to source, restores the JSON guide and rejects wrapped array responses.
 봇빌더 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
@@ -10080,10 +10081,10 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/core.js
-  var VERSION = "0.4.0";
+  var VERSION = "0.4.1";
   var PREFIX = "risu-character-editor:v1:";
-  var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
-  var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
+  var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
+  var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
   var dangerous = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]);
   var clone = (x) => x === void 0 ? void 0 : JSON.parse(JSON.stringify(x));
   var equal = (a, b) => stable(a) === stable(b);
@@ -10118,6 +10119,16 @@ details[open] > summary { margin-bottom: 9px; }
     const r = {};
     for (const f of FIELDS) if (Object.hasOwn(raw, f)) r[f] = clone(raw[f]);
     return r;
+  }
+  function removeAdditionalAssets(character, selected) {
+    const list = character.additionalAssets ?? [], removed = new Set(selected);
+    assert([...removed].every((entry) => list.includes(entry)), "\uC5D0\uC14B \uBAA9\uB85D\uC774 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+    const additionalAssets = list.filter((entry) => !removed.has(entry));
+    const removedNames = new Set([...removed].map((entry) => entry[0]));
+    const keptNames = new Set(additionalAssets.map((entry) => entry[0]));
+    const result = { ...character, additionalAssets };
+    if (Array.isArray(character.ccAssets)) result.ccAssets = character.ccAssets.filter((asset) => asset.type === "emotion" || asset.type === "icon" && asset.name === "main" || !removedNames.has(asset.name) || keptNames.has(asset.name));
+    return result;
   }
   function blankCharacter() {
     return { type: "character", chaId: uid(), name: "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30", desc: "", firstMessage: "", notes: "", chats: [{ id: uid(), name: "Chat 1", message: [], note: "", localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: "none", bias: [], emotionImages: [], globalLore: [], sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: "", creatorNotes: "", systemPrompt: "", postHistoryInstructions: "", alternateGreetings: [], tags: [], creator: "", characterVersion: "1.0", personality: "", scenario: "", firstMsgIndex: -1, additionalText: "", defaultVariables: "", additionalAssets: [] };
@@ -12252,7 +12263,6 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     const card = characterToCard(character, cardMeta?.card), files = {}, assets = [], refs = /* @__PURE__ */ new Map();
     const names = (character.additionalAssets ?? []).map((a) => a[0]);
     assert(names.every((n) => typeof n === "string" && n.trim()) && new Set(names).size === names.length, "\uC5D0\uC14B \uC774\uB984\uC774 \uBE44\uC5B4 \uC788\uAC70\uB098 \uC911\uBCF5\uB429\uB2C8\uB2E4. \uBAA9\uB85D\uC5D0\uC11C \uC218\uC815\uD574 \uC8FC\uC138\uC694.");
-    let total = 0;
     async function add(type, name, path, ext) {
       assert(typeof path === "string" && path, "\uB204\uB77D\uB41C \uC5D0\uC14B \uCC38\uC870: " + name);
       const suffix = /^[a-zA-Z0-9]{1,8}$/.test(ext ?? "") ? ext : "bin";
@@ -12261,8 +12271,6 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         file = `assets/${refs.size}.${suffix}`;
         await tick();
         const data = await assetBytes(api2, path);
-        total += data.length;
-        assert(total <= MAX_ARCHIVE, "\uC5D0\uC14B \uD569\uACC4\uAC00 100MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
         files[file] = data;
         refs.set(path, file);
       }
@@ -14446,7 +14454,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
 
   // src/ui.js
   var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B"]];
-  var fieldNames = { name: "\uC774\uB984", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D" };
+  var fieldNames = { name: "\uC774\uB984", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
   var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system" };
   var Workshop = class {
     constructor(api2, doc) {
@@ -14928,28 +14936,58 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     }
     renderAssets(host) {
       const h = this.h.bind(this), s = this.s, list = s.draft.additionalAssets ??= [];
+      this.assetSelection = new Set(list.filter((entry) => this.assetSelection?.has(entry)));
+      const selection = this.assetSelection, boxes = [], count = h("span", { class: "muted", role: "status", "data-asset-count": "" });
+      const remove = this.b("\uC120\uD0DD \uC0AD\uC81C", () => this.deleteAssets([...selection]), "small danger", { disabled: !selection.size });
+      const refresh = () => {
+        count.textContent = `${list.length}\uAC1C \uC911 ${selection.size}\uAC1C \uC120\uD0DD`;
+        remove.disabled = !selection.size;
+        for (const [box, entry] of boxes) box.checked = selection.has(entry);
+      };
       host.append(h("p", { class: "muted" }, "\uB4F1\uB85D \uD574\uC81C\uB294 \uC774 \uC6D0\uACE0\uC758 \uCC38\uC870\uB9CC \uC81C\uAC70\uD569\uB2C8\uB2E4. \uACF5\uC720\uB420 \uC218 \uC788\uB294 \uC2E4\uC81C \uD30C\uC77C\uC740 \uC0AD\uC81C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      host.append(h(
+        "div",
+        { class: "row" },
+        this.b("\uC804\uCCB4 \uC120\uD0DD", () => {
+          list.forEach((entry) => selection.add(entry));
+          refresh();
+        }, "small", { disabled: !list.length }),
+        this.b("\uC120\uD0DD \uD574\uC81C", () => {
+          selection.clear();
+          refresh();
+        }, "small", { disabled: !list.length }),
+        remove,
+        this.b("\uC804\uCCB4 \uC0AD\uC81C", () => this.deleteAssets([...list]), "small danger", { disabled: !list.length }),
+        count
+      ));
       const names = /* @__PURE__ */ new Set();
       for (const [i, tuple] of list.entries()) {
         const duplicate = names.has(tuple[0]);
         names.add(tuple[0]);
-        host.append(h("div", { class: "card stack" }, h("div", { class: "assetrow" }, this.h("input", { value: tuple[0], "aria-label": `\uC5D0\uC14B ${i + 1} \uC774\uB984`, onInput: (e) => {
-          tuple[0] = e.target.value;
-          this.touch();
-        } }), this.h("input", { value: tuple[1], "aria-label": `\uC5D0\uC14B ${i + 1} \uCC38\uC870`, onInput: (e) => {
-          tuple[1] = e.target.value;
-          this.touch();
-        } }), this.h("input", { value: tuple[2], "aria-label": `\uC5D0\uC14B ${i + 1} \uD655\uC7A5\uC790`, onInput: (e) => {
-          tuple[2] = e.target.value;
-          this.touch();
-        } }), this.b("\uD574\uC81C", async () => {
-          if (await this.confirm("\uC5D0\uC14B \uB4F1\uB85D\uC744 \uD574\uC81C\uD560\uAE4C\uC694?", tuple[0])) {
-            list.splice(i, 1);
+        const box = h("input", { type: "checkbox", checked: selection.has(tuple), "aria-label": `\uC5D0\uC14B ${i + 1} \uC120\uD0DD`, onChange: (e) => {
+          if (e.target.checked) selection.add(tuple);
+          else selection.delete(tuple);
+          refresh();
+        } });
+        boxes.push([box, tuple]);
+        host.append(h(
+          "div",
+          { class: "card stack", "data-asset-row": "" },
+          h("label", { class: "row muted", style: "min-height:44px;cursor:pointer" }, box, `${i + 1}. \uC5D0\uC14B \uC120\uD0DD`),
+          h("div", { class: "assetrow" }, this.h("input", { value: tuple[0], "aria-label": `\uC5D0\uC14B ${i + 1} \uC774\uB984`, onInput: (e) => {
+            tuple[0] = e.target.value;
             this.touch();
-            this.renderEditor();
-          }
-        }, "small danger")), duplicate || !tuple[1] ? h("p", { class: "error muted" }, duplicate ? "\uC911\uBCF5\uB41C \uC5D0\uC14B \uC774\uB984\uC785\uB2C8\uB2E4." : "\uC5D0\uC14B \uCC38\uC870\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.") : null));
+          } }), this.h("input", { value: tuple[1], "aria-label": `\uC5D0\uC14B ${i + 1} \uCC38\uC870`, onInput: (e) => {
+            tuple[1] = e.target.value;
+            this.touch();
+          } }), this.h("input", { value: tuple[2], "aria-label": `\uC5D0\uC14B ${i + 1} \uD655\uC7A5\uC790`, onInput: (e) => {
+            tuple[2] = e.target.value;
+            this.touch();
+          } }), this.b("\uD574\uC81C", () => this.deleteAssets([tuple]), "small danger")),
+          duplicate || !tuple[1] ? h("p", { class: "error muted" }, duplicate ? "\uC911\uBCF5\uB41C \uC5D0\uC14B \uC774\uB984\uC785\uB2C8\uB2E4." : "\uC5D0\uC14B \uCC38\uC870\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.") : null
+        ));
       }
+      refresh();
       if (!list.length) host.append(h("div", { class: "empty" }, "\uC544\uC9C1 \uB4F1\uB85D\uD55C \uC774\uBBF8\uC9C0 \uC5D0\uC14B\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."));
       host.append(this.b("\uC774\uBBF8\uC9C0 \uD30C\uC77C \uB4F1\uB85D", async () => {
         const file = await this.file("image/*");
@@ -14963,6 +15001,18 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         this.touch();
         this.renderEditor();
       }));
+    }
+    async deleteAssets(entries) {
+      if (!entries.length) return;
+      const session = this.s, draft = session.draft, revision = session.revision;
+      const names = entries.slice(0, 10).map((entry) => entry[0]).join("\n");
+      if (!await this.confirm(`\uC5D0\uC14B ${entries.length}\uAC1C\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?`, `${names}${entries.length > 10 ? "\n\uC678 " + (entries.length - 10) + "\uAC1C" : ""}
+
+\uD604\uC7AC \uC5D0\uC14B \uBAA9\uB85D\uC758 \uCC38\uC870\uB9CC \uC81C\uAC70\uD569\uB2C8\uB2E4. \uB300\uD45C \uC774\uBBF8\uC9C0\xB7\uAC10\uC815 \uC774\uBBF8\uC9C0\xB7\uACF5\uC720 \uD30C\uC77C\uC740 \uC720\uC9C0\uB429\uB2C8\uB2E4. \uBCF8\uCCB4\uC5D0\uB294 \uC800\uC7A5 \uD6C4 \uBC18\uC601\uB429\uB2C8\uB2E4.`)) return;
+      assert(this.s === session && session.draft === draft && session.revision === revision, "\uC6D0\uACE0\uAC00 \uBCC0\uACBD\uB418\uC5B4 \uC0AD\uC81C\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+      session.draft = removeAdditionalAssets(draft, entries);
+      this.touch();
+      this.renderEditor();
     }
     renderChat() {
       const h = this.h.bind(this), s = this.s;

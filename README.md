@@ -86,7 +86,7 @@ CBS는 지원 목록만 해석하며 코드 실행·본체 변수 변경은 제�
 
 ## 현재 검증 범위
 
-버전은 **0.4.0**입니다. 자동 검증 107개와 실제 Edge에서 모의 API를 연결한 UI 검증 22개를 수행했습니다. 숨겨진 `srcdoc` iframe·투명 body·CSP, 18개 본문 배치 조건, 재열기와 프롬프트·모듈 선택창, 바이너리 프리셋 가져오기·설치 모듈 선택·토글·로어북·실제 전달 메시지를 확인했습니다. 출력 규칙의 단계 구분, `user_input` 조건문, JSON 출력 예시와 OOC·코드 펜스·앞뒤 설명 제거를 검증했습니다. JSON 문자열 안의 코드·줄바꿈·중괄호 보존, 복수 응답·손상된 JSON 거부, 프리필 유지, 기존 제안 검토·명시적 적용 흐름도 확인했습니다. 전체 사용자 프리셋·실제 설치 모듈은 아직 검증하지 않았습니다. 기준 소스는 RisuAI `f50b5942…`, RisuBard `e5412a48…`이며, 사용자의 실제 설치 버전과 동일하다고 가정하지 않습니다.
+버전은 **0.4.1**입니다. 자동 검증 114개와 실제 Edge에서 모의 API를 연결한 UI 검증 23개를 수행했습니다. 숨겨진 `srcdoc` iframe·투명 body·CSP, 18개 본문 배치 조건, 재열기와 프롬프트·모듈 선택창, 바이너리 프리셋 가져오기·설치 모듈 선택·토글·로어북·실제 전달 메시지를 확인했습니다. 출력 규칙의 단계 구분, `user_input` 조건문, JSON 출력 예시와 OOC·코드 펜스·앞뒤 설명 제거를 검증했습니다. JSON 문자열 안의 코드·줄바꿈·중괄호 보존, 복수 응답·손상된 JSON 거부, 프리필 유지, 기존 제안 검토·명시적 적용 흐름도 확인했습니다. 전체 사용자 프리셋·실제 설치 모듈은 아직 검증하지 않았습니다. 기준 소스는 RisuAI `f50b5942…`, RisuBard `e5412a48…`이며, 사용자의 실제 설치 버전과 동일하다고 가정하지 않습니다.
 
 **실제 RisuBard의 LLM 호출, Lua·상황 선택 단추 실행, 강제 종료 후 복구는 아직 확인하지 못했습니다.** 저장 API 완료와 디스크·동기화 반영 시점은 다를 수 있습니다. 설치 후 실제 환경에서 확인해야 합니다.
 
@@ -152,3 +152,10 @@ CBS 호환성 보완은 [블록 파서](https://github.com/rpaddict/RisuBard/blo
 설치 모듈은 [모듈 데이터·ID/namespace 조회](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/process/modules.ts), [DB 조회 허용 항목](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/plugins/plugins.svelte.ts), [API v3 조회](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/plugins/apiV3/v3.svelte.ts)를 확인했습니다. 네이티브 모듈의 전체 실행 파이프라인 이식은 포함하지 않습니다.
 
 단계 구분은 [정규식 모드](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/process/scripts.ts), [트리거 실행 시점](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/process/triggers.ts), [Lua 편집 콜백](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/process/scriptings.ts)을 대조했습니다. `user_input`의 정의 여부는 [공식 CBS 목록](https://github.com/rpaddict/RisuBard/blob/e5412a4878ae3a0073ffce8e06aed8f288dd9c53/src/ts/cbs.ts)과 블록 파서의 미정의 표기 처리에 근거합니다.
+
+## 에셋 관리·charx 내보내기 · v0.4.1
+
+- 에셋 목록의 체크박스로 여러 항목을 선택하고 선택 삭제·전체 삭제할 수 있습니다. 전체 선택·선택 해제와 삭제 확인을 제공합니다. 삭제는 현재 원고의 추가 에셋 참조에 적용하며 대표 이미지·감정 이미지·공유 파일은 유지합니다. 본체 반영은 기존 저장 버튼을 사용합니다.
+- charx에서 가져온 에셋의 연결 메타데이터도 함께 정리하여 삭제 후 재내보내기와 저장·복원에 반영합니다.
+- charx 내보내기의 에셋 합계 100MiB 제한을 제거했습니다. 100MiB+1바이트 에셋으로 ZIP 생성과 카드 참조를 검증했습니다. 임의의 출력 용량 상한은 없지만 브라우저 메모리·ZIP 형식 및 라이브러리의 한계는 적용됩니다. 출력 확장자는 .charx입니다.
+- 가져오기의 100MiB/압축 해제 200MiB 제한과 개별 이미지 등록 20MiB 제한은 유지합니다. 실제 RisuBard에서 대용량 다운로드·재가져오기 검증은 수행하지 않았습니다.

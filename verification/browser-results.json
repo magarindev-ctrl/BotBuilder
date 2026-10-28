@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 22,
+  "passed": 23,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -167,7 +167,7 @@
           "minTouch": 44
         },
         {
-          "width": 320,
+          "width": 360,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -206,6 +206,10 @@
     },
     {
       "name": "invalid source patch makes no candidate, leaves manuscript intact and does not retry",
+      "passed": true
+    },
+    {
+      "name": "asset selection, cancelled/multiple/all deletion, metadata persistence and mobile layout at 320/390px; no implicit host writes",
       "passed": true
     }
   ],

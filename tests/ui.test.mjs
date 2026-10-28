@@ -19,6 +19,44 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
 
+test('asset selection supports cancel, multiple deletion, select all, clear and delete all', async () => {
+  const x = await make();
+  try {
+    x.app.s.draft.additionalAssets = ['one', 'two', 'three'].map(name => [name, name, 'png']);
+    x.app.s.tab = 'assets'; x.app.render();
+    const boxes = () => [...x.dom.window.document.querySelectorAll('[data-asset-row] input[type=checkbox]')];
+    assert.equal(button(x.dom, '선택 삭제').disabled, true);
+    boxes()[0].click(); boxes()[2].click(); assert.equal(x.app.s.revision, 0);
+    button(x.dom, '선택 삭제').click(); await wait(); button(x.dom, '취소').click(); await wait();
+    assert.equal(x.app.s.draft.additionalAssets.length, 3);
+    button(x.dom, '선택 삭제').click(); await wait(); button(x.dom, '확인').click(); await wait();
+    assert.deepEqual(x.app.s.draft.additionalAssets.map(a => a[0]), ['two']); assert.equal(x.app.s.revision, 1);
+    assert.equal(button(x.dom, '선택 삭제').disabled, true);
+    button(x.dom, '전체 선택').click(); await wait(); assert.equal(boxes()[0].checked, true);
+    button(x.dom, '선택 해제').click(); await wait(); assert.equal(boxes()[0].checked, false);
+    button(x.dom, '전체 삭제').click(); await wait(); button(x.dom, '확인').click(); await wait();
+    assert.equal(x.app.s.draft.additionalAssets.length, 0); assert.equal(x.app.s.revision, 2);
+    assert.equal(button(x.dom, '전체 삭제').disabled, true); assert.equal(boxes().length, 0);
+  } finally { x.close(); }
+});
+test('asset deletion refuses a changed draft or session while confirmation is pending', async () => {
+  const x = await make();
+  try {
+    for (const change of ['revision', 'session']) {
+      x.app.s.draft.additionalAssets = [['one', 'path', 'png']];
+      let approve; x.app.confirm = () => new Promise(resolve => { approve = resolve; });
+      const pending = x.app.deleteAssets([...x.app.s.draft.additionalAssets]);
+      if (change === 'revision') x.app.touch(); else x.app.s = { ...x.app.s };
+      approve(true); await assert.rejects(pending, /원고가 변경/);
+      assert.equal(x.app.s.draft.additionalAssets.length, 1);
+    }
+    x.app.s.tab = 'assets'; x.app.render();
+    x.dom.window.document.querySelector('[data-asset-row] input[type=checkbox]').click();
+    x.app.s = { ...newSession(), preset: x.app.s.preset }; x.app.s.tab = 'assets'; x.app.s.draft.additionalAssets = [['new', 'new', 'png']]; x.app.render();
+    assert.equal(x.dom.window.document.querySelector('[data-asset-row] input[type=checkbox]').checked, false);
+  } finally { x.close(); }
+});
+
 test('direct and preset requests review compact v2 patches, recover them, and apply only on explicit approval', async () => {
   for (const mode of ['direct', 'preset']) {
     const x = await make();
