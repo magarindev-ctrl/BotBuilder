@@ -1,0 +1,160 @@
+<!-- 아카라이브 HTML 소스 편집 모드에 아래 내용 전체를 붙여넣으세요. 하단의 배포 파일·대응 소스 공개 주소는 게시 전에 채워 주세요. -->
+<div style="max-width:760px;margin:0 auto;padding:20px;box-sizing:border-box;background:#f4f4f6;color:#24242b;font-family:Arial,'Malgun Gothic',sans-serif;font-size:15px;line-height:1.85;overflow-wrap:anywhere;word-break:normal;">
+  <div style="padding:24px 20px;margin-bottom:16px;border:1px solid #3a3a45;border-radius:12px;background:#25252e;color:#f5f5f7;">
+    <p style="margin:0 0 8px;color:#cacad5;font-size:12px;letter-spacing:2px;">BOT BUILDER · BB</p>
+    <h1 style="margin:0 0 10px;color:#ffffff;font-size:26px;line-height:1.4;">봇빌더 패치노트<br>v0.3.2 → v0.3.6</h1>
+    <p style="margin:0;color:#e0e0e8;">요청 용량 확대, 로어북 선택·부분 수정, 모바일 목록 개선과 배포본·소스 동기화를 정리했습니다.</p>
+    <p style="margin:12px 0 0;color:#cacad5;font-size:13px;">2026-10-28 · RisuAI / RisuBard API v3용 플러그인</p>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <h2 style="margin:0 0 10px;color:#24242b;font-size:20px;">포크 개발자용 핵심 요약</h2>
+    <p style="margin:0 0 10px;">BB는 LLM과 대화하며 캐릭터·시뮬레이션 원고를 만드는 플러그인입니다. 이번 변경은 <strong>플러그인 내부의 요청 조립·응답 검증·편집 UI</strong>에 적용했습니다. 본체 코드나 호스트 API 계약을 바꾸는 패치는 없습니다.</p>
+    <ul style="margin:0;padding-left:22px;">
+      <li>배포물은 기존과 같은 <strong>단일 JS 파일</strong>입니다.</li>
+      <li>본체의 메인·보조 모델을 사용합니다. <code>runLLMModel</code>의 <code>model</code> / <code>submodel</code> 선택을 유지합니다.</li>
+      <li>입력 제한을 완화했지만, 모델의 컨텍스트 설정이나 출력 토큰 한도를 자동 변경하지 않습니다.</li>
+      <li>로어북의 전송 포함 여부는 BB 작업 상태로 관리합니다. 캐릭터 원본의 활성화 설정을 바꾸지 않습니다.</li>
+      <li>LLM의 수정안은 검토 후 사용자가 적용합니다. 본체 캐릭터 저장은 별도 동작입니다.</li>
+    </ul>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <p style="margin:0 0 4px;color:#626270;font-size:13px;">v0.3.3</p>
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">요청 용량 확대 · 전송할 로어북 선택</h2>
+    <p style="margin:0 0 10px;"><strong>전체 전송 문자 한도</strong></p>
+    <ul style="margin:0 0 14px;padding-left:22px;">
+      <li>기본값: <strong>100,000자 → 3,000,000자</strong></li>
+      <li>설정 가능한 최대값: <strong>1,000,000자 → 10,000,000자</strong> · 최소값 1,000자</li>
+      <li>전체 전송 내용에 <strong>32MiB</strong> 바이트 상한을 적용합니다. 프리셋 조립 결과의 기존 4MiB 상한도 32MiB로 확대했습니다.</li>
+      <li>프리셋 파일 입력·압축 해제와 선택 모듈 데이터 합계 상한: <strong>8MiB → 32MiB</strong></li>
+      <li>CBS 블록 원문 한도는 1,000만 자, 렌더링 결과는 문자·바이트 한도를 함께 검사합니다. 블록 500개·조립 메시지 3,000개 등의 개수 제한은 유지합니다.</li>
+      <li>LLM 기본 대기 시간: <strong>300초 → 900초</strong>. 기존 기본값 300초는 이관하며, 다른 유효한 사용자 설정은 유지합니다.</li>
+    </ul>
+    <div style="padding:12px 14px;margin:0 0 16px;border-left:3px solid #737383;background:#f2f2f6;color:#383842;">
+      <strong>“30만 토큰 규모 대응”은 정확한 토큰 계수나 전송 성공 보장을 뜻하지 않습니다.</strong><br>
+      한도에는 프리셋·모듈 자료·현재 원고·대화·작업 지시가 포함됩니다. 실제 입력 가능량은 모델·API의 컨텍스트와 응답 여유에 달려 있습니다. 초과하면 중단하며 자동으로 잘라 보내지 않습니다.
+    </div>
+    <p style="margin:0 0 8px;"><strong>로어북 탭에 ‘이번 요청에 포함’ 추가</strong></p>
+    <ul style="margin:0;padding-left:22px;">
+      <li>항목별 체크박스와 <strong>전체 포함 / 전체 제외</strong> 버튼을 추가했습니다.</li>
+      <li>직접 요청과 프리셋 요청 모두 체크한 현재 원고 항목만 사용합니다.</li>
+      <li>선택 상태를 자동 저장·수동 임시 저장에 보관하고, 항목 이동·삭제·추가 시 함께 갱신합니다. 선택 정보가 없는 이전 저장본은 전체 포함으로 복원합니다.</li>
+      <li>원본 로어북과 <code>alwaysActive</code> 등 네이티브 설정은 유지합니다. 설치 모듈의 로어북은 모듈 탭에서 별도로 선택합니다.</li>
+      <li>체크 해제는 이전 제작 대화에 이미 기록된 내용을 지우는 기능은 아닙니다.</li>
+    </ul>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <p style="margin:0 0 4px;color:#626270;font-size:13px;">v0.3.4</p>
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">모바일 로어북 목록 겹침 수정</h2>
+    <p style="margin:0 0 10px;">모바일에서 공통 항목 목록의 가로 배치가 로어북에도 적용돼, 항목이 많으면 목록이 압축되고 선택하기 어려웠습니다.</p>
+    <ul style="margin:0;padding-left:22px;">
+      <li>로어북 목록을 <strong>세로 카드형 목록 + 별도 세로 스크롤</strong>로 분리했습니다.</li>
+      <li>항목 번호와 제목 줄바꿈을 적용하고, 체크박스 행의 터치 영역을 최소 44px로 확보했습니다.</li>
+      <li>포함 여부를 체크하거나 편집할 항목을 선택한 뒤에도 목록의 스크롤 위치를 유지합니다.</li>
+    </ul>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <p style="margin:0 0 4px;color:#626270;font-size:13px;">v0.3.5</p>
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">로어북은 변경 항목·필드만 응답</h2>
+    <p style="margin:0 0 10px;">기존 적용 코드에도 항목 병합 기능은 있었지만, 지시와 검토 화면 때문에 전체 로어북을 다시 출력하는 것으로 보일 수 있었습니다. 이번에는 <strong>LLM 출력 지시·예시, 입력 구성, 변경 검토 화면</strong>까지 부분 수정 방식으로 정리했습니다.</p>
+    <ul style="margin:0 0 14px;padding-left:22px;">
+      <li><code>upsert</code>에는 새 항목 또는 실제 변경한 항목만 넣도록 안내합니다.</li>
+      <li>기존 항목은 원래 <code>ref</code>를 사용하고, <code>entry</code>에는 바뀐 필드만 반환합니다. 새 항목은 <code>ref: null</code>과 필수 <code>key</code>·<code>content</code>를 사용합니다.</li>
+      <li>생략한 기존 항목·필드는 보존합니다. 삭제는 <code>remove</code>에 지정된 항목만 처리합니다.</li>
+      <li>본문을 바꾸면 해당 항목의 완성된 새 본문을 받습니다. 본문 내부의 줄 단위 패치 형식은 아닙니다.</li>
+      <li>검증된 응답에서 기존 값과 같은 필드를 제거하고, 변경 검토에는 실제 바뀐 항목·필드만 표시합니다.</li>
+      <li>로어북 작업의 현재안·참고자료와 설계 대화의 원고 컨텍스트에 중복 삽입되던 자료를 줄였습니다.</li>
+    </ul>
+    <p style="margin:0 0 8px;"><strong>예시: 기존 l2 항목의 본문만 수정</strong></p>
+    <pre style="margin:0;padding:14px;border:1px solid #dedee6;border-radius:8px;background:#f5f5f8;color:#292934;font-size:13px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;"><code>{
+  "schemaVersion": 1,
+  "task": "lorebook",
+  "data": {
+    "upsert": [
+      {
+        "ref": "l2",
+        "entry": {
+          "content": "요청한 변경을 반영한 이 항목의 새 본문"
+        }
+      }
+    ],
+    "remove": []
+  }
+}</code></pre>
+    <p style="margin:10px 0 0;color:#626270;font-size:13px;">l2는 현재 원고에서 제공된 참조라는 가정입니다. 제목·키워드·활성화 설정과 다른 로어북 항목은 그대로 남습니다. 응답을 받은 뒤 불필요한 필드를 제거하는 것 자체는 이미 사용한 출력 토큰을 돌려주지 않으며, 출력 절감은 모델이 부분 수정 지시를 따를 때 발생합니다.</p>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <p style="margin:0 0 4px;color:#626270;font-size:13px;">v0.3.6 · 현재</p>
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">배포본·소스 동기화 · JSON 처리 회귀 수정</h2>
+    <p style="margin:0 0 10px;"><strong>1. 다시 빌드해도 배포 패치가 유지됩니다.</strong><br>v0.3.3~v0.3.5 변경이 배포 JS에만 있고 src/와 빌드 설정은 v0.3.2에 남아 있던 상태를 정리했습니다. 용량 확대·로어북 선택·모바일 목록·부분 수정 처리를 소스로 이관했습니다.</p>
+    <p style="margin:0 0 10px;">package.json과 런타임 버전을 v0.3.6으로 통일했습니다. 배포 헤더 버전은 package.json에서 읽고, 런타임 버전과 다르면 빌드를 중단합니다. 같은 소스를 다시 빌드한 결과의 SHA-256 일치도 확인했습니다.</p>
+    <p style="margin:0 0 10px;"><strong>2. ‘JSON 응답 형식과 예시’를 복원했습니다.</strong><br>프롬프트 창에서 작업별 출력 형식과 예시를 다시 볼 수 있습니다. 로어북 부분 수정 예시는 현재 포함된 항목의 ref를 사용합니다. 저장된 사용자 프롬프트와 프리셋 프리필은 유지합니다.</p>
+    <p style="margin:0 0 10px;"><strong>3. 배열 응답의 검증 우회를 막았습니다.</strong><br>JSON 배열만 반환하면 거부하면서, 배열 앞뒤에 설명이 붙으면 내부 객체를 꺼내 받아들이던 차이를 수정했습니다. 이제 설명·코드 펜스·BOM이 붙어도 배열이나 중첩 포장을 임의로 풀지 않습니다.</p>
+    <ul style="margin:0;padding-left:22px;">
+      <li>정상 응답 객체 밖의 OOC 제목·코드 펜스·부가 설명은 제거합니다.</li>
+      <li>JSON 문자열 안의 원고·Markdown·HTML·Lua·중괄호·이스케이프는 보존합니다.</li>
+      <li>스키마·작업 종류·필드·참조 검증과 <strong>1MiB 응답 상한</strong>을 유지합니다. 입력 한도 확대와는 별개입니다.</li>
+      <li>유효한 응답이 여러 개면 중단하고, 손상된 JSON을 자동 수리하지 않습니다.</li>
+    </ul>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">이관·포팅 시 확인할 지점</h2>
+    <p style="margin:0 0 10px;"><strong>설정과 저장 형식</strong><br>플러그인 식별자 <code>risu_story_workshop</code>, 저장소 접두사 <code>risu-character-editor:v1:</code>, 세션·LLM 응답의 <code>schemaVersion: 1</code>을 유지합니다. 요청 설정에는 <code>inputLimitVersion: 2</code>, 세션에는 항목 순서에 대응하는 불리언 배열 <code>loreIncluded</code>가 추가됐습니다.</p>
+    <p style="margin:0 0 10px;">구형 입력 한도는 최소 300만 자로 이관합니다. 이관 이후 사용자가 저장한 유효한 한도는 그대로 유지합니다. 선택 상태가 없는 구형 세션도 복원할 수 있습니다.</p>
+    <p style="margin:0 0 10px;"><strong>로어북 참조와 응답 적용</strong><br><code>l0</code>, <code>l1</code> 등의 ref는 현재 원고의 배열 인덱스입니다. 포함 항목만 추려도 번호를 다시 매기지 않습니다. 제외한 기존 항목의 수정·삭제 제안은 거부하며, 원고나 요청 설정이 바뀐 뒤의 오래된 제안은 적용하지 않습니다.</p>
+    <p style="margin:0 0 10px;"><strong>관련 소스</strong></p>
+    <ul style="margin:0 0 14px;padding-left:22px;">
+      <li><code>src/core.js</code>: 한도·설정 이관, 로어북 선택·부분 수정, 프롬프트·JSON 검증</li>
+      <li><code>src/ui.js</code> / <code>src/style.js</code>: 선택 UI·모바일 목록·변경 검토·프롬프트 예시</li>
+      <li><code>src/preset-engine.js</code>: 선택 로어북 반영, CBS·조립 상한</li>
+      <li><code>src/preset-format.js</code> / <code>src/preset-ui.js</code> / <code>src/modules.js</code>: 프리셋·모듈 용량 제한</li>
+      <li><code>tools/build.mjs</code>: 버전 일치 검사와 단일 JS 생성</li>
+    </ul>
+    <pre style="margin:0;padding:14px;border:1px solid #dedee6;border-radius:8px;background:#f5f5f8;color:#292934;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;"><code>npm ci
+npm run build
+npm test
+node tools/verify-browser.mjs</code></pre>
+    <p style="margin:10px 0 0;color:#626270;font-size:13px;">브라우저 검증은 Windows에 설치된 Edge를 기본으로 사용합니다. 다른 실행 파일 경로는 WORKSHOP_BROWSER로 지정합니다. 배포 파일은 dist/risu_story_workshop.js입니다.</p>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">호환 범위와 검증 결과</h2>
+    <p style="margin:0 0 10px;"><strong>기존 지원 범위는 유지합니다.</strong> 프리셋·설치 모듈 가져오기는 이번에 새로 추가한 기능이 아닙니다. 본체의 현재 프리셋·토글을 자동 동기화하거나 본체 채팅을 가로채지 않고, BB 안의 사본으로 요청을 조립합니다. 본체의 로어북 자동 활성화·검색·토큰 예산 엔진 전체를 실행하는 방식도 아닙니다.</p>
+    <p style="margin:0 0 10px;">입력·전처리 정규식, 요청 관련 트리거, Lua·JS 콜백·모듈 JS·MCP 등 기존 미지원 처리를 새로 실행하지 않습니다. 출력·표시 정규식으로 BB의 구조화된 JSON을 후처리하지 않는 기존 정책도 유지합니다. charx 내보내기는 기존처럼 <strong>이름.charx</strong>이며, 이번 변경에서 확장자를 바꾼 것은 아닙니다.</p>
+    <ul style="margin:0 0 14px;padding-left:22px;">
+      <li><strong>자동 테스트 91개 통과</strong>: 설정 이관, 용량 경계, 직접·프리셋 로어북 선택, 저장·복원, 부분 수정, JSON 검증 등</li>
+      <li><strong>모의 API를 연결한 Edge 검사 20개 통과</strong>: 실제 배포 JS, 숨김 srcdoc iframe·투명 호스트 배경·sandbox·CSP 조건 포함</li>
+      <li>본문 배치 18개 조건과 로어북 75개 목록의 화면 폭 <strong>320 / 360 / 390 / 412 / 768px</strong> 검사</li>
+      <li>재빌드 SHA-256 일치 확인. 기록은 <code>verification/</code>에 보관</li>
+    </ul>
+    <div style="padding:12px 14px;border-left:3px solid #737383;background:#f2f2f6;color:#383842;">
+      <strong>미검증 범위:</strong> 사용자의 실제 RisuBard 설치 환경, Android 삼성브라우저, 실제 LLM으로 30만 토큰 입력, 강제 종료 후 디스크·동기화 복구는 확인하지 않았습니다. 위 결과는 해당 실환경 검증을 대신하지 않습니다.
+    </div>
+  </div>
+
+  <div style="padding:20px;margin-bottom:16px;border:1px solid #dcdce3;border-radius:12px;background:#ffffff;">
+    <h2 style="margin:0 0 12px;color:#24242b;font-size:20px;">출처 · 오픈소스 라이선스</h2>
+    <p style="margin:0 0 10px;">봇빌더 소스와 배포물의 라이선스는 <strong>GPL-3.0-only</strong>입니다. 전문은 프로젝트의 LICENSE와 배포 JS에 포함돼 있습니다.</p>
+    <p style="margin:0 0 10px;">프리셋·CBS 어댑터는 RisuBard의 조건·토글·파서·계산 함수와 파일 형식을 참고하고 일부 코드를 수정해 사용했습니다. 원저작권 및 라이선스 고지는 THIRD_PARTY_NOTICES.txt와 배포 JS에 포함합니다.</p>
+    <ul style="margin:0 0 14px;padding-left:22px;">
+      <li><a href="https://github.com/rpaddict/RisuBard/tree/e5412a4878ae3a0073ffce8e06aed8f288dd9c53" style="color:#344c87;text-decoration:underline;">RisuBard 대조 기준 소스</a> · 커밋 e5412a48…</li>
+      <li><a href="https://github.com/kwaroran/RisuAI/tree/f50b5942ec6aa59aa3c56049ac687ca09667fec7" style="color:#344c87;text-decoration:underline;">RisuAI 대조 기준 소스</a> · 커밋 f50b5942…</li>
+    </ul>
+    <p style="margin:0 0 10px;"><strong>MIT 라이브러리:</strong> RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0. 각 라이브러리의 저작권·MIT 고지를 배포 JS와 THIRD_PARTY_NOTICES.txt에 유지합니다. RPack 매핑의 출처와 MIT 사용 고지도 해당 파일에 있습니다.</p>
+    <p style="margin:0;color:#626270;font-size:13px;">위 커밋은 대조 기준이며, 모든 포크 버전의 호환성을 보장하는 표시가 아닙니다. 재배포 시 배포 버전에 대응하는 소스·빌드 파일·라이선스를 함께 제공해 주세요.</p>
+  </div>
+
+  <div style="padding:20px;border:1px solid #c9c9d4;border-radius:12px;background:#eaeaf0;color:#24242b;">
+    <h2 style="margin:0 0 12px;font-size:20px;">배포 파일 · 대응 소스</h2>
+    <p style="margin:0 0 8px;"><strong>배포 버전:</strong> v0.3.6<br><strong>구현 커밋:</strong> 1f78875</p>
+    <p style="margin:0 0 8px;"><strong>설치 파일:</strong> [게시 전 v0.3.6 JS 첨부 또는 다운로드 링크 입력]</p>
+    <p style="margin:0 0 12px;"><strong>대응 소스:</strong> [게시 전 v0.3.6 소스·빌드 파일·LICENSE·THIRD_PARTY_NOTICES.txt 공개 링크 입력]</p>
+    <p style="margin:0 0 6px;font-size:13px;">설치 JS의 SHA-256</p>
+    <p style="margin:0;font-family:monospace;font-size:12px;line-height:1.7;overflow-wrap:anywhere;word-break:break-all;">e3275b5c53485e03d3196fb04332e664c20becb9dfe455db185aeffe58646a68</p>
+  </div>
+</div>
