@@ -323,8 +323,34 @@ try {
   await frame.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.locator('#plugin').screenshot({ path: 'artifacts/workshop-mobile.png', animations: 'disabled' });
   assert.equal(await frame.locator('.editor').isVisible(), false); assert.equal(await frame.locator('.conversation').isVisible(), true); results.push({ name: 'mobile pane switch without horizontal overflow', passed: true });
+  await frame.evaluate(() => {
+    chars[0].globalLore = Array.from({length:75}, (_, i) => ({comment:`로어북 ${i+1} · 긴 제목 줄바꿈과 선택 구분 검사`, key:'entry-'+i, content:'BODY_'+i}));
+  });
+  await frame.getByRole('button',{name:'캐릭터 불러오기',exact:true}).click();
+  await frame.getByRole('button',{name:'현재 선택된 캐릭터',exact:true}).click();
+  await frame.getByRole('button',{name:'확인',exact:true}).click();
+  await frame.locator('.navitem').filter({hasText:'로어북'}).click();
+  const loreLayouts=[];
+  for(const width of [320,360,390,412,768]) {
+    await page.setViewportSize({width,height:850});
+    const measured=await frame.evaluate(()=>{
+      const list=document.querySelector('.lore-request-list'),rows=[...list.querySelectorAll('.lore-request-item')],rects=rows.map(e=>e.getBoundingClientRect());
+      return {width:innerWidth,count:rows.length,overlap:rects.some((r,i)=>i>0&&r.top<rects[i-1].bottom-1),overflow:list.scrollWidth>list.clientWidth+1,scroll:list.scrollHeight>list.clientHeight,minTouch:Math.min(...rows.map(e=>e.querySelector('.lore-request-toggle').getBoundingClientRect().height))};
+    });
+    assert.equal(measured.count,75);assert.equal(measured.overlap,false);assert.equal(measured.overflow,false);assert.equal(measured.scroll,true);assert.ok(measured.minTouch>=44);loreLayouts.push(measured);
+  }
+  const scroll=await frame.evaluate(()=>{
+    const list=document.querySelector('.lore-request-list');list.scrollTop=800;const before=list.scrollTop;list.querySelectorAll('input')[10].click();
+    const next=document.querySelector('.lore-request-list');return {before,after:next.scrollTop,checked:next.querySelectorAll('input')[10].checked};
+  });
+  assert.equal(scroll.after,scroll.before);assert.equal(scroll.checked,false);
+  await frame.getByRole('button',{name:'임시 저장',exact:true}).click();
+  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual'))?.session?.loreIncluded?.[10]===false);
+  await page.setViewportSize({width:390,height:850});
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-lore-mobile.png',animations:'disabled'});
+  results.push({name:'75 lorebook rows remain distinct at five widths; checkbox preserves list scroll and persists selection',passed:true,layouts:loreLayouts});
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 14, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 15, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

@@ -1,12 +1,12 @@
 import { CSS } from './style.js';
-import { VERSION, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, compactLorePacket, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
 const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록' };
-const SETTINGS = { model: 'submodel', timeout: 300, maxInputChars: 100000, theme: 'system' };
+const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
 
 export class Workshop {
   constructor(api, doc) {
@@ -66,35 +66,61 @@ export class Workshop {
     this.doc.body.append(this.toastEl); this.toastTimer = setTimeout(() => this.toastEl?.remove(), 7000);
   }
   async init() {
-    const style = this.h('style', {}, CSS); this.doc.head.append(style);
-    this.doc.documentElement.lang = 'ko';
-    this.root = this.h('main', { id: 'story-workshop' }); this.doc.body.append(this.root);
-    const setting = await this.api.pluginStorage.getItem(PREFIX + 'settings');
-    try { if (setting) this.settings = { ...SETTINGS, ...JSON.parse(setting) }; } catch { /* Keep corrupt data for user recovery. */ }
-    if (!['model', 'submodel'].includes(this.settings.model)) this.settings.model = 'submodel';
-    if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 300;
-    if (!Number.isFinite(this.settings.maxInputChars) || this.settings.maxInputChars < 1000 || this.settings.maxInputChars > 1000000) this.settings.maxInputChars = 100000;
-    if (!['system', 'light', 'dark'].includes(this.settings.theme)) this.settings.theme = 'system';
-    this.themeMedia = this.doc.defaultView?.matchMedia?.('(prefers-color-scheme: dark)');
+    const style = this.h("style", {}, CSS);
+    this.doc.head.append(style);
+    this.doc.documentElement.lang = "ko";
+    this.root = this.h("main", { id: "story-workshop" });
+    this.doc.body.append(this.root);
+    const setting = await this.api.pluginStorage.getItem(PREFIX + "settings");
+    try {
+      if (setting) {
+        const saved = JSON.parse(setting);
+        this.settings = { ...SETTINGS, ...saved, ...migrateInputSettings(saved) };
+        if (saved.inputLimitVersion !== INPUT_LIMIT_VERSION && saved.timeout === 300) this.settings.timeout = 900;
+      }
+    } catch {
+    }
+    if (!["model", "submodel"].includes(this.settings.model)) this.settings.model = "submodel";
+    if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 900;
+    Object.assign(this.settings, migrateInputSettings(this.settings));
+    if (!["system", "light", "dark"].includes(this.settings.theme)) this.settings.theme = "system";
+    this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
     this.themeListener = () => this.applyTheme();
-    this.themeMedia?.addEventListener('change', this.themeListener);
+    this.themeMedia?.addEventListener("change", this.themeListener);
     this.applyTheme();
-    await Promise.all(Object.keys(TASKS).map(async task => {
-      const raw = await this.api.pluginStorage.getItem(PREFIX + 'prompt:' + task);
-      try { if (raw) { const p = JSON.parse(raw); if (typeof p.system === 'string' && typeof p.user === 'string') this.prompts[task] = p; } } catch { /* Do not overwrite unreadable overrides. */ }
+    await Promise.all(Object.keys(TASKS).map(async (task) => {
+      const raw = await this.api.pluginStorage.getItem(PREFIX + "prompt:" + task);
+      try {
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.system === "string" && typeof p.user === "string") this.prompts[task] = p;
+        }
+      } catch {
+      }
     }));
-    const savedPreset = await this.api.pluginStorage.getItem(PREFIX + 'preset-workspace');
+    const savedPreset = await this.api.pluginStorage.getItem(PREFIX + "preset-workspace");
     if (savedPreset) {
-      try { this.savedPreset = validatePresetState(typeof savedPreset === 'string' ? JSON.parse(savedPreset) : savedPreset); this.s.preset = clone(this.savedPreset); }
-      catch (error) { this.toast('프리셋 설정을 불러오지 못했습니다. 저장된 원본은 유지했습니다: ' + error.message, true); }
+      try {
+        this.savedPreset = validatePresetState(typeof savedPreset === "string" ? JSON.parse(savedPreset) : savedPreset);
+        this.s.preset = clone(this.savedPreset);
+      } catch (error) {
+        this.toast("프리셋 설정을 불러오지 못했습니다. 저장된 원본은 유지했습니다: " + error.message, true);
+      }
     }
     await this.readSlots();
     this.render();
-    const open = async () => { await this.api.showContainer('fullscreen'); this.render(); if (!this.opened) { this.opened = true; if (this.slots.autosave || this.slots.manual) await this.showRecovery(true); } };
-    await this.api.registerSetting('봇빌더', open, 'BB', 'html');
-    await this.api.registerButton({ name: '봇빌더', icon: 'BB', iconType: 'html', location: 'hamburger' }, open);
-    this.autoTimer = setInterval(() => this.autosave().catch(error => this.toast('자동 저장 실패: ' + error.message, true)), 180000);
-    this.elapsedTimer = setInterval(() => this.jobStatus(), 1000);
+    const open = async () => {
+      await this.api.showContainer("fullscreen");
+      this.render();
+      if (!this.opened) {
+        this.opened = true;
+        if (this.slots.autosave || this.slots.manual) await this.showRecovery(true);
+      }
+    };
+    await this.api.registerSetting("봇빌더", open, "BB", "html");
+    await this.api.registerButton({ name: "봇빌더", icon: "BB", iconType: "html", location: "hamburger" }, open);
+    this.autoTimer = setInterval(() => this.autosave().catch((error) => this.toast("자동 저장 실패: " + error.message, true)), 18e4);
+    this.elapsedTimer = setInterval(() => this.jobStatus(), 1e3);
     await this.api.onUnload(() => this.destroy());
   }
   destroy() { clearInterval(this.autoTimer); clearInterval(this.elapsedTimer); clearTimeout(this.toastTimer); this.themeMedia?.removeEventListener('change', this.themeListener); this.job?.stop?.(); this.activeModal?.close(null); }
@@ -183,29 +209,121 @@ export class Workshop {
     host.append(this.h('div', { class: 'row' }, this.b('LLM과 ' + TASKS[task].label + ' 다듬기', () => { this.task = task; this.view = 'chat'; this.render(); this.requestInput?.focus(); }), this.b('프롬프트', () => this.showPrompt(task), 'small')));
   }
   renderList(host, task) {
-    const h = this.h.bind(this), s = this.s, lore = task === 'lorebook', field = lore ? 'globalLore' : 'customscript';
-    s.draft[field] ??= []; const list = s.draft[field];
-    const selected = Math.min(Math.max(s.selected[task] ?? 0, 0), Math.max(list.length - 1, 0)); s.selected[task] = selected;
-    const nav = h('div', { class: 'itemlist' }, list.map((x, i) => this.b(x.comment || `항목 ${i + 1}`, () => { s.selected[task] = i; this.touch(false); this.renderEditor(); }, 'listitem' + (i === selected ? ' active' : ''))));
-    const edit = h('div', { class: 'stack' }), item = list[selected];
-    host.append(h('div', { class: 'row' }, this.b('＋ 항목 추가', () => { list.push(lore ? { key: '', secondkey: '', content: '', comment: '새 로어', insertorder: 100, mode: 'normal', alwaysActive: false, selective: false } : { comment: '새 규칙', in: '', out: '', type: 'editdisplay', flag: 'g', ableFlag: true }); s.selected[task] = list.length - 1; this.touch(); this.renderEditor(); }, 'small'), h('span', { class: 'muted' }, `${list.length}개 항목`)), h('div', { class: 'list-editor' }, nav, edit));
-    if (!item) edit.append(h('div', { class: 'empty' }, '항목을 추가하거나 LLM에게 작성을 요청하세요.'));
+    const h = this.h.bind(this), s = this.s, lore = task === "lorebook", field = lore ? "globalLore" : "customscript";
+    s.draft[field] ??= [];
+    const list = s.draft[field];
+    const selected = Math.min(Math.max(s.selected[task] ?? 0, 0), Math.max(list.length - 1, 0));
+    s.selected[task] = selected;
+    if (lore) s.loreIncluded = loreSelection(s);
+    const redrawLoreList = () => {
+      const scrollTop = nav.scrollTop;
+      const editorScrollTop = this.editor?.scrollTop ?? 0;
+      this.renderEditor();
+      if (this.editor) this.editor.scrollTop = editorScrollTop;
+      const replacement = this.editor?.querySelector(".lore-request-list");
+      if (replacement) replacement.scrollTop = scrollTop;
+    };
+    const inclusionChanged = () => {
+      this.s.promptRevision++;
+      this.touch(false);
+      redrawLoreList();
+    };
+    if (lore) host.append(h("div", { class: "card stack" },
+      h("strong", {}, `이번 요청에 포함할 로어북 · ${s.loreIncluded.filter(Boolean).length}/${list.length}개`),
+      h("p", { class: "muted" }, "체크한 현재 원고 항목만 직접·프리셋 요청에 포함합니다. 원본과 ‘항상 활성화’ 설정은 유지됩니다. 이전 대화에 이미 적힌 내용은 유지되며, 설치 모듈의 로어북은 프리셋 > 모듈에서 별도로 선택합니다."),
+      h("div", { class: "row" }, this.b("전체 포함", () => { s.loreIncluded = list.map(() => true); inclusionChanged(); }, "small"), this.b("전체 제외", () => { s.loreIncluded = list.map(() => false); inclusionChanged(); }, "small"))
+    ));
+    const nav = h("div", { class: "itemlist" + (lore ? " lore-request-list" : ""), "aria-label": lore ? "요청 로어북 목록" : "항목 목록" }, list.map((x, i) => {
+      const title = x.comment || `항목 ${i + 1}`;
+      const button = h("button", {
+        type: "button", class: "listitem" + (i === selected ? " active" : ""), title,
+        "aria-current": i === selected ? "true" : null,
+        onclick: () => {
+          s.selected[task] = i;
+          this.touch(false);
+          if (lore) redrawLoreList();
+          else this.renderEditor();
+        }
+      }, lore ? `${i + 1}. ${title}` : title);
+      if (!lore) return button;
+      const toggle = this.check("이번 요청에 포함", s.loreIncluded[i], (included) => {
+        s.loreIncluded[i] = included;
+        inclusionChanged();
+      });
+      toggle.className = "row muted lore-request-toggle";
+      toggle.setAttribute("title", `${i + 1}. ${title} · 이번 요청에 포함`);
+      return h("div", { class: "lore-request-item" + (i === selected ? " is-selected" : "") }, button, toggle);
+    }));
+    const edit = h("div", { class: "stack" }), item = list[selected];
+    host.append(h("div", { class: "row" }, this.b("＋ 항목 추가", () => {
+      list.push(lore ? { key: "", secondkey: "", content: "", comment: "새 로어", insertorder: 100, mode: "normal", alwaysActive: false, selective: false } : { comment: "새 규칙", in: "", out: "", type: "editdisplay", flag: "g", ableFlag: true });
+      if (lore) s.loreIncluded.push(true);
+      s.selected[task] = list.length - 1;
+      this.touch();
+      this.renderEditor();
+    }, "small"), h("span", { class: "muted" }, `${list.length}개 항목`)), h("div", { class: "list-editor" }, nav, edit));
+    if (!item) edit.append(h("div", { class: "empty" }, "항목을 추가하거나 LLM에게 작성을 요청하세요."));
     else {
-      const change = (key, value) => { item[key] = value; this.touch(); };
-      edit.append(this.field('항목 이름', item.comment, v => change('comment', v), { tag: 'input' }));
-      if (lore) edit.append(this.field('키워드 · 쉼표 구분', item.key, v => change('key', v), { tag: 'input' }), this.field('본문', item.content, v => change('content', v), { style: 'min-height:260px' }), h('div', { class: 'grid2' }, this.field('보조 키워드', item.secondkey, v => change('secondkey', v), { tag: 'input' }), this.field('삽입 순서', item.insertorder, v => change('insertorder', Number(v)), { tag: 'input', type: 'number' })), h('div', { class: 'row' }, this.check('항상 활성화', item.alwaysActive, v => change('alwaysActive', v)), this.check('보조 키워드 사용', item.selective, v => change('selective', v)), this.check('키워드를 정규식으로', item.useRegex, v => change('useRegex', v))), h('label', { class: 'field' }, h('span', {}, '모드'), this.select(item.mode, ['normal', 'multiple', 'constant', 'child', 'folder'].map(v => [v, v]), v => change('mode', v), '로어북 모드')));
+      const change = (key2, value) => {
+        item[key2] = value;
+        this.touch();
+      };
+      edit.append(this.field("항목 이름", item.comment, (v) => change("comment", v), { tag: "input" }));
+      if (lore) edit.append(this.field("키워드 · 쉼표 구분", item.key, (v) => change("key", v), { tag: "input" }), this.field("본문", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("보조 키워드", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("삽입 순서", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("항상 활성화", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("보조 키워드 사용", item.selective, (v) => change("selective", v)), this.check("키워드를 정규식으로", item.useRegex, (v) => change("useRegex", v))), h("label", { class: "field" }, h("span", {}, "모드"), this.select(item.mode, ["normal", "multiple", "constant", "child", "folder"].map((v) => [v, v]), (v) => change("mode", v), "로어북 모드")));
       else {
-        edit.append(this.field('IN · 찾을 패턴', item.in, v => change('in', v), { class: 'code', style: 'min-height:90px' }), this.field('OUT · 치환문 / HTML·CSS 원문', item.out, v => change('out', v), { class: 'code', style: 'min-height:230px' }), h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, '적용 유형'), this.select(item.type, [['editinput', '입력'], ['editoutput', '출력'], ['editprocess', '처리'], ['editdisplay', '표시']], v => change('type', v), '정규식 적용 유형')), this.field('플래그', item.flag, v => change('flag', v), { tag: 'input' })), this.check('지정한 플래그 사용 · 끄면 기본 g', item.ableFlag, v => change('ableFlag', v)));
-        const result = h('div', { class: 'stack testresult', 'aria-live': 'polite' });
-        this.regexStatusEl = h('p', { class: 'muted', role: 'status' });
-        edit.append(h('hr', { class: 'ruled' }), h('h3', {}, '정규식 텍스트 테스트'), this.field('테스트 입력', s.regexInput, v => { s.regexInput = v; this.touch(false); }, { class: 'code' }),
-          h('div', { class: 'row' }, this.b('매칭·치환 테스트', async () => {
-            assert(!this.regexJob, '정규식 테스트가 진행 중입니다.'); const job = { cancelled: false, start: Date.now() }; this.regexJob = job; this.jobStatus();
-            try { const r = await regexTest(clone(item), s.regexInput, job); result.replaceChildren(h('p', { class: r.limited ? 'warn' : 'muted' }, `${r.matches.length}개 매칭 · ${r.note}`), h('h3', {}, '치환 결과'), h('pre', { class: 'diff' }, r.output), h('details', {}, h('summary', {}, '매칭 위치 · 캡처 그룹'), h('pre', { class: 'diff' }, JSON.stringify(r.matches, null, 2)))); }
-            finally { this.regexJob = null; this.jobStatus(); }
-          }, 'small'), this.b('테스트 중단', () => { if (this.regexJob) this.regexJob.cancelled = true; }, 'small')), this.regexStatusEl, result);
+        edit.append(this.field("IN · 찾을 패턴", item.in, (v) => change("in", v), { class: "code", style: "min-height:90px" }), this.field("OUT · 치환문 / HTML·CSS 원문", item.out, (v) => change("out", v), { class: "code", style: "min-height:230px" }), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "적용 유형"), this.select(item.type, [["editinput", "입력"], ["editoutput", "출력"], ["editprocess", "처리"], ["editdisplay", "표시"]], (v) => change("type", v), "정규식 적용 유형")), this.field("플래그", item.flag, (v) => change("flag", v), { tag: "input" })), this.check("지정한 플래그 사용 · 끄면 기본 g", item.ableFlag, (v) => change("ableFlag", v)));
+        const result = h("div", { class: "stack testresult", "aria-live": "polite" });
+        this.regexStatusEl = h("p", { class: "muted", role: "status" });
+        edit.append(
+          h("hr", { class: "ruled" }),
+          h("h3", {}, "정규식 텍스트 테스트"),
+          this.field("테스트 입력", s.regexInput, (v) => {
+            s.regexInput = v;
+            this.touch(false);
+          }, { class: "code" }),
+          h("div", { class: "row" }, this.b("매칭·치환 테스트", async () => {
+            assert(!this.regexJob, "정규식 테스트가 진행 중입니다.");
+            const job = { cancelled: false, start: Date.now() };
+            this.regexJob = job;
+            this.jobStatus();
+            try {
+              const r = await regexTest(clone(item), s.regexInput, job);
+              result.replaceChildren(h("p", { class: r.limited ? "warn" : "muted" }, `${r.matches.length}개 매칭 · ${r.note}`), h("h3", {}, "치환 결과"), h("pre", { class: "diff" }, r.output), h("details", {}, h("summary", {}, "매칭 위치 · 캡처 그룹"), h("pre", { class: "diff" }, JSON.stringify(r.matches, null, 2))));
+            } finally {
+              this.regexJob = null;
+              this.jobStatus();
+            }
+          }, "small"), this.b("테스트 중단", () => {
+            if (this.regexJob) this.regexJob.cancelled = true;
+          }, "small")),
+          this.regexStatusEl,
+          result
+        );
       }
-      edit.append(h('div', { class: 'row' }, this.b('위로', () => { if (selected > 0) { [list[selected - 1], list[selected]] = [list[selected], list[selected - 1]]; s.selected[task]--; this.touch(); this.renderEditor(); } }, 'small'), this.b('아래로', () => { if (selected + 1 < list.length) { [list[selected + 1], list[selected]] = [list[selected], list[selected + 1]]; s.selected[task]++; this.touch(); this.renderEditor(); } }, 'small'), this.b('항목 삭제', async () => { if (await this.confirm('항목을 삭제할까요?', item.comment || '선택 항목')) { list.splice(selected, 1); this.touch(); this.renderEditor(); } }, 'small danger')));
+      edit.append(h("div", { class: "row" }, this.b("위로", () => {
+        if (selected > 0) {
+          [list[selected - 1], list[selected]] = [list[selected], list[selected - 1]];
+          if (lore) [s.loreIncluded[selected - 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected - 1]];
+          s.selected[task]--;
+          this.touch();
+          this.renderEditor();
+        }
+      }, "small"), this.b("아래로", () => {
+        if (selected + 1 < list.length) {
+          [list[selected + 1], list[selected]] = [list[selected], list[selected + 1]];
+          if (lore) [s.loreIncluded[selected + 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected + 1]];
+          s.selected[task]++;
+          this.touch();
+          this.renderEditor();
+        }
+      }, "small"), this.b("항목 삭제", async () => {
+        if (await this.confirm("항목을 삭제할까요?", item.comment || "선택 항목")) {
+          list.splice(selected, 1);
+          if (lore) s.loreIncluded.splice(selected, 1);
+          this.touch();
+          this.renderEditor();
+        }
+      }, "small danger")));
     }
     this.editorAction(host, task);
   }
@@ -276,21 +394,30 @@ export class Workshop {
   diffView(candidate) {
     const h = this.h.bind(this);
     let after;
-    try { after = applyPacket(candidate.before, candidate.packet); }
-    catch (error) { return h('p', { class: 'warn' }, '수정안을 해석할 수 없습니다: ' + error.message); }
-    const changed = FIELDS.filter(f => !equal(candidate.before[f], after[f]));
-    return h('details', {}, h('summary', {}, `변경 내용 ${changed.length}개 영역 확인`), changed.map(field => h('section', { class: 'stack', style: 'gap:7px;margin:12px 0' }, h('h3', {}, fieldNames[field] ?? field), h('div', { class: 'diff' }, h('pre', { class: 'before' }, typeof candidate.before[field] === 'string' ? candidate.before[field] : JSON.stringify(candidate.before[field], null, 2)), h('pre', { class: 'after' }, typeof after[field] === 'string' ? after[field] : JSON.stringify(after[field], null, 2))))));
+    try {
+      after = applyPacket(candidate.before, candidate.packet);
+    } catch (error) {
+      return h("p", { class: "warn" }, "수정안을 해석할 수 없습니다: " + error.message);
+    }
+    const changed = FIELDS.filter((f) => !equal(candidate.before[f], after[f]));
+    return h("details", {}, h("summary", {}, `변경 내용 ${changed.length}개 영역 확인`), changed.map((field) => field === "globalLore" ? this.loreDiffView(candidate) : h("section", { class: "stack", style: "gap:7px;margin:12px 0" }, h("h3", {}, fieldNames[field] ?? field), h("div", { class: "diff" }, h("pre", { class: "before" }, typeof candidate.before[field] === "string" ? candidate.before[field] : JSON.stringify(candidate.before[field], null, 2)), h("pre", { class: "after" }, typeof after[field] === "string" ? after[field] : JSON.stringify(after[field], null, 2))))));
   }
   async applyCandidate(candidate) {
-    assert(this.candidateValid(candidate), '현재 원고와 다른 시점의 수정안입니다. 다시 요청하세요.');
+    assert(this.candidateValid(candidate), "현재 원고와 다른 시점의 수정안입니다. 다시 요청하세요.");
     const next = applyPacket(this.s.draft, candidate.packet);
-    assert(this.candidateValid(candidate), '원고가 바뀌었습니다.');
-    this.s.draft = next; candidate.status = 'applied'; this.touch(); this.render(); this.toast('수정안을 원고에 적용했습니다. 실제 캐릭터 저장은 별도입니다.');
+    assert(this.candidateValid(candidate), "원고가 바뀌었습니다.");
+    this.s.loreIncluded = loreSelectionAfterPacket(this.s, candidate.packet);
+    this.s.draft = next;
+    candidate.status = "applied";
+    this.touch();
+    this.render();
+    this.toast("수정안을 원고에 적용했습니다. 실제 캐릭터 저장은 별도입니다.");
   }
   requestWithScope(task) {
-    const s = this.s, request = (s.requests[task] ?? '').trim();
-    const scope = this.scopeOnly && ['lorebook', 'regex'].includes(task) && (s.draft[task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? (task === 'lorebook' ? 'l' : 'r') + (s.selected[task] ?? 0) : null;
-    return { request, scope, text: request + (scope ? '\n[허용 편집 범위] 기존 항목 ' + scope + '만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다.' : '') };
+    const s = this.s, request = (s.requests[task] ?? "").trim();
+    const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
+    if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "현재 편집 항목이 요청에서 제외되어 있습니다. 로어북 탭에서 ‘이번 요청에 포함’을 체크하거나 ‘현재 선택한 항목만 수정’을 해제하세요.");
+    return { request, scope, text: request + (scope ? "\n[허용 편집 범위] 기존 항목 " + scope + "만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다." : "") };
   }
   previewRequest(task=this.task,forcePreset=false) {
     const usePreset=forcePreset||this.s.preset.mode==='preset';
@@ -299,33 +426,41 @@ export class Workshop {
     return {messages:direct,trace:[],issues:[],notes:[],globals:{}};
   }
   async sendRequest() {
-    assert(!this.job, '다른 LLM 요청이 진행 중입니다.');
+    assert(!this.job, "다른 LLM 요청이 진행 중입니다.");
     const task = this.task, s = this.s, { request, scope } = this.requestWithScope(task);
-    assert(request, 'LLM에게 전달할 요청을 적어 주세요.');
+    assert(request, "LLM에게 전달할 요청을 적어 주세요.");
     const report = this.previewRequest(task);
-    assert(!report.issues.length,'프리셋 조립 오류:\n'+report.issues.join('\n'));
+    assert(!report.issues.length, "프리셋 조립 오류:\n" + report.issues.join("\n"));
     const messages = report.messages;
-    const chars = messages.reduce((n, m) => n + m.content.length, 0);
-    assert(chars <= this.settings.maxInputChars, `전송 내용이 설정한 ${this.settings.maxInputChars.toLocaleString()}자 한도를 초과했습니다. 대화·참고자료·작업 범위를 직접 조정해 주세요. 자동으로 잘라 보내지 않습니다.`);
+    inputSize(messages, this.settings.maxInputChars);
     const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
-    const before = clone(s.draft), job = { ...meta, id: uid(), start: Date.now(), label: TASKS[task].label + ' · 응답 대기', cancelled: false };
+    const before = clone(s.draft), job = { ...meta, id: uid(), start: Date.now(), label: TASKS[task].label + " · 응답 대기", cancelled: false };
     this.job = job;
-    s.thread.push({ id: uid(), role: 'user', content: request, task }); this.touch(false); this.render();
+    s.thread.push({ id: uid(), role: "user", content: request, task });
+    this.touch(false);
+    this.render();
     let raw;
     try {
       raw = await callModel(this.api, messages, this.settings.model, this.settings.timeout, job);
-      assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), '요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.');
+      assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
       const packet = parseResponse(raw, task, before);
+      validateLoreSelection(packet, s);
       if (scope) {
-        assert(packet.data.upsert.every(x => x.ref === scope) && packet.data.remove.every(x => x === scope), '선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.');
+        assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
       }
-      const changes = task === 'workshop' ? packet.data.changes.length : 1;
-      s.thread.push({ id: uid(), role: 'assistant', content: task === 'workshop' ? packet.data.reply : TASKS[task].label + ' 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요.' });
-      if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + ' · ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), before, packet });
+      const changes = task === "workshop" ? packet.data.changes.length : task === "lorebook" ? packet.data.upsert.length + packet.data.remove.length : 1;
+      s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "로어북에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
+      if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
       this.touch(false);
     } catch (error) {
-      if (this.s.sessionId === s.sessionId) { s.thread.push({ id: uid(), role: 'assistant', content: error.message, error: true, ...(raw ? { raw } : {}) }); this.touch(false); }
-    } finally { if (this.job?.id === job.id) this.job = null; this.render(); }
+      if (this.s.sessionId === s.sessionId) {
+        s.thread.push({ id: uid(), role: "assistant", content: error.message, error: true, ...raw ? { raw } : {} });
+        this.touch(false);
+      }
+    } finally {
+      if (this.job?.id === job.id) this.job = null;
+      this.render();
+    }
   }
   async showPrompt(task) {
     const h = this.h.bind(this), draft = this.s.promptDrafts[task] ??= clone(this.prompts[task] ?? defaultPrompt(task));
@@ -335,7 +470,7 @@ export class Workshop {
       const preview = () => { try { const report=this.previewRequest(task); actual.textContent=(report.issues.length?'전송할 수 없는 항목:\n'+report.issues.join('\n')+'\n\n':'')+JSON.stringify(report.messages, null, 2); } catch (e) { actual.textContent = e.message; } };
       const system = this.field('시스템 프롬프트 전체', draft.system, v => { draft.system = v; this.touch(false); }, { class: 'code', style: 'min-height:220px' });
       const user = this.field('사용자 프롬프트 템플릿', draft.user, v => { draft.user = v; this.touch(false); }, { class: 'code', style: 'min-height:230px' });
-      body.append(saved, system, user, h('details',{},h('summary',{},'JSON 응답 형식과 예시'),h('pre',{class:'diff'},formatFor(task))), h('div', { class: 'row' }, this.b('프롬프트 저장', async () => {
+      body.append(saved, system, user, h('details',{},h('summary',{},'JSON 응답 형식과 예시'),h('pre',{class:'diff'},formatFor(task, this.s))), h('div', { class: 'row' }, this.b('프롬프트 저장', async () => {
         composeMessages(this.s, task, this.s.requests[task] ?? '', draft);
         await this.store('prompt:' + task, draft); this.prompts[task] = clone(draft); this.s.promptRevision++; this.touch(false); preview(); saved.textContent = '저장했습니다. 다음 요청부터 이 프롬프트를 사용합니다.';
       }, 'primary'), this.b('기본값으로 초기화', async () => {
@@ -349,12 +484,18 @@ export class Workshop {
   }
   async showSettings() {
     const next = clone(this.settings);
-    const result = await this.dialog('작업 설정', body => {
-      body.append(this.h('label', { class: 'field' }, this.h('span', {}, '화면 테마'), this.select(next.theme, [['system', '시스템 설정 따르기'], ['light', '라이트 모드'], ['dark', '다크 모드']], v => next.theme = v, '화면 테마')), this.field('LLM 대기 제한 · 초 (10~3,600)', next.timeout, v => next.timeout = Number(v), { tag: 'input', type: 'number', min: 10, max: 3600 }), this.field('전체 전송 문자 한도 (1,000~1,000,000)', next.maxInputChars, v => next.maxInputChars = Number(v), { tag: 'input', type: 'number', min: 1000, max: 1000000 }), this.h('p', { class: 'muted' }, '자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다.'));
-    }, [{ label: '취소', value: false }, { label: '저장', value: true, kind: 'primary' }]);
+    const result = await this.dialog("작업 설정", (body) => {
+      body.append(this.h("p", { class: "muted" }, "30만 입력 토큰 규모용: 기본 3,000,000자, 전체 32MiB까지 전송합니다. 글자 수는 토큰 수가 아닙니다. 사용하는 모델·API가 입력 300,000토큰과 응답 여유를 지원해야 합니다. 본체 컨텍스트 설정은 자동 변경하지 않습니다."));
+      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.h("p", { class: "muted" }, "자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
+    }, [{ label: "취소", value: false }, { label: "저장", value: true, kind: "primary" }]);
     if (result) {
-      assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1000 && next.maxInputChars <= 1000000, '설정 범위를 확인하세요.');
-      await this.store('settings', next); this.settings = next; this.applyTheme(); this.render(); this.toast('설정을 저장했습니다.');
+      assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= MAX_INPUT_CHARS, "설정 범위를 확인하세요.");
+      next.inputLimitVersion = INPUT_LIMIT_VERSION;
+      await this.store("settings", next);
+      this.settings = next;
+      this.applyTheme();
+      this.render();
+      this.toast("설정을 저장했습니다.");
     }
   }
   async guardReplace() {
@@ -363,18 +504,26 @@ export class Workshop {
     return true;
   }
   async replaceSession(session) {
-    const preset=session.preset?validatePresetState(session.preset):clone(this.savedPreset??newPresetState());
-    this.job?.stop?.('작업이 바뀌어 이전 요청의 대기를 중단했습니다.');
-    this.s = session; this.s.preset=preset;
+    const preset = session.preset ? validatePresetState(session.preset) : clone(this.savedPreset ?? newPresetState());
+    this.job?.stop?.("작업이 바뀌어 이전 요청의 대기를 중단했습니다.");
+    this.s = session;
+    this.s.preset = preset;
     if (session.requestSettings) {
       const p = session.requestSettings;
-      if (['model', 'submodel'].includes(p.model)) this.settings.model = p.model;
+      if (["model", "submodel"].includes(p.model)) this.settings.model = p.model;
       if (Number.isInteger(p.timeout) && p.timeout >= 10 && p.timeout <= 3600) this.settings.timeout = p.timeout;
-      if (Number.isInteger(p.maxInputChars) && p.maxInputChars >= 1000 && p.maxInputChars <= 1000000) this.settings.maxInputChars = p.maxInputChars;
+      Object.assign(this.settings, migrateInputSettings(p));
+      if (p.inputLimitVersion !== INPUT_LIMIT_VERSION && p.timeout === 300) this.settings.timeout = 900;
       if (TASKS[p.task]) this.task = p.task;
       this.scopeOnly = !!p.scopeOnly;
-    } else { this.task = 'workshop'; this.scopeOnly = false; }
-    this.started = true; this.serial++; this.view = 'editor'; this.render();
+    } else {
+      this.task = "workshop";
+      this.scopeOnly = false;
+    }
+    this.started = true;
+    this.serial++;
+    this.view = "editor";
+    this.render();
   }
   async newWork() { if (await this.guardReplace()) await this.replaceSession(newSession()); }
   async loadCharacters() {
@@ -407,28 +556,42 @@ export class Workshop {
     this.toast('저장본을 복원했습니다. 진행 중이던 LLM 요청은 다시 전송하지 않습니다.');
   }
   async saveHost() {
-    assert(!this.ioBusy, '저장 작업이 진행 중입니다.');
-    assert(this.started, '먼저 새 작업을 시작하거나 원고를 작성하세요.');
-    assert(this.s.draft.name?.trim(), '캐릭터 이름을 입력하세요.');
-    const fields = this.s.base ? FIELDS.filter(f => !equal(this.s.base[f], this.s.draft[f])) : FIELDS;
-    if (this.s.targetId && !fields.length) return this.toast('저장할 원고 변경이 없습니다.');
-    if (!await this.confirm(this.s.targetId ? '캐릭터에 저장할까요?' : '새 캐릭터로 등록할까요?', '변경 영역: ' + fields.map(f => fieldNames[f] ?? f).join(', ') + '\n제작 대화와 미적용 수정안은 캐릭터에 저장되지 않습니다.')) return;
-    const captured = clone(this.s), revision = this.s.revision; this.ioBusy = true;
+    assert(!this.ioBusy, "저장 작업이 진행 중입니다.");
+    assert(this.started, "먼저 새 작업을 시작하거나 원고를 작성하세요.");
+    assert(this.s.draft.name?.trim(), "캐릭터 이름을 입력하세요.");
+    const fields = this.s.base ? FIELDS.filter((f) => !equal(this.s.base[f], this.s.draft[f])) : FIELDS;
+    if (this.s.targetId && !fields.length) return this.toast("저장할 원고 변경이 없습니다.");
+    if (!await this.confirm(this.s.targetId ? "캐릭터에 저장할까요?" : "새 캐릭터로 등록할까요?", "변경 영역: " + fields.map((f) => fieldNames[f] ?? f).join(", ") + "\n제작 대화와 미적용 수정안은 캐릭터에 저장되지 않습니다.")) return;
+    const captured = clone(this.s), revision = this.s.revision;
+    this.ioBusy = true;
     try {
       let saved;
       if (captured.targetId) {
         const result = await saveExisting(this.api, captured);
-        if (result.conflicts.length) { await this.dialog('다른 곳에서 수정한 내용과 충돌합니다', body => body.append(this.h('p', { class: 'warn' }, result.conflicts.join(', ')), this.h('p', { class: 'muted' }, '저장하지 않았습니다. 최신 캐릭터를 새로 불러오거나, 현재안을 charx로 내보내 비교해 주세요.'))); return; }
+        if (result.conflicts.length) {
+          await this.dialog("다른 곳에서 수정한 내용과 충돌합니다", (body) => body.append(this.h("p", { class: "warn" }, result.conflicts.join(", ")), this.h("p", { class: "muted" }, "저장하지 않았습니다. 최신 캐릭터를 새로 불러오거나, 현재안을 charx로 내보내 비교해 주세요.")));
+          return;
+        }
         saved = result.saved;
       } else saved = await saveNew(this.api, captured);
       if (this.s.sessionId === captured.sessionId) {
-        this.s.targetId = saved.chaId; this.s.base = editable(saved);
-        this.s.source = clone(saved); delete this.s.source.chats; delete this.s.source.chatFolders; delete this.s.source.chatPage;
-        if (this.s.revision === revision) this.s.draft = { ...this.s.draft, ...editable(saved), chaId: saved.chaId };
-        this.touch(false); this.render();
+        this.s.targetId = saved.chaId;
+        this.s.base = editable(saved);
+        this.s.source = clone(saved);
+        delete this.s.source.chats;
+        delete this.s.source.chatFolders;
+        delete this.s.source.chatPage;
+        if (this.s.revision === revision) {
+          this.s.loreIncluded = reconcileLoreSelection(this.s, saved.globalLore ?? []);
+          this.s.draft = { ...this.s.draft, ...editable(saved), chaId: saved.chaId };
+        }
+        this.touch(false);
+        this.render();
       }
-      this.toast('캐릭터를 저장했습니다. 기존 대화와 편집하지 않은 필드는 유지했습니다.');
-    } finally { this.ioBusy = false; }
+      this.toast("캐릭터를 저장했습니다. 기존 대화와 편집하지 않은 필드는 유지했습니다.");
+    } finally {
+      this.ioBusy = false;
+    }
   }
   file(accept) {
     return new Promise(resolve => {
@@ -488,5 +651,18 @@ export class Workshop {
         queueMicrotask(() => modal.querySelector('input, textarea, button')?.focus());
       } catch (error) { close(null); reject(error); }
     });
+  }
+
+  loreDiffView(candidate) {
+    const h = this.h.bind(this), packet = compactLorePacket(candidate.packet, candidate.before);
+    const changes = packet.task === "workshop" ? packet.data.changes : [packet];
+    const data = changes.find((change) => change.task === "lorebook")?.data;
+    if (!data) return h("p", { class: "muted" }, "로어북 변경 없음");
+    const rows = data.upsert.map((item) => {
+      const prior = item.ref === null ? null : candidate.before.globalLore[Number(item.ref.slice(1))];
+      const before = prior && Object.fromEntries(Object.keys(item.entry).map((key) => [key, prior[key]]));
+      return { label: (prior ? "수정 · " + item.ref : "추가") + " · " + (item.entry.comment || prior?.comment || item.entry.key || prior?.key || "로어북"), before, after: item.entry };
+    }).concat(data.remove.map((ref) => ({ label: "삭제 · " + ref, before: candidate.before.globalLore[Number(ref.slice(1))], after: null })));
+    return h("section", { class: "stack" }, h("h3", {}, `로어북 변경 ${rows.length}개 · 변경한 필드만 표시`), rows.map((row) => h("div", { class: "card stack" }, h("strong", {}, row.label), h("div", { class: "diff" }, h("pre", { class: "before" }, row.before === null ? "(새 항목)" : JSON.stringify(row.before, null, 2)), h("pre", { class: "after" }, row.after === null ? "(삭제)" : JSON.stringify(row.after, null, 2))))));
   }
 }

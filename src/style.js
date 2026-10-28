@@ -123,6 +123,33 @@ h3 { font-size: 14px; font-weight: 650; }
 .itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
 .listitem.active { border-color: var(--brand-line); background: var(--accent-bg); }
+/* Lorebook rows must not inherit the mobile horizontal button strip. */
+.itemlist.lore-request-list {
+  display: flex; flex-direction: column; align-self: start;
+  width: 100%; min-width: 0; min-height: 0; max-height: 560px;
+  overflow-y: auto; overflow-x: hidden; gap: 8px;
+  padding: 2px; scrollbar-gutter: stable; touch-action: pan-y;
+}
+.lore-request-item {
+  display: flex; flex-direction: column; flex: 0 0 auto;
+  width: 100%; min-width: 0; gap: 2px; padding: 6px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+}
+.lore-request-item.is-selected { border-color: var(--brand-line); background: var(--accent-bg); }
+.lore-request-list .listitem {
+  display: block; width: 100%; min-width: 0; max-width: none;
+  min-height: 44px; height: auto; padding: 10px; line-height: 1.5;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
+.lore-request-toggle.row {
+  flex-wrap: nowrap; min-height: 44px; width: 100%; margin: 0;
+  padding: 8px 10px; gap: 10px; cursor: pointer; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.lore-request-toggle input[type=checkbox] {
+  flex: 0 0 20px; width: 20px; height: 20px; min-width: 20px; margin: 0;
+}
+
 .textarea-large { min-height: 330px; }
 .conversation {
   display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
@@ -189,6 +216,8 @@ details[open] > summary { margin-bottom: 9px; }
   .list-editor { grid-template-columns: minmax(0, 1fr); }
   .itemlist { flex-direction: row; overflow-x: auto; }
   .preset-block-list { max-height: 140px; }
+  .itemlist.lore-request-list { flex-direction: column; max-height: 42vh; max-height: min(42dvh, 420px); }
+  .lore-request-list .listitem { min-width: 0; max-width: none; }
   .listitem { min-width: 120px; max-width: 180px; flex-shrink: 0; }
   .topbar { padding: 12px 16px; }
   .toolbar { padding: 8px 16px; }

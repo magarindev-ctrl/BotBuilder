@@ -3,9 +3,68 @@ import assert from 'node:assert/strict';
 import { ReadableStream } from 'node:stream/web';
 import { blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, defaultPrompt, responseExamples, TASKS, composeMessages, parseResponse, applyPacket, mergeCharacter, saveExisting, callModel, regexTest, clone, editable } from '../src/core.js';
 import { characterToCard, cardToCharacter, encodeModule, decodeModule, exportCharx, importCharx, unpack } from '../src/charx.js';
+import { DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, PROMPT_BYTES_LIMIT, inputSize, migrateInputSettings, loreSelection, requestLorebook, validateLoreSelection, loreSelectionAfterPacket, reconcileLoreSelection } from '../src/core.js';
 
 const envelope = (task, data) => JSON.stringify({ schemaVersion: 1, task, data });
 const lore = (name, content = name) => ({ comment: name, key: name, secondkey: '', content, insertorder: 100, mode: 'normal', selective: false, alwaysActive: false });
+
+test('large-request settings migrate legacy limits and preserve explicit current limits', () => {
+  assert.equal(DEFAULT_INPUT_CHARS, 3000000);
+  assert.equal(MAX_INPUT_CHARS, 10000000);
+  assert.equal(migrateInputSettings({ maxInputChars: 100000 }).maxInputChars, DEFAULT_INPUT_CHARS);
+  assert.equal(migrateInputSettings({ maxInputChars: 12000, inputLimitVersion: 2 }).maxInputChars, 12000);
+  assert.equal(migrateInputSettings({ maxInputChars: -1 }).maxInputChars, DEFAULT_INPUT_CHARS);
+  assert.equal(inputSize([{ content: 'a'.repeat(DEFAULT_INPUT_CHARS) }], DEFAULT_INPUT_CHARS).chars, DEFAULT_INPUT_CHARS);
+  assert.throws(() => inputSize([{ content: 'a'.repeat(DEFAULT_INPUT_CHARS + 1) }], DEFAULT_INPUT_CHARS), /한도/);
+  assert.throws(() => inputSize([{ content: 'a'.repeat(PROMPT_BYTES_LIMIT + 1) }], Infinity), /32MiB/);
+});
+
+test('selected lore is included once with stable refs and excluded proposal data stays out', () => {
+  const s = newSession(); s.draft.globalLore = [lore('A', 'INCLUDED_BODY'), lore('B', 'EXCLUDED_BODY'), lore('C', 'THIRD_BODY')]; s.loreIncluded = [true, false, true];
+  s.candidates = [{ id: 'pending', packet: { task: 'lorebook', data: { upsert: [{ ref: 'l1', entry: { content: 'EXCLUDED_PROPOSAL' } }], remove: [] } } }];
+  assert.deepEqual(requestLorebook(s).map(x => x.ref), ['l0', 'l2']);
+  for (const task of ['lorebook', 'workshop']) {
+    const text = composeMessages(s, task, 'edit', defaultPrompt(task)).map(x => x.content).join('\n');
+    assert.equal(text.split('INCLUDED_BODY').length - 1, 1);
+    assert.doesNotMatch(text, /EXCLUDED_BODY|EXCLUDED_PROPOSAL/);
+    assert.match(text, /THIRD_BODY/);
+  }
+  assert.equal(s.draft.globalLore.length, 3);
+});
+
+test('lore selections survive recovery, removal, insertion and host reorder', () => {
+  const s = newSession(); s.draft.globalLore = [lore('A'), lore('B'), lore('C')]; s.loreIncluded = [true, false, true];
+  assert.deepEqual(restoreSnapshot(snapshot(s)).loreIncluded, s.loreIncluded);
+  const old = clone(s); delete old.loreIncluded;
+  assert.deepEqual(restoreSnapshot(snapshot(old)).loreIncluded, [true, true, true]);
+  assert.deepEqual(reconcileLoreSelection(s, [s.draft.globalLore[1], lore('new'), s.draft.globalLore[0]]), [false, true, true]);
+  const packet = { task: 'lorebook', data: { upsert: [{ ref: null, entry: { key: 'new', content: 'new' } }], remove: ['l0'] } };
+  assert.deepEqual(loreSelectionAfterPacket(s, packet), [false, true, true]);
+  s.loreIncluded = loreSelectionAfterPacket(s, packet); s.draft = applyPacket(s.draft, packet);
+  assert.deepEqual(loreSelection(s), [false, true, true]);
+});
+
+test('sparse lore response drops no-ops while preserving omitted entries and native settings', () => {
+  const s = newSession(); s.draft.globalLore = [{ ...lore('A'), custom: 'keep', alwaysActive: true }, lore('B')];
+  const packet = parseResponse(envelope('lorebook', { upsert: [{ ref: 'l0', entry: { comment: 'A', content: 'new' } }, { ref: 'l1', entry: { content: 'B' } }], remove: [] }), 'lorebook', s.draft);
+  assert.deepEqual(packet.data.upsert, [{ ref: 'l0', entry: { content: 'new' } }]);
+  const next = applyPacket(s.draft, packet);
+  assert.equal(next.globalLore[0].custom, 'keep'); assert.equal(next.globalLore[0].alwaysActive, true);
+  assert.deepEqual(next.globalLore[1], s.draft.globalLore[1]);
+  s.loreIncluded = [false, true];
+  assert.throws(() => validateLoreSelection(packet, s), /제외한 로어북/);
+  assert.throws(() => validateLoreSelection({ task: 'workshop', data: { reply: '', changes: [packet] } }, s), /제외한 로어북/);
+});
+
+test('array or nested envelopes stay rejected with prose, fences and BOM', () => {
+  const good = envelope('description', { text: 'keep {braces} and "quotes"' });
+  for (const body of ['[' + good + ']', '[[' + good + ']]', '{"wrapper":' + good + '}']) {
+    for (const wrapper of [x => x, x => 'OOC\n' + x + '\nend', x => '\uFEFF```json\n' + x + '\n```']) {
+      assert.throws(() => parseResponse(wrapper(body), 'description', blankCharacter()));
+    }
+  }
+  assert.equal(parseResponse('OOC\n' + good + '\nend', 'description', blankCharacter()).data.text, 'keep {braces} and "quotes"');
+});
 test('templates expand only once and include complete working context + conversation', () => {
   const s = newSession(); s.draft.desc = '<<USER_REQUEST>>'; s.thread.push({ role: 'assistant', content: 'earlier idea' });
   const messages = composeMessages(s, 'description', 'write it', defaultPrompt('description'));

@@ -15,6 +15,24 @@ const stateFor=p=>({...newPresetState(),mode:'preset',preset:normalizePreset(p)}
 const context={fields:{char:'별 {{unknown}}',slot:'{{unknown}}'},globals:{toggle_x:'1'},variables:{x:'7'}};
 const request=[{role:'system',content:'작업 규칙'},{role:'user',content:'이번 요청 {{not_a_macro}}'}];
 const assemble=(p,session=newSession())=>assemblePreset(p,session,'workshop',request);
+test('preset lore blocks and CBS use only checked manuscript entries without changing the draft', () => {
+  const s = newSession(); s.draft.globalLore = [{ key: 'a', content: 'INCLUDED_SENTINEL' }, { key: 'b', content: 'EXCLUDED_SENTINEL' }]; s.loreIncluded = [true, false];
+  for (const block of [{ type: 'lorebook' }, { type: 'plain', role: 'system', text: '{{lorebook}}' }]) {
+    const report = assemble(stateFor({ promptTemplate: [block, { type: 'chat', rangeStart: 0, rangeEnd: 'end' }] }), s);
+    assert.deepEqual(report.issues, []);
+    assert.match(JSON.stringify(report.messages), /INCLUDED_SENTINEL/);
+    assert.doesNotMatch(JSON.stringify(report.messages), /EXCLUDED_SENTINEL/);
+  }
+  assert.equal(s.draft.globalLore.length, 2);
+});
+
+test('expanded preset and CBS limits accept content beyond previous caps', () => {
+  const text = '가'.repeat(1100000);
+  const report = assemble(stateFor({ promptTemplate: [{ type: 'plain', role: 'system', text }, { type: 'chat', rangeStart: 0, rangeEnd: 'end' }] }));
+  assert.deepEqual(report.issues, []); assert.equal(report.messages[0].content, text);
+  const p = normalizePreset({ mainPrompt: 'x'.repeat(9 * 1024 * 1024) });
+  assert.equal(p.mainPrompt.length, 9 * 1024 * 1024);
+});
 let referenceFactory;
 async function reference(variables={},globals={}) {
   if(!referenceFactory) {
@@ -100,8 +118,8 @@ test('corrupt binary, authentication failure, unknown version and expansion limi
   assert.throws(()=>decodePreset(binary,'p.risupreset'),/읽지 못|복호화/);
   const wrapper=decode(gunzipSync(await encodePreset(samplePreset(),{rpack:false})));wrapper.preset[0]^=1;
   assert.throws(()=>decodePreset(gzipSync(encode(wrapper)),'p.risupreset'),/복호화/);
-  assert.throws(()=>decodePreset(gzipSync(new Uint8Array(PRESET_LIMIT+1)),'p.risupreset'),/8MiB/);
-  assert.throws(()=>decodePreset(new Uint8Array(PRESET_LIMIT+1),'p.json'),/8MiB/);
+  assert.throws(()=>decodePreset(gzipSync(new Uint8Array(PRESET_LIMIT+1)),'p.risupreset'),/32MiB/);
+  assert.throws(()=>decodePreset(new Uint8Array(PRESET_LIMIT+1),'p.json'),/32MiB/);
   assert.throws(()=>decodePreset(new Uint8Array(),'p.risup'),/읽지 못/);
   assert.throws(()=>decodePreset(new Uint8Array([1,2,3]),'p.risup'),/읽지 못/);
   const unknown=await encodePreset(samplePreset(),{version:9,rpack:false});

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Independent preset assembly for the workshop. Never reads or mutates host chat state.
-import { assert, clone, bytes, parseVariables } from './core.js';
+import { assert, clone, bytes, parseVariables, MAX_INPUT_CHARS, CBS_BYTES_LIMIT, PROMPT_BYTES_LIMIT, requestLorebook } from './core.js';
 import { normalizePreset, PRESET_LIMIT } from './preset-format.js';
 import { parseToggleTree, toggleDefault } from './preset-v2.js';
 import { calculatePreset } from './preset-calc.js';
@@ -58,14 +58,14 @@ export function presetValues(state) {
 // Parse CBS into a bounded tree. Context values are returned as opaque strings;
 // imported prompt syntax never reinterprets character code or the user's request.
 function tokenize(source) {
-  assert(source.length <= 1048576, '블록 원문이 1MiB를 초과했습니다.');
+  assert(source.length <= MAX_INPUT_CHARS, '블록 원문이 10,000,000자를 초과했습니다.');
   let position = 0, count = 0;
   function pieces(depth, inMacro) {
     assert(depth < 50, 'CBS 중첩이 너무 깊습니다.');
     const parts = [[]]; let text = '';
     const flush = () => { if (text) { parts.at(-1).push({ kind:'text', text }); text=''; } };
     while (position < source.length) {
-      assert(++count < 2000000, 'CBS 처리 한도에 도달했습니다.');
+      assert(++count <= MAX_INPUT_CHARS + 1, 'CBS 처리 한도에 도달했습니다.');
       if (source.startsWith('{{',position)) {
         flush(); position+=2; const nested=pieces(depth+1,true); parts.at(-1).push({kind:'macro',parts:nested});
       } else if (inMacro && source.startsWith('}}',position)) { flush(); position+=2; return parts; }
@@ -128,7 +128,7 @@ function trimBlankLines(text){const lines=text.split('\n');while(lines.length&&!
 function evaluate(nodes, context) {
   const render = list => {
     let out='';
-    for(const node of list) { out+=one(node); assert(out.length<=2097152,'CBS 출력 상한을 초과했습니다.'); }
+    for(const node of list) { out+=one(node); assert(out.length <= MAX_INPUT_CHARS,'CBS 출력 상한을 초과했습니다.'); }
     return out;
   };
   const part = p => render(p);
@@ -179,7 +179,7 @@ function evaluate(nodes, context) {
 }
 export function renderPresetText(source, context) {
   const value=evaluate(tokenize(source),{...context,trim:false});
-  assert(bytes(value)<=2097152,'CBS 출력이 2MiB를 초과했습니다.'); return value;
+  assert(bytes(value) <= CBS_BYTES_LIMIT,'CBS 출력이 32MiB를 초과했습니다.'); return value;
 }
 function range(block,count) {
   let start=block.rangeStart??0,end=block.rangeEnd??'end';
@@ -198,7 +198,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
   assert(p,'먼저 프리셋 파일을 가져오세요.');
   const globals=presetValues(state), variables={...parseVariables(p.templateDefaultVariables),...parseVariables(session.draft.defaultVariables??'')};
   const d=session.draft, env=state.environment;
-  let lore=(d.globalLore??[]).map(l=>'['+(l.comment||l.key)+']\n'+l.content).join('\n\n');
+  let lore=requestLorebook(session).map(({entry:l})=>'['+(l.comment||l.key)+']\n'+l.content).join('\n\n');
   const currentUser={role:'user',content:'[공방 작업 지침]\n'+directMessages[0].content+'\n\n'+directMessages[1].content};
   const history=session.thread.filter(m=>!m.error&&['user','assistant'].includes(m.role)).map(m=>({role:m.role,content:m.content}));
   const chats=[...history,currentUser];
@@ -219,7 +219,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
       let text;
       try{assert(!/(?:^|\n)\s*@@/.test(entry.content),'@@ 위치·활성화 지시 처리는 미지원입니다. 모듈 탭에서 이 항목을 제외하세요.');text=renderPresetText(entry.content,context);record.status=text?'prepared':'empty';}
       catch(error){record.status='error';record.error=error.message;issues.push(module.name+' / '+record.name+': '+error.message);continue;}
-      moduleSize+=bytes(text);assert(moduleSize<=4*1024*1024,'모듈 로어북 조립 결과가 4MiB를 초과했습니다.');
+      moduleSize+=bytes(text);assert(moduleSize<=PROMPT_BYTES_LIMIT,'모듈 로어북 조립 결과가 32MiB를 초과했습니다.');
       if(text)moduleLore.push('[모듈 '+module.name+' · '+record.name+']\n'+text);
     }
   }
@@ -234,7 +234,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
   let size=0;
   const push=(r,content,blockIndex,current=false)=>{
     assert(role(r),'지원하지 않는 메시지 역할: '+r);
-    size+=bytes(content);assert(size<=4*1024*1024,'조립된 프롬프트가 4MiB 상한을 초과했습니다.');
+    size+=bytes(content);assert(size<=PROMPT_BYTES_LIMIT,'조립된 프롬프트가 32MiB 상한을 초과했습니다.');
     if(current)userCount++;
     if(content)messages.push({role:role(r),content});
     assert(messages.length<=3000,'전송 메시지가 3,000개를 초과했습니다.');
@@ -280,7 +280,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
   if(userCount!==1)issues.push('이번 공방 요청을 포함하는 채팅 블록이 정확히 1개여야 합니다. 현재 '+userCount+'회 포함됐습니다.');
   if(moduleLore.length&&!context.loreUsage.used)issues.push('선택 모듈의 로어북을 포함하는 블록이 없습니다. 로어북 블록 또는 {{lorebook}}을 사용하는 블록을 추가하세요.');
   for(const record of moduleTrace)if(record.status==='prepared')record.status=context.loreUsage.used?'included':'not-included';
-  const notes=['로어북 블록은 공방 현재안과 선택 모듈의 전체 포함 항목을 사용합니다. 본체의 키워드 활성화·토큰 예산 계산은 실행하지 않습니다.','모듈 토글은 공방 값이며 선택한 모듈의 사본을 사용합니다. 본체 모듈 활성화와 자동 동기화하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.'];
+  const notes=['로어북 블록은 공방에서 체크한 현재 원고 항목과 선택 모듈의 포함 항목을 사용합니다. 본체의 키워드 활성화·토큰 예산 계산은 실행하지 않습니다.','모듈 토글은 공방 값이며 선택한 모듈의 사본을 사용합니다. 본체 모듈 활성화와 자동 동기화하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.'];
   if(context.nativeLiterals.size)notes.push('공식 내장 CBS로 정의되지 않은 '+[...context.nativeLiterals].map(name=>'{{'+name+'}}').join(', ')+' 표기를 리스처럼 원문으로 유지했습니다. 현재 사용자 요청문으로 치환한 것이 아닙니다.');
   return {messages,trace,moduleTrace,presetRegexTrace,issues,globals,notes};
 }

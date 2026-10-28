@@ -1,0 +1,19 @@
+{
+  "version": "0.3.6",
+  "sourceDistribution": "0.3.5",
+  "sourceDistributionSha256": "ae4d2249bf7c15f96b9f564f0a8d473842383817073950587f7212f506209531",
+  "rebuiltSha256": "e3275b5c53485e03d3196fb04332e664c20becb9dfe455db185aeffe58646a68",
+  "reproducible": true,
+  "equalDeclarations": 409,
+  "intentionalChanges": [
+    "VERSION",
+    "TASKS",
+    "COMMON",
+    "responseExamples",
+    "formatFor",
+    "parseResponse",
+    "responseJsonChunks",
+    "Workshop"
+  ],
+  "comparison": "AST comparison ignoring source positions, literal spelling and compiler renames key/value/allowed -> suffix 2; only JSON guidance/parser and runtime version differences allowed. Workshop method differences limited to sendRequest and showPrompt."
+}

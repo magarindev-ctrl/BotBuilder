@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 19,
+  "passed": 20,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -153,6 +153,52 @@
     {
       "name": "mobile pane switch without horizontal overflow",
       "passed": true
+    },
+    {
+      "name": "75 lorebook rows remain distinct at five widths; checkbox preserves list scroll and persists selection",
+      "passed": true,
+      "layouts": [
+        {
+          "width": 320,
+          "count": 75,
+          "overlap": false,
+          "overflow": false,
+          "scroll": true,
+          "minTouch": 44
+        },
+        {
+          "width": 320,
+          "count": 75,
+          "overlap": false,
+          "overflow": false,
+          "scroll": true,
+          "minTouch": 44
+        },
+        {
+          "width": 320,
+          "count": 75,
+          "overlap": false,
+          "overflow": false,
+          "scroll": true,
+          "minTouch": 44
+        },
+        {
+          "width": 390,
+          "count": 75,
+          "overlap": false,
+          "overflow": false,
+          "scroll": true,
+          "minTouch": 44
+        },
+        {
+          "width": 390,
+          "count": 75,
+          "overlap": false,
+          "overflow": false,
+          "scroll": true,
+          "minTouch": 44
+        }
+      ]
     }
   ],
   "layouts": [

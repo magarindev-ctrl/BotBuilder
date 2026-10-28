@@ -5,13 +5,13 @@ import { Decompress } from 'fflate';
 import { gcm } from '@noble/ciphers/aes';
 import { sha256 } from '@noble/hashes/sha256';
 import { rpackMap } from './rpack-map.js';
-import { assert, clone, bytes } from './core.js';
+import { assert, clone, bytes, PROMPT_BYTES_LIMIT } from './core.js';
 
-export const PRESET_LIMIT = 8 * 1024 * 1024;
+export const PRESET_LIMIT = PROMPT_BYTES_LIMIT;
 const key = sha256(new TextEncoder().encode('risupreset'));
 function expand(data) {
   const chunks = []; let size = 0;
-  const inflater = new Decompress((chunk) => { size += chunk.length; assert(size <= PRESET_LIMIT, '프리셋 압축 해제 크기가 8MiB를 초과했습니다.'); chunks.push(chunk); });
+  const inflater = new Decompress((chunk) => { size += chunk.length; assert(size <= PRESET_LIMIT, '프리셋 압축 해제 크기가 32MiB를 초과했습니다.'); chunks.push(chunk); });
   for (let i = 0; i < data.length; i += 2048) inflater.push(data.subarray(i, i + 2048), i + 2048 >= data.length);
   const output = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.length; }
@@ -44,7 +44,7 @@ export function normalizePreset(raw) {
     for (const k of ['text','innerFormat','defaultText','name']) if (k in b) assert(typeof b[k] === 'string', '블록 문자열 형식 오류: ' + k);
     if ('enabled' in b) assert(typeof b.enabled === 'boolean', '블록 활성화 형식이 올바르지 않습니다.');
   }
-  assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT, '프리셋이 8MiB를 초과했습니다.');
+  assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT, '프리셋이 32MiB를 초과했습니다.');
   return result;
 }
 function legacyBlocks(p) {
@@ -60,7 +60,7 @@ function legacyBlocks(p) {
   });
 }
 export function decodePreset(data, name = 'preset.risup') {
-  assert(data instanceof Uint8Array && data.length <= PRESET_LIMIT, '프리셋 파일은 8MiB 이하만 지원합니다.');
+  assert(data instanceof Uint8Array && data.length <= PRESET_LIMIT, '프리셋 파일은 32MiB 이하만 지원합니다.');
   let raw;
   if (/\.(risup|risupreset)$/i.test(name)) {
     const packed = /\.risup$/i.test(name) ? data.map(x => rpackMap[x + 256]) : data;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Workshop UI for Risu/RisuBard-compatible block/toggle data, independent of host UI stores.
 import { clone, assert, tick } from './core.js';
-import { decodePreset, normalizePreset } from './preset-format.js';
+import { decodePreset, normalizePreset, PRESET_LIMIT } from './preset-format.js';
 import { newPresetState, validatePresetState, toggleDefinitions, BLOCK_TYPES, moduleReferences } from './preset-engine.js';
 import { parseV2, compileV2, toggleDefault } from './preset-v2.js';
 import { activeModules, presetRegexProfile } from './modules.js';
@@ -9,7 +9,7 @@ import { chooseInstalledModules, renderModules, renderRuntimeInspection } from '
 
 export async function importPresetFile(app) {
   const file=await app.file('.risup,.risupreset,.json,.preset'); if(!file)return;
-  assert(file.size<=8*1024*1024,'프리셋 파일은 8MiB 이하만 지원합니다.');
+  assert(file.size<=PRESET_LIMIT,'프리셋 파일은 32MiB 이하만 지원합니다.');
   const id=app.s.sessionId, data=new Uint8Array(await file.arrayBuffer());
   assert(app.s.sessionId===id,'작업이 바뀌어 프리셋 가져오기를 중단했습니다.');
   await applyImportedPreset(app,data,file.name);

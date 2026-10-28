@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Workshop } from '../src/ui.js';
 import { PREFIX, newSession, snapshot } from '../src/core.js';
-import { applyImportedPreset, savePresetWorkspace, selectModules } from '../src/preset-ui.js';
+import { applyImportedPreset, importPresetFile, savePresetWorkspace, selectModules } from '../src/preset-ui.js';
 import { samplePreset, encodePreset } from './preset-fixture.mjs';
 import { installedModules, modulePreset } from './modules-fixture.mjs';
 import { selectInstalledModules } from '../src/modules.js';
@@ -18,6 +18,57 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
   const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
+
+test('preset file picker accepts the expanded size range and rejects files over 32MiB', async () => {
+  const x = await make();
+  try {
+    const bytes = new TextEncoder().encode(JSON.stringify({ ...samplePreset(), mainPrompt: 'x'.repeat(9 * 1024 * 1024) }));
+    x.app.file = async () => ({ name: 'large.json', size: bytes.length, arrayBuffer: async () => bytes.buffer });
+    await importPresetFile(x.app); assert.equal(x.app.s.preset.preset.mainPrompt.length, 9 * 1024 * 1024);
+    x.app.file = async () => ({ name: 'too-large.json', size: 32 * 1024 * 1024 + 1, arrayBuffer: async () => { throw new Error('must not read oversized file'); } });
+    await assert.rejects(importPresetFile(x.app), /32MiB/);
+  } finally { x.close(); }
+});
+
+test('lore checkbox state follows reorder and persists in both recovery slots', async () => {
+  const x = await make();
+  try {
+    x.app.s.draft.globalLore = [{ key: 'a', comment: 'A', content: 'A' }, { key: 'b', comment: 'B', content: 'B' }];
+    x.app.s.tab = 'lorebook'; x.app.task = 'lorebook'; x.app.render();
+    x.dom.window.document.querySelectorAll('.lore-request-list input')[1].click();
+    assert.deepEqual(x.app.s.loreIncluded, [true, false]);
+    button(x.dom, '2. B').click(); button(x.dom, '위로').click(); await wait();
+    assert.equal(x.app.s.draft.globalLore[0].key, 'b'); assert.deepEqual(x.app.s.loreIncluded, [false, true]);
+    x.app.scopeOnly = true; assert.throws(() => x.app.previewRequest(), /요청에서 제외/); x.app.scopeOnly = false;
+    await x.app.saveSlot('manual'); await x.app.autosave();
+    for (const slot of ['manual', 'autosave']) assert.deepEqual(x.app.slots[slot].session.loreIncluded, [false, true]);
+    button(x.dom, '전체 제외').click(); await wait(); assert.deepEqual(x.app.s.loreIncluded, [false, false]);
+    button(x.dom, '전체 포함').click(); await wait(); assert.deepEqual(x.app.s.loreIncluded, [true, true]);
+  } finally { x.close(); }
+});
+
+test('array response with OOC prose creates no accepted reply or candidate', async () => {
+  const x = await make();
+  try {
+    x.app.task = 'description'; x.app.s.requests.description = '설명 작성';
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: 'OOC\n[{"schemaVersion":1,"task":"description","data":{"text":"must not apply"}}]\nend' });
+    await x.app.sendRequest();
+    assert.equal(x.app.s.candidates.length, 0); assert.equal(x.app.s.draft.desc, ''); assert.ok(x.app.s.thread.at(-1).error);
+  } finally { x.close(); }
+});
+
+test('lore diff displays changed fields only and JSON guide uses current included refs', async () => {
+  const x = await make();
+  try {
+    x.app.s.draft.globalLore = [{ key: 'a', content: 'hidden-old' }, { key: 'b', comment: 'B', content: 'old' }]; x.app.s.loreIncluded = [false, true];
+    const view = x.app.diffView({ before: structuredClone(x.app.s.draft), packet: { task: 'lorebook', data: { upsert: [{ ref: 'l1', entry: { content: 'new' } }], remove: [] } } });
+    assert.match(view.textContent, /old/); assert.match(view.textContent, /new/); assert.doesNotMatch(view.textContent, /hidden-old/);
+    const pending = x.app.showPrompt('lorebook'); await wait();
+    const guide = [...x.dom.window.document.querySelectorAll('details')].find(e => e.querySelector('summary')?.textContent === 'JSON 응답 형식과 예시');
+    assert.ok(guide); assert.match(guide.textContent, /올바른 출력 예시/); assert.match(guide.textContent, /"ref": "l1"/);
+    x.app.activeModal.close(null); await pending;
+  } finally { x.close(); }
+});
 test('preset OOC prefill stays configured while response leftovers are removed before conversation and proposal handling',async()=>{
   const x=await make();try {
     const preset={...samplePreset(),promptSettings:{assistantPrefill:'## OOC Response\n'}};

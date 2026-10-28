@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.3.2
+//@version 0.3.6
 
 /*
+Modified 2026-10-28: v0.3.3 expands request capacity and adds lorebook selection; v0.3.4 fixes mobile lorebook lists; v0.3.5 adds sparse lorebook responses and diffs. v0.3.6 synchronizes these changes to source, restores the JSON guide and rejects wrapped array responses.
 봇빌더 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
 RPack mapping: RisuAI f50b5942ec6aa59aa3c56049ac687ca09667fec7, SHA256 428e939c41617140ef2fad0420d9163cc80ce7c9b2f5e620223a25acc8afd498. Used only within RisuAI-compatible plugin runtime under the RPack MIT option.
 
@@ -3227,6 +3228,33 @@ h3 { font-size: 14px; font-weight: 650; }
 .itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
 .listitem.active { border-color: var(--brand-line); background: var(--accent-bg); }
+/* Lorebook rows must not inherit the mobile horizontal button strip. */
+.itemlist.lore-request-list {
+  display: flex; flex-direction: column; align-self: start;
+  width: 100%; min-width: 0; min-height: 0; max-height: 560px;
+  overflow-y: auto; overflow-x: hidden; gap: 8px;
+  padding: 2px; scrollbar-gutter: stable; touch-action: pan-y;
+}
+.lore-request-item {
+  display: flex; flex-direction: column; flex: 0 0 auto;
+  width: 100%; min-width: 0; gap: 2px; padding: 6px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+}
+.lore-request-item.is-selected { border-color: var(--brand-line); background: var(--accent-bg); }
+.lore-request-list .listitem {
+  display: block; width: 100%; min-width: 0; max-width: none;
+  min-height: 44px; height: auto; padding: 10px; line-height: 1.5;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
+.lore-request-toggle.row {
+  flex-wrap: nowrap; min-height: 44px; width: 100%; margin: 0;
+  padding: 8px 10px; gap: 10px; cursor: pointer; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.lore-request-toggle input[type=checkbox] {
+  flex: 0 0 20px; width: 20px; height: 20px; min-width: 20px; margin: 0;
+}
+
 .textarea-large { min-height: 330px; }
 .conversation {
   display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
@@ -3293,6 +3321,8 @@ details[open] > summary { margin-bottom: 9px; }
   .list-editor { grid-template-columns: minmax(0, 1fr); }
   .itemlist { flex-direction: row; overflow-x: auto; }
   .preset-block-list { max-height: 140px; }
+  .itemlist.lore-request-list { flex-direction: column; max-height: 42vh; max-height: min(42dvh, 420px); }
+  .lore-request-list .listitem { min-width: 0; max-width: none; }
   .listitem { min-width: 120px; max-width: 180px; flex-shrink: 0; }
   .topbar { padding: 12px 16px; }
   .toolbar { padding: 8px 16px; }
@@ -9992,7 +10022,7 @@ details[open] > summary { margin-bottom: 9px; }
   };
 
   // src/core.js
-  var VERSION = "0.3.2";
+  var VERSION = "0.3.6";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets"];
@@ -10035,7 +10065,7 @@ details[open] > summary { margin-bottom: 9px; }
     return { type: "character", chaId: uid(), name: "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30", desc: "", firstMessage: "", notes: "", chats: [{ id: uid(), name: "Chat 1", message: [], note: "", localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: "none", bias: [], emotionImages: [], globalLore: [], sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: "", creatorNotes: "", systemPrompt: "", postHistoryInstructions: "", alternateGreetings: [], tags: [], creator: "", characterVersion: "1.0", personality: "", scenario: "", firstMsgIndex: -1, additionalText: "", defaultVariables: "", additionalAssets: [] };
   }
   function newSession() {
-    return { schemaVersion: 1, sessionId: uid(), targetId: null, revision: 0, promptRevision: 0, base: null, draft: blankCharacter(), source: null, thread: [], brief: "", kind: "character", requests: {}, selected: {}, candidates: [], regexInput: "", tab: "overview", promptDrafts: {}, cardMeta: null };
+    return { schemaVersion: 1, sessionId: uid(), targetId: null, revision: 0, promptRevision: 0, base: null, draft: blankCharacter(), source: null, thread: [], brief: "", kind: "character", requests: {}, selected: {}, loreIncluded: [], candidates: [], regexInput: "", tab: "overview", promptDrafts: {}, cardMeta: null };
   }
   function sessionFromCharacter(raw) {
     assert(raw && raw.chaId && (!raw.type || raw.type === "character"), "\uC77C\uBC18 \uCE90\uB9AD\uD130\uB9CC \uBD88\uB7EC\uC62C \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
@@ -10075,6 +10105,8 @@ details[open] > summary { margin-bottom: 9px; }
     for (const t of s.draft.triggerscript ?? []) assert(t && Array.isArray(t.effect) && Array.isArray(t.conditions) && t.effect.every((e) => e && typeof e.type === "string"), "\uC800\uC7A5\uBCF8 \uD2B8\uB9AC\uAC70 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     for (const a of s.draft.additionalAssets ?? []) assert(Array.isArray(a) && a.length >= 2 && typeof a[0] === "string" && typeof a[1] === "string", "\uC800\uC7A5\uBCF8 \uC5D0\uC14B \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     assert(s.requests && s.selected && s.promptDrafts, "\uC800\uC7A5\uBCF8 \uC791\uC5C5 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    if (s.loreIncluded !== void 0) assert(Array.isArray(s.loreIncluded) && s.loreIncluded.every((value2) => typeof value2 === "boolean"), "\uC800\uC7A5\uBCF8 \uB85C\uC5B4\uBD81 \uD3EC\uD568 \uC124\uC815\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    s.loreIncluded = loreSelection(s);
     for (const c of s.candidates) if (!c.status) {
       assert(c.before && c.packet, "\uC800\uC7A5\uBCF8 \uC81C\uC548 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
       validateData(c.packet.task, c.packet.data, c.before);
@@ -10145,33 +10177,29 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     return { system: COMMON + "\n\n" + TASK_GUIDANCE + "\n\n" + TASKS[task].instruction, user: USER_TEMPLATE };
   }
   function responseExamples(task) {
-    assert(TASKS[task], "\uC54C \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
-    if (task === "workshop") return [
-      { schemaVersion: 1, task, data: { reply: "\uC5B4\uB5A4 \uC7A5\uB974\uC640 \uC5ED\uD560\uB85C \uB9CC\uB4E4\uACE0 \uC2F6\uC740\uC9C0 \uC54C\uB824\uC8FC\uC138\uC694.", changes: [] } },
-      { schemaVersion: 1, task, data: { reply: "\uC694\uCCAD\uD558\uC2E0 \uC124\uBA85\uC758 \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4.", changes: [{ task: "description", data: { text: "\uC0AC\uC6A9\uC790\uC640 \uD569\uC758\uD55C \uC124\uC815\uC744 \uBC18\uC601\uD55C \uC124\uBA85 \uBCF8\uBB38\uC785\uB2C8\uB2E4." } }] } }
-    ];
-    return [{ schemaVersion: 1, task, data: clone(TASKS[task].format) }];
+    const samples = {
+      workshop: [
+        { reply: "\uC2DC\uC791 \uC7A5\uC18C\uB294 \uD56D\uAD6C\uC640 \uB3C4\uC11C\uAD00 \uC911 \uC5B4\uB290 \uCABD\uC774 \uC88B\uC744\uAE4C\uC694?", changes: [] },
+        { reply: "\uC694\uCCAD\uD558\uC2E0 \uC548\uB0B4\uC778\uC758 \uC124\uBA85\uACFC \uCCAB \uC7A5\uBA74\uC744 \uC81C\uC548\uD569\uB2C8\uB2E4.", changes: [
+          { task: "description", data: { text: "\uC720\uB098\uB294 \uD56D\uAD6C\uC758 \uC548\uB0B4\uC778\uC774\uB2E4. \uB0AF\uC120 \uC190\uB2D8\uC5D0\uAC8C \uCC28\uBD84\uD558\uAC8C \uAE38\uC744 \uC54C\uB824 \uC900\uB2E4." } },
+          { task: "greeting", data: { text: '\uC720\uB098\uB294 \uC9C0\uB3C4\uB97C \uD3BC\uCCE4\uB2E4.\n"\uC5B4\uB514\uB85C \uAC00\uC2DC\uB098\uC694?"' } }
+        ] }
+      ],
+      description: [{ text: "\uC720\uB098\uB294 \uD56D\uAD6C\uC758 \uC548\uB0B4\uC778\uC774\uB2E4. \uC9C0\uB9AC\uC5D0 \uBC1D\uC73C\uBA70 \uC9E7\uACE0 \uCC28\uBD84\uD55C \uBB38\uC7A5\uC73C\uB85C \uB9D0\uD55C\uB2E4." }],
+      greeting: [{ text: '\uC720\uB098\uB294 \uC9C0\uB3C4\uB97C \uD3BC\uCCE4\uB2E4.\n"\uC5B4\uB514\uB85C \uAC00\uC2DC\uB098\uC694?"' }],
+      lorebook: [{ upsert: [{ ref: null, entry: { comment: "\uB2EC\uBE5B \uD56D\uAD6C", key: "\uB2EC\uBE5B \uD56D\uAD6C,\uBD80\uB450", content: "\uB2EC\uBE5B \uD56D\uAD6C\uB294 \uBD81\uCABD \uC12C\uC73C\uB85C \uAC00\uB294 \uBC30\uAC00 \uCD9C\uD56D\uD558\uB294 \uACF3\uC774\uB2E4.", mode: "normal", alwaysActive: false } }], remove: [] }],
+      regex: [{ upsert: [{ ref: null, rule: { comment: "\uC810\uC218 \uAC15\uC870", in: "\uC810\uC218: (\\d+)", out: '<span class="score">$1</span>', type: "editdisplay", flag: "g", ableFlag: true } }], remove: [] }],
+      lua: [{ scripts: [{ ref: null, comment: "\uC2DC\uC791 \uC0C1\uD0DC \uC124\uC815", code: 'function onStart(accessKey)\n  setChatVar(accessKey, "ready", "yes")\nend' }], removeScripts: [], variables: { ready: "no" }, removeVariables: [] }],
+      choiceGreeting: [TASKS.choiceGreeting.format]
+    };
+    return samples[task].map((data) => ({ schemaVersion: 1, task, data }));
   }
-  function formatFor(task) {
-    assert(TASKS[task], "\uC54C \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
+  function formatFor(task, session) {
     const format = { schemaVersion: 1, task, data: TASKS[task].format };
     const examples = responseExamples(task);
-    return `\uC774 \uC751\uB2F5\uC740 BB\uAC00 JSON\uC73C\uB85C \uC77D\uB294\uB2E4. \uC751\uB2F5 \uC804\uCCB4\uB97C \uC544\uB798 \uAD6C\uC870\uC758 JSON \uAC1D\uCCB4 \uD558\uB098\uB85C\uB9CC \uC791\uC131\uD558\uB77C.
-\uCCAB \uBB38\uC790\uB294 {, \uB9C8\uC9C0\uB9C9 \uBB38\uC790\uB294 }\uC5EC\uC57C \uD55C\uB2E4. \uAC1D\uCCB4 \uC55E\uB4A4\uC5D0 OOC \uC81C\uBAA9\xB7\uC778\uC0AC\xB7\uC124\uBA85\xB7Markdown \uCF54\uB4DC \uD39C\uC2A4\xB7\uCD94\uAC00 \uAC1D\uCCB4\uB97C \uBD99\uC774\uC9C0 \uB9C8\uB77C.
-\uCD5C\uC0C1\uC704 \uD0A4\uB294 schemaVersion, task, data\uB9CC \uD5C8\uC6A9\uD55C\uB2E4. schemaVersion\uC740 \uC22B\uC790 1, task\uB294 \uC815\uD655\uD788 "${task}"\uB2E4. \uBAA8\uB4E0 \uD0A4\uC640 \uBB38\uC790\uC5F4\uC5D0\uB294 \uD070\uB530\uC634\uD45C\uB97C \uC4F0\uACE0, \uC8FC\uC11D\xB7\uD6C4\uD589 \uC27C\uD45C\uB97C \uB123\uC9C0 \uB9C8\uB77C.
-\uBB38\uC790\uC5F4\uC758 \uC2E4\uC81C \uC904\uBC14\uAFC8\uC740 JSON\uC758 \\n\uC73C\uB85C, \uD070\uB530\uC634\uD45C\uC640 \uC5ED\uC2AC\uB798\uC2DC\uB294 JSON \uADDC\uCE59\uC5D0 \uB9DE\uAC8C \uC774\uC2A4\uCF00\uC774\uD504\uD558\uB77C. Markdown\xB7HTML\xB7Lua\uB294 reply/text/content/code \uB4F1 \uD574\uB2F9 \uC791\uC5C5\uC5D0\uC11C \uD5C8\uC6A9\uD558\uB294 \uBB38\uC790\uC5F4 \uAC12 \uC548\uC5D0\uB9CC \uB123\uC5B4\uB77C.
-
-[\uC815\uD655\uD55C JSON \uAD6C\uC870]
-${JSON.stringify(format, null, 2)}
-
-[\uC62C\uBC14\uB978 \uCD9C\uB825 \uC608\uC2DC \u2014 \uD615\uD0DC\uB9CC \uCC38\uACE0\uD558\uACE0 \uB0B4\uC6A9\xB7\uCC38\uC870\uB97C \uBCF5\uC0AC\uD558\uC9C0 \uB9D0 \uAC83]
-${examples.map((example, i) => (task === "workshop" ? i === 0 ? "\uB300\uD654\xB7\uC9C8\uBB38\uB9CC \uD558\uB294 \uACBD\uC6B0:" : "\uC0AC\uC6A9\uC790\uAC00 \uC124\uBA85 \uC218\uC815\uC744 \uBA85\uC2DC\uC801\uC73C\uB85C \uC694\uCCAD\uD55C \uACBD\uC6B0:" : "\uC120\uD0DD\uD55C \uC791\uC5C5\uC758 \uCD9C\uB825:") + "\n" + JSON.stringify(example)).join("\n\n")}
-
-[\uC798\uBABB\uB41C \uCD9C\uB825 \uC608\uC2DC \u2014 \uC751\uB2F5\uC5D0 \uBCF5\uC0AC\uD558\uC9C0 \uB9D0 \uAC83]
-## OOC Response
-${JSON.stringify(examples[0])}
-\uC704\uCC98\uB7FC JSON \uC55E\uC5D0 \uC81C\uBAA9\uC744 \uBD99\uC774\uBA74 \uD615\uC2DD \uC704\uBC18\uC774\uB2E4. JSON\uC744 \uCF54\uB4DC \uD39C\uC2A4\uB85C \uAC10\uC2F8\uAC70\uB098 JSON \uBC16\uC5D0\uC11C \uB300\uB2F5\uD558\uB294 \uAC83\uB3C4 \uAE08\uC9C0\uD55C\uB2E4.
-${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97C \uC0AC\uC6A9\uD558\uB77C. \uC218\uC815 \uC694\uCCAD\uC744 \uBC1B\uC558\uC744 \uB54C\uB9CC changes\uC5D0 task\uC640 data\uB97C \uAC16\uB294 \uD56D\uBAA9\uC744 \uB123\uC5B4\uB77C." : ""}` + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n\uD5C8\uC6A9 \uD544\uB4DC: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. \uC0C8 \uD56D\uBAA9 ref\uB294 null\uC774\uBA70, \uC218\uC815\xB7\uC0AD\uC81C\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD558\uB77C. \uC608\uC2DC\uC758 \uC18C\uC7AC\uB098 \uC2DD\uBCC4\uC790\uB97C \uC694\uCCAD \uC5C6\uC774 \uC6D0\uACE0\uC5D0 \uB123\uC9C0 \uB9C8\uB77C. \uCD9C\uB825 \uC9C1\uC804 JSON \uAC1D\uCCB4 \uD558\uB098\uC778\uC9C0\uC640 \uC120\uD0DD \uC791\uC5C5\uC758 \uD544\uB4DC\uAC00 \uB9DE\uB294\uC9C0 \uB0B4\uBD80\uC801\uC73C\uB85C \uC810\uAC80\uD558\uACE0 \uC810\uAC80 \uC124\uBA85\uC740 \uCD9C\uB825\uD558\uC9C0 \uB9C8\uB77C.";
+    const guide = examples.map((example, i) => "[\uC62C\uBC14\uB978 \uCD9C\uB825 \uC608\uC2DC " + (i + 1) + "]\n" + JSON.stringify(example, null, 2)).join("\n\n");
+    const invalid = "\n\n[\uC798\uBABB\uB41C \uCD9C\uB825 \uC608\uC2DC \u2014 JSON \uBC16 \uC81C\uBAA9\xB7\uC124\uBA85\uC744 \uBD99\uC774\uC9C0 \uB9C8\uB77C]\n## OOC Response\n" + JSON.stringify(examples[0]);
+    return jsonContract(task) + "\n\n[\uD544\uC218 \uB370\uC774\uD130 \uAD6C\uC870]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n\uD5C8\uC6A9 \uD544\uB4DC: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. \uC0AD\uC81C \uBAA9\uB85D\uC5D0\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD560 \uAC83.";
   }
   function composeMessages(session, task, request, prompt) {
     assert(TASKS[task], "\uC54C \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
@@ -10179,13 +10207,22 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     str(prompt.user, "\uC0AC\uC6A9\uC790 \uD504\uB86C\uD504\uD2B8");
     for (const slot of ["TASK_NAME", "CURRENT_DRAFT", "USER_REQUEST", "REFERENCE_CONTEXT", "OUTPUT_FORMAT"]) assert(prompt.user.includes("<<" + slot + ">>"), "\uD504\uB86C\uD504\uD2B8 \uCE58\uD658 \uC790\uB9AC \uB204\uB77D: " + slot);
     const context = contextOf(session.draft);
+    context.lorebook = requestLorebook(session);
     const refs = { description: context.description, lorebook: context.lorebook, regex: context.regex, lua: { scripts: context.scripts, variables: context.defaultVariables }, greeting: context.firstMessage, choiceGreeting: { text: context.firstMessage, scripts: context.scripts, variables: context.defaultVariables, regex: context.regex } };
-    const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(task === "workshop" ? context : refs[task]), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character: context, conversation: session.thread.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content })), compatibility: "RisuAI API v3 / RisuBard. risu-btn \u2192 onButtonClick(accessKey, buttonKey); getChatVar/setChatVar. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4." }), OUTPUT_FORMAT: formatFor(task) };
+    const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(task === "workshop" ? context : refs[task]), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character: context, conversation: session.thread.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content })), compatibility: "RisuAI API v3 / RisuBard. risu-btn \u2192 onButtonClick(accessKey, buttonKey); getChatVar/setChatVar. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4." }), OUTPUT_FORMAT: formatFor(task, session) };
     const reference = JSON.parse(values.REFERENCE_CONTEXT);
-    reference.pendingProposals = session.candidates.filter((c) => !c.status).map((c) => ({ id: c.id, task: c.packet.task, data: c.packet.data }));
+    if (task === "workshop") {
+      delete reference.character;
+      reference.currentDraftNote = "\uD604\uC7AC \uC6D0\uACE0 \uC804\uCCB4\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4.";
+    } else if (task === "lorebook") {
+      delete reference.character.lorebook;
+      reference.currentDraftNote = "\uD604\uC7AC \uB85C\uC5B4\uBD81\uACFC ref\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4. \uBCC0\uACBD\xB7\uCD94\uAC00 \uD56D\uBAA9\uB9CC \uBC18\uD658\uD558\uB77C.";
+    }
+    reference.pendingProposals = session.candidates.filter((c) => !c.status).map((c) => ({ id: c.id, task: c.packet.task, data: filterLoreProposal(c.packet, session).data }));
     reference.pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
+    reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).length, note: "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB85C\uC5B4\uBD81\uC740 \uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC81C\uACF5\uD588\uB2E4. ref\uB294 \uC6D0\uBCF8 \uC778\uB371\uC2A4\uC774\uBA70 \uBE60\uC9C4 \uBC88\uD638\uB97C \uC7AC\uC815\uB82C\uD558\uAC70\uB098 \uB204\uB77D \uD56D\uBAA9\uC744 \uCD94\uCE21\uD574 \uC218\uC815\xB7\uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uC774\uC804 \uB300\uD654\uC5D0 \uB0A8\uC544 \uC788\uB294 \uC790\uB8CC\uB294 \uD604\uC7AC \uD3EC\uD568 \uC0C1\uD0DC\uB97C \uC758\uBBF8\uD558\uC9C0 \uC54A\uB294\uB2E4." };
     values.REFERENCE_CONTEXT = JSON.stringify(reference);
-    return [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key2) => values[key2]) }];
+    return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key2) => values[key2]) }];
   }
   var LORE_KEYS = ["comment", "key", "secondkey", "content", "insertorder", "mode", "alwaysActive", "selective", "useRegex", "activationPercent"];
   var REGEX_KEYS = ["comment", "in", "out", "flag", "ableFlag", "type"];
@@ -10317,7 +10354,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       keys(response2, ["schemaVersion", "task", "data"]);
       assert(response2.schemaVersion === 1 && response2.task === task, "\uC751\uB2F5 \uBC84\uC804 \uB610\uB294 \uC791\uC5C5 \uC885\uB958\uAC00 \uC694\uCCAD\uACFC \uB2E4\uB985\uB2C8\uB2E4.");
       validateData(task, response2.data, draft);
-      return response2;
+      return compactLorePacket(response2, draft);
     };
     let exact, parsed = false;
     try {
@@ -10659,6 +10696,109 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     }
     if (!limited) push(input.slice(pos));
     return { matches, output: chunks.join(""), note: limited ? "\uB9E4\uCE6D 1,000\uAC1C \uD55C\uB3C4\uB85C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uB294 \uC804\uCCB4 \uACB0\uACFC\uAC00 \uC544\uB2CC \uBD80\uBD84 \uACB0\uACFC\uC785\uB2C8\uB2E4." : "RE2JS \uACF5\uD1B5 \uBB38\uBC95 \uAE30\uC900\uC785\uB2C8\uB2E4. \uD638\uC2A4\uD2B8 CBS\xB7\uCC44\uD305 \uC0C1\uD0DC\xB7\uC804\uCCB4 \uCC98\uB9AC \uD30C\uC774\uD504\uB77C\uC778\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", limited };
+  }
+  var DEFAULT_INPUT_CHARS = 3e6;
+  var MAX_INPUT_CHARS = 1e7;
+  var INPUT_LIMIT_VERSION = 2;
+  var PROMPT_BYTES_LIMIT = 32 * 1024 * 1024;
+  var CBS_BYTES_LIMIT = 32 * 1024 * 1024;
+  function migrateInputSettings(saved = {}) {
+    const legacy = saved.inputLimitVersion !== INPUT_LIMIT_VERSION;
+    let limit = saved.maxInputChars;
+    if (!Number.isInteger(limit) || limit < 1e3 || limit > MAX_INPUT_CHARS) limit = DEFAULT_INPUT_CHARS;
+    if (legacy) limit = Math.max(DEFAULT_INPUT_CHARS, limit);
+    return { maxInputChars: limit, inputLimitVersion: INPUT_LIMIT_VERSION };
+  }
+  function inputSize(messages, limit) {
+    let chars = 0, size = 0;
+    for (const message of messages) {
+      chars += message.content.length;
+      size += bytes(message.content);
+    }
+    assert(chars <= limit, `\uC804\uC1A1 \uB0B4\uC6A9 ${chars.toLocaleString()}\uC790\uAC00 \uC124\uC815\uD55C ${limit.toLocaleString()}\uC790 \uC548\uC804 \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uC791\uC5C5 \uC124\uC815\uC5D0\uC11C \uD55C\uB3C4\uB97C \uC870\uC815\uD558\uC138\uC694. \uC790\uB3D9\uC73C\uB85C \uC790\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    assert(size <= PROMPT_BYTES_LIMIT, "\uC804\uCCB4 \uC804\uC1A1 \uB0B4\uC6A9\uC774 32MiB \uC548\uC804 \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uC790\uB8CC\uB97C \uC904\uC5EC \uC8FC\uC138\uC694.");
+    return { chars, bytes: size };
+  }
+  function loreSelection(session) {
+    return (session.draft.globalLore ?? []).map((_, i) => session.loreIncluded?.[i] !== false);
+  }
+  function requestLorebook(session) {
+    const included = loreSelection(session);
+    return (session.draft.globalLore ?? []).flatMap((entry, i) => included[i] ? [{ ref: "l" + i, entry }] : []);
+  }
+  function filterLoreProposal(packet, session) {
+    const allowed2 = new Set(requestLorebook(session).map((item) => item.ref));
+    if (packet.task === "lorebook") return { ...packet, data: {
+      upsert: packet.data.upsert.filter((item) => item.ref === null || allowed2.has(item.ref)),
+      remove: packet.data.remove.filter((ref) => allowed2.has(ref))
+    } };
+    if (packet.task === "workshop") return { ...packet, data: { ...packet.data, changes: packet.data.changes.map((change) => filterLoreProposal(change, session)) } };
+    return packet;
+  }
+  function validateLoreSelection(packet, session) {
+    const allowed2 = new Set(requestLorebook(session).map((item) => item.ref));
+    const changes = packet.task === "workshop" ? packet.data.changes : [packet];
+    for (const change of changes) if (change.task === "lorebook") {
+      assert(change.data.upsert.every((item) => item.ref === null || allowed2.has(item.ref)) && change.data.remove.every((ref) => allowed2.has(ref)), "\uC694\uCCAD\uC5D0\uC11C \uC81C\uC678\uD55C \uB85C\uC5B4\uBD81\uC758 \uC218\uC815\xB7\uC0AD\uC81C\uAC00 \uD3EC\uD568\uB418\uC5B4 \uC81C\uC548\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4. \uD3EC\uD568\uD560 \uD56D\uBAA9\uC744 \uCCB4\uD06C\uD558\uACE0 \uB2E4\uC2DC \uC694\uCCAD\uD558\uC138\uC694.");
+    }
+  }
+  function loreSelectionAfterPacket(session, packet) {
+    const selection = loreSelection(session);
+    const changes = packet.task === "workshop" ? packet.data.changes : [packet];
+    const change = changes.find((item) => item.task === "lorebook");
+    if (!change) return selection;
+    const removed = new Set(change.data.remove);
+    return selection.filter((_, i) => !removed.has("l" + i)).concat(change.data.upsert.filter((item) => item.ref === null).map(() => true));
+  }
+  function reconcileLoreSelection(session, nextEntries) {
+    const old = session.draft.globalLore ?? [], selection = loreSelection(session), used = /* @__PURE__ */ new Set();
+    return nextEntries.map((entry) => {
+      const i = old.findIndex((prior, index) => !used.has(index) && (entry.id != null && prior.id === entry.id || equal(prior, entry)));
+      if (i < 0) return true;
+      used.add(i);
+      return selection[i];
+    });
+  }
+  function jsonContract(task) {
+    return String.raw`[필수 JSON 응답 규칙]
+응답 전체는 JSON 객체 하나여야 한다. 첫 문자는 {, 마지막 문자는 }이다.
+최상위 필드는 "schemaVersion", "task", "data"만 사용한다.
+"schemaVersion"은 숫자 1, "task"는 정확히 "${task}", "data"는 해당 작업의 객체다.
+JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
+모든 키와 문자열은 큰따옴표를 사용한다. 문자열 내부의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다. Lua/HTML/정규식도 반드시 JSON 문자열 값 안에 넣는다.
+주석, 후행 쉼표, 작은따옴표 문자열, undefined, 생략 기호는 금지한다. null/true/false는 문자열이 아니다.
+출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. variables의 값은 숫자여도 "0" 같은 문자열이다.
+새 항목의 ref는 null, 기존 항목 수정·삭제의 ref는 현재안에 실제로 있는 값만 사용한다.
+workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
+workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
+아래 예시는 구조와 이스케이프 참고용이다. 예시 내용 자체를 복사하지 말고 사용자 요청에 맞는 실제 완성 데이터로 교체하라.
+전송 전에 JSON 문법, task 값, 필수 필드와 값의 자료형을 확인하라.
+${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81\uC740 \uBCC0\uACBD\uBD84\uB9CC \uC751\uB2F5] \uC804\uCCB4 \uB85C\uC5B4\uBD81 \uBC30\uC5F4\uC744 \uC7AC\uCD9C\uB825\uD558\uC9C0 \uB9C8\uB77C. upsert\uC5D0\uB294 \uC0C8\uB85C \uCD94\uAC00\uD558\uAC70\uB098 \uC2E4\uC81C\uB85C \uC218\uC815\uD55C \uD56D\uBAA9\uB9CC \uB123\uC5B4\uB77C. \uAE30\uC874 \uD56D\uBAA9\uC740 \uC6D0\uB798 ref\uB97C \uC4F0\uACE0 entry\uC5D0\uB294 \uBC14\uB010 \uD544\uB4DC\uB9CC \uB123\uC5B4\uB77C. \uBCF8\uBB38\uB9CC \uBC14\uB00C\uBA74 entry.content\uB9CC, \uD0A4\uC6CC\uB4DC\uB9CC \uBC14\uB00C\uBA74 entry.key\uB9CC \uBC18\uD658\uD55C\uB2E4. \uBE60\uC9C4 \uD544\uB4DC\uC640 \uBE60\uC9C4 \uAE30\uC874 \uD56D\uBAA9\uC740 \uADF8\uB300\uB85C \uBCF4\uC874\uB41C\uB2E4. content\uB97C \uBC14\uAFC0 \uB54C\uB294 \uD574\uB2F9 \uD56D\uBAA9\uC758 \uC644\uC131\uB41C \uC0C8 \uBCF8\uBB38\uC744 \uBC18\uD658\uD55C\uB2E4. \uC0C8 \uD56D\uBAA9\uB9CC ref:null\uC744 \uC0AC\uC6A9\uD558\uACE0 key/content\uB97C \uBC18\uB4DC\uC2DC \uB123\uC5B4\uB77C. \uC0AD\uC81C\uB294 \uBA85\uC2DC\uC801\uC73C\uB85C \uC694\uCCAD\uBC1B\uC740 ref\uB9CC remove\uC5D0 \uB123\uC5B4\uB77C. \uBCC0\uACBD\uC774 \uC5C6\uC73C\uBA74 upsert:[],remove:[]\uC774\uB2E4. \uC218\uC815\uD560 \uAE30\uC874 \uD56D\uBAA9\uC744 ref:null\uB85C \uC7AC\uC0DD\uC131\uD558\uC9C0 \uB9C8\uB77C. workshop\uB3C4 changes \uC548\uC758 lorebook \uC791\uC5C5\uC5D0 \uAC19\uC740 \uADDC\uCE59\uC744 \uC801\uC6A9\uD55C\uB2E4. reply\uC5D0 \uB85C\uC5B4\uBD81 \uBCF8\uBB38\uC774\uB098 \uBCC0\uACBD JSON\uC744 \uC911\uBCF5\uD574\uC11C \uC4F0\uC9C0 \uB9C8\uB77C." : ""}`;
+  }
+  function loreDeltaExample(task, session) {
+    if (!["lorebook", "workshop"].includes(task)) return "";
+    const ref = session && requestLorebook(session)[0]?.ref;
+    const data = ref ? { upsert: [{ ref, entry: { content: "\uC694\uCCAD\uD55C \uBCC0\uACBD\uC744 \uBC18\uC601\uD55C \uD574\uB2F9 \uD56D\uBAA9\uC758 \uC0C8 \uBCF8\uBB38." } }], remove: [] } : { upsert: [], remove: [] };
+    const packet = { schemaVersion: 1, task, data: task === "workshop" ? { reply: ref ? "\uC694\uCCAD\uD55C \uD56D\uBAA9\uC758 \uBCF8\uBB38\uB9CC \uC218\uC815\uD588\uC2B5\uB2C8\uB2E4." : "\uBCC0\uACBD\uD560 \uB0B4\uC6A9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", changes: ref ? [{ task: "lorebook", data }] : [] } : data };
+    return "\n\n[\uB85C\uC5B4\uBD81 \uBCC0\uACBD\uBD84 \uC751\uB2F5 \uC608\uC2DC \u2014 " + (ref ? "\uBCF8\uBB38 \uD55C \uD56D\uBAA9\uB9CC \uC218\uC815; \uB2E4\uB978 \uD544\uB4DC\uB294 \uC0DD\uB7B5" : "\uBCC0\uACBD \uC5C6\uC74C") + "]\n" + JSON.stringify(packet, null, 2);
+  }
+  function compactLorePacket(packet, draft) {
+    const compactData = (data) => ({
+      upsert: data.upsert.flatMap((item) => {
+        if (item.ref === null) return [item];
+        const prior = draft.globalLore[Number(item.ref.slice(1))];
+        const entry = Object.fromEntries(Object.entries(item.entry).filter(([key2, value]) => !equal(prior[key2], value)));
+        return Object.keys(entry).length ? [{ ref: item.ref, entry }] : [];
+      }),
+      remove: data.remove
+    });
+    if (packet.task === "lorebook") return { ...packet, data: compactData(packet.data) };
+    if (packet.task === "workshop") return { ...packet, data: { ...packet.data, changes: packet.data.changes.flatMap((change) => {
+      if (change.task !== "lorebook") return [change];
+      const data = compactData(change.data);
+      return data.upsert.length || data.remove.length ? [{ ...change, data }] : [];
+    }) } };
+    return packet;
   }
 
   // node_modules/fflate/esm/browser.js
@@ -12805,14 +12945,14 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
   var sha2562 = sha256;
 
   // src/preset-format.js
-  var PRESET_LIMIT = 8 * 1024 * 1024;
+  var PRESET_LIMIT = PROMPT_BYTES_LIMIT;
   var key = sha2562(new TextEncoder().encode("risupreset"));
   function expand(data) {
     const chunks = [];
     let size = 0;
     const inflater = new Decompress((chunk) => {
       size += chunk.length;
-      assert(size <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uC555\uCD95 \uD574\uC81C \uD06C\uAE30\uAC00 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+      assert(size <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uC555\uCD95 \uD574\uC81C \uD06C\uAE30\uAC00 32MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
       chunks.push(chunk);
     });
     for (let i = 0; i < data.length; i += 2048) inflater.push(data.subarray(i, i + 2048), i + 2048 >= data.length);
@@ -12855,7 +12995,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       for (const k of ["text", "innerFormat", "defaultText", "name"]) if (k in b) assert(typeof b[k] === "string", "\uBE14\uB85D \uBB38\uC790\uC5F4 \uD615\uC2DD \uC624\uB958: " + k);
       if ("enabled" in b) assert(typeof b.enabled === "boolean", "\uBE14\uB85D \uD65C\uC131\uD654 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
-    assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT, "\uD504\uB9AC\uC14B\uC774 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    assert(bytes(JSON.stringify(result)) <= PRESET_LIMIT, "\uD504\uB9AC\uC14B\uC774 32MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     return result;
   }
   function legacyBlocks(p) {
@@ -12871,7 +13011,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     });
   }
   function decodePreset(data, name = "preset.risup") {
-    assert(data instanceof Uint8Array && data.length <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uD30C\uC77C\uC740 8MiB \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    assert(data instanceof Uint8Array && data.length <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uD30C\uC77C\uC740 32MiB \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
     let raw;
     if (/\.(risup|risupreset)$/i.test(name)) {
       const packed = /\.risup$/i.test(name) ? data.map((x) => rpackMap[x + 256]) : data;
@@ -13073,7 +13213,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
   }
 
   // src/modules.js
-  var MODULE_LIMIT = 8 * 1024 * 1024;
+  var MODULE_LIMIT = PROMPT_BYTES_LIMIT;
   var badKeys = ["__proto__", "constructor", "prototype"];
   function tree(value, depth = 0, count = { n: 0 }) {
     assert(depth < 70 && ++count.n < 2e5, "\uBAA8\uB4C8 \uB370\uC774\uD130 \uAD6C\uC870\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4.");
@@ -13099,7 +13239,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     }
     if (raw.mcp != null) result.mcp = raw.mcp;
     tree(result);
-    assert(bytes(JSON.stringify(result)) <= MODULE_LIMIT, "\uBAA8\uB4C8 \uD55C \uAC1C\uC758 \uB370\uC774\uD130\uAC00 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    assert(bytes(JSON.stringify(result)) <= MODULE_LIMIT, "\uBAA8\uB4C8 \uD55C \uAC1C\uC758 \uB370\uC774\uD130\uAC00 32MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     for (const entry of result.lorebook) assert(entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.content === "string", "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uBCF8\uBB38\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     for (const asset of result.assets) assert(Array.isArray(asset) && typeof asset[0] === "string", "\uBAA8\uB4C8 \uC5D0\uC14B \uC774\uB984 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     return clone(result);
@@ -13112,7 +13252,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       ids.add(module.id);
     }
     assert(modules.reduce((n, module) => n + module.lorebook.length, 0) <= 3e3, "\uC120\uD0DD \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81 \uD569\uACC4\uB294 3,000\uAC1C \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
-    assert(bytes(JSON.stringify(modules)) <= MODULE_LIMIT, "\uC120\uD0DD \uBAA8\uB4C8 \uD569\uACC4\uAC00 8MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    assert(bytes(JSON.stringify(modules)) <= MODULE_LIMIT, "\uC120\uD0DD \uBAA8\uB4C8 \uD569\uACC4\uAC00 32MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     return modules;
   }
   function moduleOptions(state, module) {
@@ -13241,7 +13381,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     return r;
   }
   function tokenize(source) {
-    assert(source.length <= 1048576, "\uBE14\uB85D \uC6D0\uBB38\uC774 1MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    assert(source.length <= MAX_INPUT_CHARS, "\uBE14\uB85D \uC6D0\uBB38\uC774 10,000,000\uC790\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     let position = 0, count = 0;
     function pieces(depth, inMacro) {
       assert(depth < 50, "CBS \uC911\uCCA9\uC774 \uB108\uBB34 \uAE4A\uC2B5\uB2C8\uB2E4.");
@@ -13254,7 +13394,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         }
       };
       while (position < source.length) {
-        assert(++count < 2e6, "CBS \uCC98\uB9AC \uD55C\uB3C4\uC5D0 \uB3C4\uB2EC\uD588\uC2B5\uB2C8\uB2E4.");
+        assert(++count <= MAX_INPUT_CHARS + 1, "CBS \uCC98\uB9AC \uD55C\uB3C4\uC5D0 \uB3C4\uB2EC\uD588\uC2B5\uB2C8\uB2E4.");
         if (source.startsWith("{{", position)) {
           flush();
           position += 2;
@@ -13390,7 +13530,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       let out2 = "";
       for (const node of list) {
         out2 += one(node);
-        assert(out2.length <= 2097152, "CBS \uCD9C\uB825 \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+        assert(out2.length <= MAX_INPUT_CHARS, "CBS \uCD9C\uB825 \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
       }
       return out2;
     };
@@ -13477,7 +13617,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
   }
   function renderPresetText(source, context) {
     const value = evaluate(tokenize(source), { ...context, trim: false });
-    assert(bytes(value) <= 2097152, "CBS \uCD9C\uB825\uC774 2MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+    assert(bytes(value) <= CBS_BYTES_LIMIT, "CBS \uCD9C\uB825\uC774 32MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     return value;
   }
   function range(block, count) {
@@ -13498,7 +13638,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     assert(p, "\uBA3C\uC800 \uD504\uB9AC\uC14B \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.");
     const globals = presetValues(state), variables2 = { ...parseVariables(p.templateDefaultVariables), ...parseVariables(session.draft.defaultVariables ?? "") };
     const d = session.draft, env = state.environment;
-    let lore = (d.globalLore ?? []).map((l) => "[" + (l.comment || l.key) + "]\n" + l.content).join("\n\n");
+    let lore = requestLorebook(session).map(({ entry: l }) => "[" + (l.comment || l.key) + "]\n" + l.content).join("\n\n");
     const currentUser = { role: "user", content: "[\uACF5\uBC29 \uC791\uC5C5 \uC9C0\uCE68]\n" + directMessages[0].content + "\n\n" + directMessages[1].content };
     const history = session.thread.filter((m) => !m.error && ["user", "assistant"].includes(m.role)).map((m) => ({ role: m.role, content: m.content }));
     const chats = [...history, currentUser];
@@ -13540,7 +13680,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
           continue;
         }
         moduleSize += bytes(text);
-        assert(moduleSize <= 4 * 1024 * 1024, "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uC870\uB9BD \uACB0\uACFC\uAC00 4MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+        assert(moduleSize <= PROMPT_BYTES_LIMIT, "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uC870\uB9BD \uACB0\uACFC\uAC00 32MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
         if (text) moduleLore.push("[\uBAA8\uB4C8 " + module.name + " \xB7 " + record.name + "]\n" + text);
       }
     }
@@ -13558,7 +13698,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     const push = (r, content, blockIndex, current = false) => {
       assert(role(r), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uBA54\uC2DC\uC9C0 \uC5ED\uD560: " + r);
       size += bytes(content);
-      assert(size <= 4 * 1024 * 1024, "\uC870\uB9BD\uB41C \uD504\uB86C\uD504\uD2B8\uAC00 4MiB \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+      assert(size <= PROMPT_BYTES_LIMIT, "\uC870\uB9BD\uB41C \uD504\uB86C\uD504\uD2B8\uAC00 32MiB \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
       if (current) userCount++;
       if (content) messages.push({ role: role(r), content });
       assert(messages.length <= 3e3, "\uC804\uC1A1 \uBA54\uC2DC\uC9C0\uAC00 3,000\uAC1C\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
@@ -13628,7 +13768,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     if (userCount !== 1) issues.push("\uC774\uBC88 \uACF5\uBC29 \uC694\uCCAD\uC744 \uD3EC\uD568\uD558\uB294 \uCC44\uD305 \uBE14\uB85D\uC774 \uC815\uD655\uD788 1\uAC1C\uC5EC\uC57C \uD569\uB2C8\uB2E4. \uD604\uC7AC " + userCount + "\uD68C \uD3EC\uD568\uB410\uC2B5\uB2C8\uB2E4.");
     if (moduleLore.length && !context.loreUsage.used) issues.push("\uC120\uD0DD \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC744 \uD3EC\uD568\uD558\uB294 \uBE14\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uBE14\uB85D \uB610\uB294 {{lorebook}}\uC744 \uC0AC\uC6A9\uD558\uB294 \uBE14\uB85D\uC744 \uCD94\uAC00\uD558\uC138\uC694.");
     for (const record of moduleTrace) if (record.status === "prepared") record.status = context.loreUsage.used ? "included" : "not-included";
-    const notes = ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29 \uD604\uC7AC\uC548\uACFC \uC120\uD0DD \uBAA8\uB4C8\uC758 \uC804\uCCB4 \uD3EC\uD568 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uBAA8\uB4C8 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uAC12\uC774\uBA70 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uC0AC\uBCF8\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uBAA8\uB4C8 \uD65C\uC131\uD654\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."];
+    const notes = ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29\uC5D0\uC11C \uCCB4\uD06C\uD55C \uD604\uC7AC \uC6D0\uACE0 \uD56D\uBAA9\uACFC \uC120\uD0DD \uBAA8\uB4C8\uC758 \uD3EC\uD568 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uBAA8\uB4C8 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uAC12\uC774\uBA70 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uC0AC\uBCF8\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uBAA8\uB4C8 \uD65C\uC131\uD654\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."];
     if (context.nativeLiterals.size) notes.push("\uACF5\uC2DD \uB0B4\uC7A5 CBS\uB85C \uC815\uC758\uB418\uC9C0 \uC54A\uC740 " + [...context.nativeLiterals].map((name) => "{{" + name + "}}").join(", ") + " \uD45C\uAE30\uB97C \uB9AC\uC2A4\uCC98\uB7FC \uC6D0\uBB38\uC73C\uB85C \uC720\uC9C0\uD588\uC2B5\uB2C8\uB2E4. \uD604\uC7AC \uC0AC\uC6A9\uC790 \uC694\uCCAD\uBB38\uC73C\uB85C \uCE58\uD658\uD55C \uAC83\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
     return { messages, trace, moduleTrace, presetRegexTrace, issues, globals, notes };
   }
@@ -13723,7 +13863,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
   async function importPresetFile(app) {
     const file = await app.file(".risup,.risupreset,.json,.preset");
     if (!file) return;
-    assert(file.size <= 8 * 1024 * 1024, "\uD504\uB9AC\uC14B \uD30C\uC77C\uC740 8MiB \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
+    assert(file.size <= PRESET_LIMIT, "\uD504\uB9AC\uC14B \uD30C\uC77C\uC740 32MiB \uC774\uD558\uB9CC \uC9C0\uC6D0\uD569\uB2C8\uB2E4.");
     const id = app.s.sessionId, data = new Uint8Array(await file.arrayBuffer());
     assert(app.s.sessionId === id, "\uC791\uC5C5\uC774 \uBC14\uB00C\uC5B4 \uD504\uB9AC\uC14B \uAC00\uC838\uC624\uAE30\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
     await applyImportedPreset(app, data, file.name);
@@ -14085,7 +14225,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
   // src/ui.js
   var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B"]];
   var fieldNames = { name: "\uC774\uB984", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D" };
-  var SETTINGS = { model: "submodel", timeout: 300, maxInputChars: 1e5, theme: "system" };
+  var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system" };
   var Workshop = class {
     constructor(api2, doc) {
       this.api = api2;
@@ -14186,12 +14326,16 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       this.doc.body.append(this.root);
       const setting = await this.api.pluginStorage.getItem(PREFIX + "settings");
       try {
-        if (setting) this.settings = { ...SETTINGS, ...JSON.parse(setting) };
+        if (setting) {
+          const saved = JSON.parse(setting);
+          this.settings = { ...SETTINGS, ...saved, ...migrateInputSettings(saved) };
+          if (saved.inputLimitVersion !== INPUT_LIMIT_VERSION && saved.timeout === 300) this.settings.timeout = 900;
+        }
       } catch {
       }
       if (!["model", "submodel"].includes(this.settings.model)) this.settings.model = "submodel";
-      if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 300;
-      if (!Number.isFinite(this.settings.maxInputChars) || this.settings.maxInputChars < 1e3 || this.settings.maxInputChars > 1e6) this.settings.maxInputChars = 1e5;
+      if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 900;
+      Object.assign(this.settings, migrateInputSettings(this.settings));
       if (!["system", "light", "dark"].includes(this.settings.theme)) this.settings.theme = "system";
       this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
       this.themeListener = () => this.applyTheme();
@@ -14405,14 +14549,60 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       const list = s.draft[field];
       const selected = Math.min(Math.max(s.selected[task] ?? 0, 0), Math.max(list.length - 1, 0));
       s.selected[task] = selected;
-      const nav = h("div", { class: "itemlist" }, list.map((x, i) => this.b(x.comment || `\uD56D\uBAA9 ${i + 1}`, () => {
-        s.selected[task] = i;
-        this.touch(false);
+      if (lore) s.loreIncluded = loreSelection(s);
+      const redrawLoreList = () => {
+        const scrollTop = nav.scrollTop;
+        const editorScrollTop = this.editor?.scrollTop ?? 0;
         this.renderEditor();
-      }, "listitem" + (i === selected ? " active" : ""))));
+        if (this.editor) this.editor.scrollTop = editorScrollTop;
+        const replacement = this.editor?.querySelector(".lore-request-list");
+        if (replacement) replacement.scrollTop = scrollTop;
+      };
+      const inclusionChanged = () => {
+        this.s.promptRevision++;
+        this.touch(false);
+        redrawLoreList();
+      };
+      if (lore) host.append(h(
+        "div",
+        { class: "card stack" },
+        h("strong", {}, `\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uD560 \uB85C\uC5B4\uBD81 \xB7 ${s.loreIncluded.filter(Boolean).length}/${list.length}\uAC1C`),
+        h("p", { class: "muted" }, "\uCCB4\uD06C\uD55C \uD604\uC7AC \uC6D0\uACE0 \uD56D\uBAA9\uB9CC \uC9C1\uC811\xB7\uD504\uB9AC\uC14B \uC694\uCCAD\uC5D0 \uD3EC\uD568\uD569\uB2C8\uB2E4. \uC6D0\uBCF8\uACFC \u2018\uD56D\uC0C1 \uD65C\uC131\uD654\u2019 \uC124\uC815\uC740 \uC720\uC9C0\uB429\uB2C8\uB2E4. \uC774\uC804 \uB300\uD654\uC5D0 \uC774\uBBF8 \uC801\uD78C \uB0B4\uC6A9\uC740 \uC720\uC9C0\uB418\uBA70, \uC124\uCE58 \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC740 \uD504\uB9AC\uC14B > \uBAA8\uB4C8\uC5D0\uC11C \uBCC4\uB3C4\uB85C \uC120\uD0DD\uD569\uB2C8\uB2E4."),
+        h("div", { class: "row" }, this.b("\uC804\uCCB4 \uD3EC\uD568", () => {
+          s.loreIncluded = list.map(() => true);
+          inclusionChanged();
+        }, "small"), this.b("\uC804\uCCB4 \uC81C\uC678", () => {
+          s.loreIncluded = list.map(() => false);
+          inclusionChanged();
+        }, "small"))
+      ));
+      const nav = h("div", { class: "itemlist" + (lore ? " lore-request-list" : ""), "aria-label": lore ? "\uC694\uCCAD \uB85C\uC5B4\uBD81 \uBAA9\uB85D" : "\uD56D\uBAA9 \uBAA9\uB85D" }, list.map((x, i) => {
+        const title = x.comment || `\uD56D\uBAA9 ${i + 1}`;
+        const button = h("button", {
+          type: "button",
+          class: "listitem" + (i === selected ? " active" : ""),
+          title,
+          "aria-current": i === selected ? "true" : null,
+          onclick: () => {
+            s.selected[task] = i;
+            this.touch(false);
+            if (lore) redrawLoreList();
+            else this.renderEditor();
+          }
+        }, lore ? `${i + 1}. ${title}` : title);
+        if (!lore) return button;
+        const toggle = this.check("\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568", s.loreIncluded[i], (included) => {
+          s.loreIncluded[i] = included;
+          inclusionChanged();
+        });
+        toggle.className = "row muted lore-request-toggle";
+        toggle.setAttribute("title", `${i + 1}. ${title} \xB7 \uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568`);
+        return h("div", { class: "lore-request-item" + (i === selected ? " is-selected" : "") }, button, toggle);
+      }));
       const edit = h("div", { class: "stack" }), item = list[selected];
       host.append(h("div", { class: "row" }, this.b("\uFF0B \uD56D\uBAA9 \uCD94\uAC00", () => {
         list.push(lore ? { key: "", secondkey: "", content: "", comment: "\uC0C8 \uB85C\uC5B4", insertorder: 100, mode: "normal", alwaysActive: false, selective: false } : { comment: "\uC0C8 \uADDC\uCE59", in: "", out: "", type: "editdisplay", flag: "g", ableFlag: true });
+        if (lore) s.loreIncluded.push(true);
         s.selected[task] = list.length - 1;
         this.touch();
         this.renderEditor();
@@ -14458,6 +14648,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         edit.append(h("div", { class: "row" }, this.b("\uC704\uB85C", () => {
           if (selected > 0) {
             [list[selected - 1], list[selected]] = [list[selected], list[selected - 1]];
+            if (lore) [s.loreIncluded[selected - 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected - 1]];
             s.selected[task]--;
             this.touch();
             this.renderEditor();
@@ -14465,6 +14656,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         }, "small"), this.b("\uC544\uB798\uB85C", () => {
           if (selected + 1 < list.length) {
             [list[selected + 1], list[selected]] = [list[selected], list[selected + 1]];
+            if (lore) [s.loreIncluded[selected + 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected + 1]];
             s.selected[task]++;
             this.touch();
             this.renderEditor();
@@ -14472,6 +14664,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         }, "small"), this.b("\uD56D\uBAA9 \uC0AD\uC81C", async () => {
           if (await this.confirm("\uD56D\uBAA9\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?", item.comment || "\uC120\uD0DD \uD56D\uBAA9")) {
             list.splice(selected, 1);
+            if (lore) s.loreIncluded.splice(selected, 1);
             this.touch();
             this.renderEditor();
           }
@@ -14647,12 +14840,13 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         return h("p", { class: "warn" }, "\uC218\uC815\uC548\uC744 \uD574\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4: " + error.message);
       }
       const changed = FIELDS.filter((f) => !equal(candidate.before[f], after[f]));
-      return h("details", {}, h("summary", {}, `\uBCC0\uACBD \uB0B4\uC6A9 ${changed.length}\uAC1C \uC601\uC5ED \uD655\uC778`), changed.map((field) => h("section", { class: "stack", style: "gap:7px;margin:12px 0" }, h("h3", {}, fieldNames[field] ?? field), h("div", { class: "diff" }, h("pre", { class: "before" }, typeof candidate.before[field] === "string" ? candidate.before[field] : JSON.stringify(candidate.before[field], null, 2)), h("pre", { class: "after" }, typeof after[field] === "string" ? after[field] : JSON.stringify(after[field], null, 2))))));
+      return h("details", {}, h("summary", {}, `\uBCC0\uACBD \uB0B4\uC6A9 ${changed.length}\uAC1C \uC601\uC5ED \uD655\uC778`), changed.map((field) => field === "globalLore" ? this.loreDiffView(candidate) : h("section", { class: "stack", style: "gap:7px;margin:12px 0" }, h("h3", {}, fieldNames[field] ?? field), h("div", { class: "diff" }, h("pre", { class: "before" }, typeof candidate.before[field] === "string" ? candidate.before[field] : JSON.stringify(candidate.before[field], null, 2)), h("pre", { class: "after" }, typeof after[field] === "string" ? after[field] : JSON.stringify(after[field], null, 2))))));
     }
     async applyCandidate(candidate) {
       assert(this.candidateValid(candidate), "\uD604\uC7AC \uC6D0\uACE0\uC640 \uB2E4\uB978 \uC2DC\uC810\uC758 \uC218\uC815\uC548\uC785\uB2C8\uB2E4. \uB2E4\uC2DC \uC694\uCCAD\uD558\uC138\uC694.");
       const next = applyPacket(this.s.draft, candidate.packet);
       assert(this.candidateValid(candidate), "\uC6D0\uACE0\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4.");
+      this.s.loreIncluded = loreSelectionAfterPacket(this.s, candidate.packet);
       this.s.draft = next;
       candidate.status = "applied";
       this.touch();
@@ -14662,6 +14856,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     requestWithScope(task) {
       const s = this.s, request = (s.requests[task] ?? "").trim();
       const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
+      if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "\uD604\uC7AC \uD3B8\uC9D1 \uD56D\uBAA9\uC774 \uC694\uCCAD\uC5D0\uC11C \uC81C\uC678\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uD0ED\uC5D0\uC11C \u2018\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\u2019\uC744 \uCCB4\uD06C\uD558\uAC70\uB098 \u2018\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\u2019\uC744 \uD574\uC81C\uD558\uC138\uC694.");
       return { request, scope, text: request + (scope ? "\n[\uD5C8\uC6A9 \uD3B8\uC9D1 \uBC94\uC704] \uAE30\uC874 \uD56D\uBAA9 " + scope + "\uB9CC \uC218\uC815\xB7\uC0AD\uC81C\uD560 \uC218 \uC788\uB2E4. \uC0C8 \uD56D\uBAA9 \uCD94\uAC00\uC640 \uB2E4\uB978 \uD56D\uBAA9 \uBCC0\uACBD\uC740 \uAE08\uC9C0\uD55C\uB2E4." : "") };
     }
     previewRequest(task = this.task, forcePreset = false) {
@@ -14677,8 +14872,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
       const report = this.previewRequest(task);
       assert(!report.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + report.issues.join("\n"));
       const messages = report.messages;
-      const chars = messages.reduce((n, m) => n + m.content.length, 0);
-      assert(chars <= this.settings.maxInputChars, `\uC804\uC1A1 \uB0B4\uC6A9\uC774 \uC124\uC815\uD55C ${this.settings.maxInputChars.toLocaleString()}\uC790 \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uB300\uD654\xB7\uCC38\uACE0\uC790\uB8CC\xB7\uC791\uC5C5 \uBC94\uC704\uB97C \uC9C1\uC811 \uC870\uC815\uD574 \uC8FC\uC138\uC694. \uC790\uB3D9\uC73C\uB85C \uC798\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      inputSize(messages, this.settings.maxInputChars);
       const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
       const before = clone(s.draft), job = { ...meta, id: uid(), start: Date.now(), label: TASKS[task].label + " \xB7 \uC751\uB2F5 \uB300\uAE30", cancelled: false };
       this.job = job;
@@ -14690,11 +14884,12 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         raw = await callModel(this.api, messages, this.settings.model, this.settings.timeout, job);
         assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "\uC694\uCCAD \uC774\uD6C4 \uC791\uC5C5 \uB300\uC0C1\xB7\uC6D0\uACE0\xB7\uD504\uB86C\uD504\uD2B8\uAC00 \uBC14\uB00C\uC5B4 \uC751\uB2F5\uC744 \uD3D0\uAE30\uD588\uC2B5\uB2C8\uB2E4.");
         const packet = parseResponse(raw, task, before);
+        validateLoreSelection(packet, s);
         if (scope) {
           assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "\uC120\uD0DD\uD55C \uD56D\uBAA9 \uBC16\uC758 \uBCC0\uACBD\uC774 \uD3EC\uD568\uB418\uC5B4 \uC81C\uC548\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.");
         }
-        const changes = task === "workshop" ? packet.data.changes.length : 1;
-        s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : TASKS[task].label + " \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0\uC11C \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uAC80\uD1A0\uD558\uC138\uC694." });
+        const changes = task === "workshop" ? packet.data.changes.length : task === "lorebook" ? packet.data.upsert.length + packet.data.remove.length : 1;
+        s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "\uB85C\uC5B4\uBD81\uC5D0 \uC801\uC6A9\uD560 \uBCC0\uACBD \uC0AC\uD56D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : TASKS[task].label + " \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0\uC11C \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uAC80\uD1A0\uD558\uC138\uC694." });
         if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " \xB7 " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
         this.touch(false);
       } catch (error) {
@@ -14728,7 +14923,7 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
           draft.user = v;
           this.touch(false);
         }, { class: "code", style: "min-height:230px" });
-        body.append(saved, system, user, h("details", {}, h("summary", {}, "JSON \uC751\uB2F5 \uD615\uC2DD\uACFC \uC608\uC2DC"), h("pre", { class: "diff" }, formatFor(task))), h("div", { class: "row" }, this.b("\uD504\uB86C\uD504\uD2B8 \uC800\uC7A5", async () => {
+        body.append(saved, system, user, h("details", {}, h("summary", {}, "JSON \uC751\uB2F5 \uD615\uC2DD\uACFC \uC608\uC2DC"), h("pre", { class: "diff" }, formatFor(task, this.s))), h("div", { class: "row" }, this.b("\uD504\uB86C\uD504\uD2B8 \uC800\uC7A5", async () => {
           composeMessages(this.s, task, this.s.requests[task] ?? "", draft);
           await this.store("prompt:" + task, draft);
           this.prompts[task] = clone(draft);
@@ -14755,10 +14950,12 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
     async showSettings() {
       const next = clone(this.settings);
       const result = await this.dialog("\uC791\uC5C5 \uC124\uC815", (body) => {
-        body.append(this.h("label", { class: "field" }, this.h("span", {}, "\uD654\uBA74 \uD14C\uB9C8"), this.select(next.theme, [["system", "\uC2DC\uC2A4\uD15C \uC124\uC815 \uB530\uB974\uAE30"], ["light", "\uB77C\uC774\uD2B8 \uBAA8\uB4DC"], ["dark", "\uB2E4\uD06C \uBAA8\uB4DC"]], (v) => next.theme = v, "\uD654\uBA74 \uD14C\uB9C8")), this.field("LLM \uB300\uAE30 \uC81C\uD55C \xB7 \uCD08 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("\uC804\uCCB4 \uC804\uC1A1 \uBB38\uC790 \uD55C\uB3C4 (1,000~1,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: 1e6 }), this.h("p", { class: "muted" }, "\uC790\uB3D9 \uC800\uC7A5 \uAC04\uACA9\uC740 3\uBD84\uC785\uB2C8\uB2E4. \uC790\uB3D9 \uC800\uC7A5\uACFC \uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5\uC740 \uAC01\uAC01 \uCD5C\uADFC 1\uAC1C\uB97C \uBCF4\uAD00\uD569\uB2C8\uB2E4. \uB300\uAE30 \uC911\uB2E8\uC740 \uC2E4\uC81C \uB124\uD2B8\uC6CC\uD06C \uCDE8\uC18C\uB97C \uBCF4\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD50C\uB7EC\uADF8\uC778\uC740 \uC790\uB3D9 \uC7AC\uC2DC\uB3C4\uD558\uC9C0 \uC54A\uC73C\uBA70, \uD638\uC2A4\uD2B8 \uC790\uCCB4\uC758 \uC7AC\uC2DC\uB3C4 \uC815\uCC45\uC740 \uD638\uC2A4\uD2B8 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4."));
+        body.append(this.h("p", { class: "muted" }, "30\uB9CC \uC785\uB825 \uD1A0\uD070 \uADDC\uBAA8\uC6A9: \uAE30\uBCF8 3,000,000\uC790, \uC804\uCCB4 32MiB\uAE4C\uC9C0 \uC804\uC1A1\uD569\uB2C8\uB2E4. \uAE00\uC790 \uC218\uB294 \uD1A0\uD070 \uC218\uAC00 \uC544\uB2D9\uB2C8\uB2E4. \uC0AC\uC6A9\uD558\uB294 \uBAA8\uB378\xB7API\uAC00 \uC785\uB825 300,000\uD1A0\uD070\uACFC \uC751\uB2F5 \uC5EC\uC720\uB97C \uC9C0\uC6D0\uD574\uC57C \uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uCEE8\uD14D\uC2A4\uD2B8 \uC124\uC815\uC740 \uC790\uB3D9 \uBCC0\uACBD\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+        body.append(this.h("label", { class: "field" }, this.h("span", {}, "\uD654\uBA74 \uD14C\uB9C8"), this.select(next.theme, [["system", "\uC2DC\uC2A4\uD15C \uC124\uC815 \uB530\uB974\uAE30"], ["light", "\uB77C\uC774\uD2B8 \uBAA8\uB4DC"], ["dark", "\uB2E4\uD06C \uBAA8\uB4DC"]], (v) => next.theme = v, "\uD654\uBA74 \uD14C\uB9C8")), this.field("LLM \uB300\uAE30 \uC81C\uD55C \xB7 \uCD08 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("\uC804\uCCB4 \uC804\uC1A1 \uBB38\uC790 \uD55C\uB3C4 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.h("p", { class: "muted" }, "\uC790\uB3D9 \uC800\uC7A5 \uAC04\uACA9\uC740 3\uBD84\uC785\uB2C8\uB2E4. \uC790\uB3D9 \uC800\uC7A5\uACFC \uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5\uC740 \uAC01\uAC01 \uCD5C\uADFC 1\uAC1C\uB97C \uBCF4\uAD00\uD569\uB2C8\uB2E4. \uB300\uAE30 \uC911\uB2E8\uC740 \uC2E4\uC81C \uB124\uD2B8\uC6CC\uD06C \uCDE8\uC18C\uB97C \uBCF4\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD50C\uB7EC\uADF8\uC778\uC740 \uC790\uB3D9 \uC7AC\uC2DC\uB3C4\uD558\uC9C0 \uC54A\uC73C\uBA70, \uD638\uC2A4\uD2B8 \uC790\uCCB4\uC758 \uC7AC\uC2DC\uB3C4 \uC815\uCC45\uC740 \uD638\uC2A4\uD2B8 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4."));
       }, [{ label: "\uCDE8\uC18C", value: false }, { label: "\uC800\uC7A5", value: true, kind: "primary" }]);
       if (result) {
-        assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= 1e6, "\uC124\uC815 \uBC94\uC704\uB97C \uD655\uC778\uD558\uC138\uC694.");
+        assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= MAX_INPUT_CHARS, "\uC124\uC815 \uBC94\uC704\uB97C \uD655\uC778\uD558\uC138\uC694.");
+        next.inputLimitVersion = INPUT_LIMIT_VERSION;
         await this.store("settings", next);
         this.settings = next;
         this.applyTheme();
@@ -14780,7 +14977,8 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
         const p = session.requestSettings;
         if (["model", "submodel"].includes(p.model)) this.settings.model = p.model;
         if (Number.isInteger(p.timeout) && p.timeout >= 10 && p.timeout <= 3600) this.settings.timeout = p.timeout;
-        if (Number.isInteger(p.maxInputChars) && p.maxInputChars >= 1e3 && p.maxInputChars <= 1e6) this.settings.maxInputChars = p.maxInputChars;
+        Object.assign(this.settings, migrateInputSettings(p));
+        if (p.inputLimitVersion !== INPUT_LIMIT_VERSION && p.timeout === 300) this.settings.timeout = 900;
         if (TASKS[p.task]) this.task = p.task;
         this.scopeOnly = !!p.scopeOnly;
       } else {
@@ -14863,7 +15061,10 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
           delete this.s.source.chats;
           delete this.s.source.chatFolders;
           delete this.s.source.chatPage;
-          if (this.s.revision === revision) this.s.draft = { ...this.s.draft, ...editable(saved), chaId: saved.chaId };
+          if (this.s.revision === revision) {
+            this.s.loreIncluded = reconcileLoreSelection(this.s, saved.globalLore ?? []);
+            this.s.draft = { ...this.s.draft, ...editable(saved), chaId: saved.chaId };
+          }
           this.touch(false);
           this.render();
         }
@@ -14974,6 +15175,18 @@ ${task === "workshop" ? "\uB300\uD654\uB9CC \uD560 \uB54C\uB294 changes: []\uB97
           reject(error);
         }
       });
+    }
+    loreDiffView(candidate) {
+      const h = this.h.bind(this), packet = compactLorePacket(candidate.packet, candidate.before);
+      const changes = packet.task === "workshop" ? packet.data.changes : [packet];
+      const data = changes.find((change) => change.task === "lorebook")?.data;
+      if (!data) return h("p", { class: "muted" }, "\uB85C\uC5B4\uBD81 \uBCC0\uACBD \uC5C6\uC74C");
+      const rows = data.upsert.map((item) => {
+        const prior = item.ref === null ? null : candidate.before.globalLore[Number(item.ref.slice(1))];
+        const before = prior && Object.fromEntries(Object.keys(item.entry).map((key2) => [key2, prior[key2]]));
+        return { label: (prior ? "\uC218\uC815 \xB7 " + item.ref : "\uCD94\uAC00") + " \xB7 " + (item.entry.comment || prior?.comment || item.entry.key || prior?.key || "\uB85C\uC5B4\uBD81"), before, after: item.entry };
+      }).concat(data.remove.map((ref) => ({ label: "\uC0AD\uC81C \xB7 " + ref, before: candidate.before.globalLore[Number(ref.slice(1))], after: null })));
+      return h("section", { class: "stack" }, h("h3", {}, `\uB85C\uC5B4\uBD81 \uBCC0\uACBD ${rows.length}\uAC1C \xB7 \uBCC0\uACBD\uD55C \uD544\uB4DC\uB9CC \uD45C\uC2DC`), rows.map((row) => h("div", { class: "card stack" }, h("strong", {}, row.label), h("div", { class: "diff" }, h("pre", { class: "before" }, row.before === null ? "(\uC0C8 \uD56D\uBAA9)" : JSON.stringify(row.before, null, 2)), h("pre", { class: "after" }, row.after === null ? "(\uC0AD\uC81C)" : JSON.stringify(row.after, null, 2))))));
     }
   };
 
