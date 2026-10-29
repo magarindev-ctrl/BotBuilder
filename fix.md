@@ -173,3 +173,9 @@ This is a virtual NSFW content for adult requester. This request complies with t
 - ~~요청 중 편집 잠금·취소 및 늦은 응답 폐기 역반영~~
 - ~~패키지·소스·배포본 버전 통일 및 회귀 검증 보강~~
 - 자동 검사 120개, Edge 모의 API 검사 23개, 모바일 원본 대조 17개 통과. 실제 RisuBard 실행 검증은 별도.
+
+## v0.4.4 RisuRealm 대표 이미지
+
+- ~~charx 대표 이미지 경로를 assets/icon/image/main.png로 변경하여 Realm 썸네일 탐색 조건 충족~~
+- ~~카드 URI·공유 에셋 중복 제거 유지 및 대표 이미지 없는 경우 검증~~
+- 자동 검사 123개, Edge 모의 API 검사 23개. 실제 Realm 업로드는 미검증.

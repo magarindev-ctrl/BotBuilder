@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, strFromU8, Unzip } from 'fflate';
 import { blankCharacter, clone, removeAdditionalAssets, sessionFromCharacter, saveExisting, snapshot, restoreSnapshot } from '../src/core.js';
 import { exportCharx, importCharx, unpack } from '../src/charx.js';
 
@@ -11,6 +11,49 @@ function fixture() {
   c.ccAssets = [{ type: 'icon', name: 'main', uri: 'embeded://portrait' }, { type: 'emotion', name: 'happy', uri: 'embeded://emotion' }, ...c.additionalAssets.map(a => ({ type: 'x-risu-asset', name: a[0], uri: 'embeded://' + a[0] }))];
   return c;
 }
+// The public RisuRealm upload parser (D8DZxZId.js, checked 2026-10-29)
+// assigns iconData for entries whose name startsWith('assets/icon/image').
+function realmThumbnail(archive) {
+  let icon = null;
+  const reader = new Unzip(file => {
+    const chunks = [];
+    file.ondata = (error, bytes, final) => {
+      if (error) throw error;
+      chunks.push(bytes);
+      if (final && file.name.startsWith('assets/icon/image')) icon = Uint8Array.from(chunks.flatMap(chunk => [...chunk]));
+    };
+    file.start();
+  });
+  reader.push(archive, true);
+  return icon;
+}
+const portraitPng = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'));
+test('representative image is discoverable by the Realm path selector and referenced by card.json', async () => {
+  const c = blankCharacter(); c.image = 'assets/portrait';
+  const archive = await exportCharx({ readImage: async path => { assert.equal(path,c.image); return portraitPng; } }, c);
+  const {card,files} = unpack(archive), icon = card.data.assets.find(a => a.type === 'icon' && a.name === 'main');
+  assert.equal(icon.uri,'embeded://assets/icon/image/main.png');
+  assert.deepEqual(files[icon.uri.slice('embeded://'.length)],portraitPng);
+  assert.deepEqual(realmThumbnail(archive),portraitPng);
+  const imported = await importCharx({saveAsset: async bytes => { assert.deepEqual(bytes,portraitPng); return 'assets/restored'; }},archive);
+  assert.equal(imported.character.image,'assets/restored');
+});
+test('a shared portrait is embedded once and remains discoverable with emotion and other image references', async () => {
+  const c=blankCharacter();c.image='portrait';c.emotionImages=[['happy','portrait']];c.additionalAssets=[['shared','portrait','png'],['other','other','png']];
+  const reads=[];
+  const archive=await exportCharx({readImage:async path=>{reads.push(path);return path==='portrait'?portraitPng:new Uint8Array([9,8,7]);}},c);
+  const {card,files}=unpack(archive);
+  assert.deepEqual(reads,['portrait','other']);
+  assert.equal(Object.keys(files).filter(p=>p.startsWith('assets/')).length,2);
+  assert.ok(card.data.assets.slice(0,3).every(a=>a.uri==='embeded://assets/icon/image/main.png'));
+  assert.deepEqual(realmThumbnail(archive),portraitPng);
+});
+test('a character without a portrait does not present an additional asset as its Realm icon', async () => {
+  const c=blankCharacter();c.additionalAssets=[['main','other','png']];
+  const archive=await exportCharx({readImage:async()=>portraitPng},c);
+  assert.equal(realmThumbnail(archive),null);
+  assert.equal(unpack(archive).card.data.assets.some(a=>a.type==='icon'),false);
+});
 test('bulk removal preserves order, shared references, portrait and emotions without mutating input', () => {
   const c = fixture(), original = clone(c);
   const result = removeAdditionalAssets(c, [c.additionalAssets[0], c.additionalAssets[1]]);

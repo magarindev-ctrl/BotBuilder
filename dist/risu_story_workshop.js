@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.3
+//@version 0.4.4
 
 /*
+Modified 2026-10-29: v0.4.4 writes the main charx icon under assets/icon/image/ for RisuRealm thumbnail discovery, preserving byte sharing and card references.
 Modified 2026-10-29: v0.4.3 adds explicit user review of unmatched prose edits, candidate selection, manual ranges and skip; code remains exact-only.
 Modified 2026-10-29: v0.4.2 preserves Lua mode in CHARX by placing a Lua trigger before the V2 header; retains all other triggers and separate Lua scripts.
 Modified 2026-10-28: v0.4.1 adds bulk asset unlinking with CCv3 metadata cleanup and removes the 100MiB asset limit from charx export.
@@ -10173,7 +10174,7 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/core.js
-  var VERSION = "0.4.3";
+  var VERSION = "0.4.4";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -12393,7 +12394,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       const suffix = /^[a-zA-Z0-9]{1,8}$/.test(ext ?? "") ? ext : "bin";
       let file = refs.get(path);
       if (!file) {
-        file = `assets/${refs.size}.${suffix}`;
+        file = type === "icon" && name === "main" ? `assets/icon/image/main.${suffix}` : `assets/${refs.size}.${suffix}`;
         await tick();
         const data = await assetBytes(api2, path);
         files[file] = data;

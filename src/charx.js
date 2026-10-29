@@ -104,7 +104,10 @@ export async function exportCharx(api, character, cardMeta) {
     const suffix = /^[a-zA-Z0-9]{1,8}$/.test(ext ?? '') ? ext : 'bin';
     let file = refs.get(path);
     if (!file) {
-      file = `assets/${refs.size}.${suffix}`;
+      // RisuRealm's charx thumbnail reader selects this directory, not card.json's icon URI.
+      file = type === 'icon' && name === 'main'
+        ? `assets/icon/image/main.${suffix}`
+        : `assets/${refs.size}.${suffix}`;
       await tick(); const data = await assetBytes(api, path);
       files[file] = data; refs.set(path, file);
     }
