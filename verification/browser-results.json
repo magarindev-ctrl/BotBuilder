@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 24,
+  "passed": 25,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -152,6 +152,10 @@
     },
     {
       "name": "mobile pane switch without horizontal overflow",
+      "passed": true
+    },
+    {
+      "name": "character picker renders a real searchable button and loads via the list on mobile",
       "passed": true
     },
     {

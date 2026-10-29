@@ -1,3 +1,4 @@
+Modified 2026-10-29: v0.4.6 fixes DOM array rendering in character search results and alternate greetings, and verifies selection through the character list.
 Modified 2026-10-29: v0.4.5 adds bot icon registration, replacement and unlinking, with snapshot/host persistence and charx metadata cleanup.
 Modified 2026-10-29: v0.4.4 writes the main charx icon under assets/icon/image/ for RisuRealm thumbnail discovery, preserving byte sharing and card references.
 Modified 2026-10-29: v0.4.3 adds explicit user review of unmatched prose edits, candidate selection, manual ranges and skip; code remains exact-only.

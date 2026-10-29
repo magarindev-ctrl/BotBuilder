@@ -19,6 +19,40 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
 
+test('character picker renders real buttons, filters search and loads the selected latest character by ID', async () => {
+  const x=await make();
+  try {
+    const chars=['리아','Cattleya','리온'].map((name,i)=>({...newSession().draft,chaId:'char-'+i,name}));
+    chars.push({type:'group',name:'그룹',chaId:'group'});
+    x.app.api.getDatabase=async()=>({characters:chars});
+    const pending=x.app.loadCharacters();await wait();
+    const dialog=x.dom.window.document.querySelector('[role=dialog]');
+    assert.doesNotMatch(dialog.textContent,/\[object HTML/);
+    for(const name of ['리아','Cattleya','리온'])assert.ok(button(x.dom,name));
+    assert.equal(button(x.dom,'그룹'),undefined);
+    const search=dialog.querySelector('input');
+    const query=text=>{search.value=text;search.dispatchEvent(new x.dom.window.Event('input'));};
+    query('없는 캐릭터');assert.equal(button(x.dom,'리아'),undefined);assert.equal(button(x.dom,'Cattleya'),undefined);
+    query('cAtTl');assert.ok(button(x.dom,'Cattleya'));assert.equal(button(x.dom,'리온'),undefined);
+    query('');assert.ok(button(x.dom,'리온'));
+    chars[2].desc='선택 직전 최신 설명';button(x.dom,'리온').click();await pending;
+    assert.equal(x.app.s.targetId,'char-2');assert.equal(x.app.s.draft.desc,'선택 직전 최신 설명');
+  } finally {x.close();}
+});
+test('alternate greeting arrays render editable controls and redraw after addition and deletion', async () => {
+  const x=await make();
+  try {
+    x.app.s.tab='greeting';x.app.s.draft.alternateGreetings=['첫 상황','둘째 상황'];x.app.render();
+    assert.doesNotMatch(x.app.editor.textContent,/\[object HTML/);
+    const get=n=>x.dom.window.document.querySelector(`[aria-label="대체 인사말 ${n}"]`);
+    assert.equal(get(1).value,'첫 상황');assert.equal(get(2).value,'둘째 상황');
+    get(1).value='수정 상황';get(1).dispatchEvent(new x.dom.window.Event('input'));
+    assert.equal(x.app.s.draft.alternateGreetings[0],'수정 상황');
+    button(x.dom,'대체 인사말 추가').click();await wait();assert.ok(get(3));
+    button(x.dom,'삭제').click();await wait();assert.equal(get(1).value,'둘째 상황');assert.equal(get(3),null);
+  } finally {x.close();}
+});
+
 test('bot icon menu registers, replaces, confirms removal and keeps additional assets', async () => {
   const x=await make();
   try {

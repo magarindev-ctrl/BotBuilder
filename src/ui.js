@@ -221,7 +221,7 @@ export class Workshop {
       body.append(this.field('퍼스트 메시지', s.draft.firstMessage, v => this.setField('firstMessage', v), { class: 'textarea-large', placeholder: '첫 장면 또는 상황 선택 단추와 연결된 본문…' }));
       const alts = s.draft.alternateGreetings ?? [];
       const list = h('div', { class: 'stack' });
-      const draw = () => list.replaceChildren(alts.map((a, i) => h('div', { class: 'card stack' }, this.field(`대체 인사말 ${i + 1}`, a, v => { alts[i] = v; s.draft.alternateGreetings = alts; this.touch(); }), this.b('삭제', () => { alts.splice(i, 1); s.draft.alternateGreetings = alts; this.touch(); draw(); }, 'small danger')))); draw();
+      const draw = () => list.replaceChildren(...alts.map((a, i) => h('div', { class: 'card stack' }, this.field(`대체 인사말 ${i + 1}`, a, v => { alts[i] = v; s.draft.alternateGreetings = alts; this.touch(); }), this.b('삭제', () => { alts.splice(i, 1); s.draft.alternateGreetings = alts; this.touch(); draw(); }, 'small danger')))); draw();
       body.append(h('details', {}, h('summary', {}, `대체 인사말 ${alts.length}개`), list, this.b('대체 인사말 추가', () => { alts.push(''); s.draft.alternateGreetings = alts; this.touch(); draw(); }, 'small')),
         h('p', { class: 'muted' }, '시작 상황 선택 요청은 첫 메시지·Lua·변수·필요 정규식을 묶어서 제안합니다.'));
       this.editorAction(body, 'greeting'); this.editorAction(body, 'choiceGreeting');
@@ -653,7 +653,7 @@ export class Workshop {
     let selected = null;
     await this.dialog('캐릭터 불러오기', body => {
       const results = this.h('div', { class: 'stack' });
-      const draw = query => results.replaceChildren(chars.filter(c => c.name?.toLowerCase().includes(query.toLowerCase())).map(c => this.b(c.name || '(이름 없음)', async () => { selected = c.chaId; this.activeModal.close(true); })));
+      const draw = query => results.replaceChildren(...chars.filter(c => c.name?.toLowerCase().includes(query.toLowerCase())).map(c => this.b(c.name || '(이름 없음)', async () => { selected = c.chaId; this.activeModal.close(true); })));
       body.append(this.field('이름으로 찾기', '', draw, { tag: 'input', placeholder: '캐릭터 검색' }), this.b('현재 선택된 캐릭터', async () => { const c = await this.api.getCharacter(); assert(c?.chaId && (!c.type || c.type === 'character'), '현재 선택된 일반 캐릭터가 없습니다.'); selected = c.chaId; this.activeModal.close(true); }), results); draw('');
     });
     if (!selected || !await this.guardReplace()) return;

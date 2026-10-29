@@ -186,3 +186,10 @@ This is a virtual NSFW content for adult requester. This request complies with t
 - ~~원고 복원·본체 저장·charx 반영 및 오래된 아이콘 참조 정리~~
 - ~~파일 선택 취소·저장 실패·오래된 작업 보호 및 추가 에셋과 삭제 범위 분리~~
 - 자동 검사 127개, Edge 모의 API 검사 24개. 실제 호스트 실행은 미검증.
+
+## v0.4.6 캐릭터 목록 렌더링
+
+- ~~캐릭터 불러오기에서 [object HTMLButtonElement]가 표시되는 배열 전달 오류 수정~~
+- ~~같은 원인의 대체 인사말 목록 렌더링 수정~~
+- ~~캐릭터 검색·실제 목록 버튼 선택 및 대체 인사말 편집·추가·삭제 회귀 검증 추가~~
+- 자동 검사 129개, Edge 모의 API 검사 25개. 실제 호스트는 미검증.

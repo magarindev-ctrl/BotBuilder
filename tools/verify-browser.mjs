@@ -330,8 +330,16 @@ try {
     chars[0].globalLore = Array.from({length:75}, (_, i) => ({comment:`로어북 ${i+1} · 긴 제목 줄바꿈과 선택 구분 검사`, key:'entry-'+i, content:'BODY_'+i}));
   });
   await frame.getByRole('button',{name:'캐릭터 불러오기',exact:true}).click();
-  await frame.getByRole('button',{name:'현재 선택된 캐릭터',exact:true}).click();
+  const characterDialog=frame.getByRole('dialog');
+  assert.doesNotMatch(await characterDialog.innerText(),/\[object HTML/);
+  const characterSearch=characterDialog.getByRole('textbox',{name:'이름으로 찾기'});
+  await characterSearch.fill('없는 캐릭터');
+  assert.equal(await characterDialog.getByRole('button',{name:'브라우저 검증용 캐릭터',exact:true}).count(),0);
+  await characterSearch.fill('브라우저');
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-character-picker-mobile.png',animations:'disabled'});
+  await characterDialog.getByRole('button',{name:'브라우저 검증용 캐릭터',exact:true}).click();
   await frame.getByRole('button',{name:'확인',exact:true}).click();
+  results.push({name:'character picker renders a real searchable button and loads via the list on mobile',passed:true});
   await frame.locator('.navitem').filter({hasText:'로어북'}).click();
   const loreLayouts=[];
   for(const width of [320,360,390,412,768]) {
@@ -442,6 +450,6 @@ try {
   results.push({name:'asset selection, cancelled/multiple/all deletion, metadata persistence and mobile layout at 320/390px; no implicit host writes',passed:true});
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 19, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 20, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

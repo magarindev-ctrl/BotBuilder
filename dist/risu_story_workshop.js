@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.5
+//@version 0.4.6
 
 /*
+Modified 2026-10-29: v0.4.6 fixes DOM array rendering in character search results and alternate greetings, and verifies selection through the character list.
 Modified 2026-10-29: v0.4.5 adds bot icon registration, replacement and unlinking, with snapshot/host persistence and charx metadata cleanup.
 Modified 2026-10-29: v0.4.4 writes the main charx icon under assets/icon/image/ for RisuRealm thumbnail discovery, preserving byte sharing and card references.
 Modified 2026-10-29: v0.4.3 adds explicit user review of unmatched prose edits, candidate selection, manual ranges and skip; code remains exact-only.
@@ -10175,7 +10176,7 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/core.js
-  var VERSION = "0.4.5";
+  var VERSION = "0.4.6";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -14896,7 +14897,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         body.append(this.field("\uD37C\uC2A4\uD2B8 \uBA54\uC2DC\uC9C0", s.draft.firstMessage, (v) => this.setField("firstMessage", v), { class: "textarea-large", placeholder: "\uCCAB \uC7A5\uBA74 \uB610\uB294 \uC0C1\uD669 \uC120\uD0DD \uB2E8\uCD94\uC640 \uC5F0\uACB0\uB41C \uBCF8\uBB38\u2026" }));
         const alts = s.draft.alternateGreetings ?? [];
         const list = h("div", { class: "stack" });
-        const draw = () => list.replaceChildren(alts.map((a, i) => h("div", { class: "card stack" }, this.field(`\uB300\uCCB4 \uC778\uC0AC\uB9D0 ${i + 1}`, a, (v) => {
+        const draw = () => list.replaceChildren(...alts.map((a, i) => h("div", { class: "card stack" }, this.field(`\uB300\uCCB4 \uC778\uC0AC\uB9D0 ${i + 1}`, a, (v) => {
           alts[i] = v;
           s.draft.alternateGreetings = alts;
           this.touch();
@@ -15519,7 +15520,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       let selected = null;
       await this.dialog("\uCE90\uB9AD\uD130 \uBD88\uB7EC\uC624\uAE30", (body) => {
         const results = this.h("div", { class: "stack" });
-        const draw = (query) => results.replaceChildren(chars.filter((c2) => c2.name?.toLowerCase().includes(query.toLowerCase())).map((c2) => this.b(c2.name || "(\uC774\uB984 \uC5C6\uC74C)", async () => {
+        const draw = (query) => results.replaceChildren(...chars.filter((c2) => c2.name?.toLowerCase().includes(query.toLowerCase())).map((c2) => this.b(c2.name || "(\uC774\uB984 \uC5C6\uC74C)", async () => {
           selected = c2.chaId;
           this.activeModal.close(true);
         })));
