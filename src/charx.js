@@ -1,6 +1,6 @@
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { rpackMap } from './rpack-map.js';
-import { assert, blankCharacter, clone, editable, uid, tick } from './core.js';
+import { assert, blankCharacter, clone, editable, uid, tick, luaFirstTriggers } from './core.js';
 
 const MAX_ARCHIVE = 100 * 1024 * 1024, MAX_EXPANDED = 200 * 1024 * 1024;
 function json(data) { assert(data && data.length <= 8 * 1024 * 1024, '메타데이터가 없거나 8MiB 상한을 초과했습니다.'); return JSON.parse(strFromU8(data)); }
@@ -14,7 +14,7 @@ export function decodeModule(data) {
   return payload.module;
 }
 export function encodeModule(character, original = null) {
-  const payload = strToU8(JSON.stringify({ type: 'risuModule', module: { id: uid(), name: character.name + ' Module', description: '', ...(original ?? {}), lorebook: character.globalLore ?? [], regex: character.customscript ?? [], trigger: character.triggerscript ?? [], assets: [] } }));
+  const payload = strToU8(JSON.stringify({ type: 'risuModule', module: { id: uid(), name: character.name + ' Module', description: '', ...(original ?? {}), lorebook: character.globalLore ?? [], regex: character.customscript ?? [], trigger: luaFirstTriggers(character.triggerscript ?? []), assets: [] } }));
   const result = new Uint8Array(7 + payload.length); result[0] = 111; result[1] = 0;
   new DataView(result.buffer).setUint32(2, payload.length, true);
   result.set(payload.map(x => rpackMap[x]), 6); result[result.length - 1] = 0;
@@ -44,6 +44,7 @@ export function cardToCharacter(card, module = null) {
   c.ccAssets = clone(d.assets ?? []);
   assert(typeof c.name === 'string' && typeof c.desc === 'string' && typeof c.firstMessage === 'string', '카드 본문 형식이 올바르지 않습니다.');
   for (const field of ['customscript', 'triggerscript', 'globalLore']) assert(Array.isArray(c[field]), '카드 배열 형식 오류: ' + field);
+  c.triggerscript = luaFirstTriggers(c.triggerscript);
   return c;
 }
 export function characterToCard(c, original = null) {

@@ -191,7 +191,7 @@
           "minTouch": 44
         },
         {
-          "width": 768,
+          "width": 412,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -205,7 +205,7 @@
       "passed": true
     },
     {
-      "name": "invalid source patch makes no candidate, leaves manuscript intact and does not retry",
+      "name": "unmatched prose opens explicit review; skipping leaves manuscript intact, unlocks controls and does not retry",
       "passed": true
     },
     {

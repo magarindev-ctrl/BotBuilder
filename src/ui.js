@@ -3,7 +3,7 @@ import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, mig
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
-import { proposalDiff, removeAdditionalAssets } from './core.js';
+import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket } from './core.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
 const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
@@ -71,6 +71,12 @@ export class Workshop {
     this.doc.head.append(style);
     this.doc.documentElement.lang = "ko";
     this.root = this.h("main", { id: "story-workshop" });
+    for (const type of ['click', 'beforeinput', 'input', 'change', 'keydown', 'drop']) this.root.addEventListener(type, (event) => {
+      if (!this.job || event.target.closest?.('[data-action="cancel-request"]')) return;
+      if (type === 'keydown' && !['Enter', ' ', 'Backspace', 'Delete'].includes(event.key)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
     this.doc.body.append(this.root);
     const setting = await this.api.pluginStorage.getItem(PREFIX + "settings");
     try {
@@ -163,6 +169,21 @@ export class Workshop {
     if (this.job) this.jobEl.append(this.h('span', { class: 'spinner', 'aria-hidden': 'true' }), this.doc.createTextNode(`${this.job.label} · ${Math.floor((Date.now() - this.job.start) / 1000)}초`));
     else this.jobEl.textContent = '메인·보조 모델은 리스바드 설정을 사용합니다.';
   }
+  lockRequestEditors() {
+    if (!this.root) return;
+    this.root.setAttribute('aria-busy', String(!!this.job));
+    if (!this.job) return; // Normal rendering restores each control's own disabled state.
+    for (const control of this.root.querySelectorAll('input, textarea, select, button')) {
+      if (control.getAttribute('data-action') !== 'cancel-request') control.disabled = true;
+    }
+    for (const editable of this.root.querySelectorAll('[contenteditable="true"]')) editable.setAttribute('contenteditable', 'false');
+  }
+  cancelRequest() {
+    if (!this.job) return;
+    this.job.cancelled = true;
+    this.job.stop?.();
+    this.activeModal?.close(null);
+  }
   render() {
     const h = this.h.bind(this), s = this.s;
     this.statusEl = h('span', { class: 'status-text', 'aria-live': 'polite' }); this.titleEl = h('strong', { class: 'document-name', title: s.draft.name }, s.draft.name);
@@ -174,8 +195,9 @@ export class Workshop {
     const sidebar = h('nav', { class: 'sidebar', 'aria-label': '원고 구성' }, h('span', { class: 'eyebrow' }, 'MANUSCRIPT'), TABS.map(([id, name], i) => this.b([h('span', { class: 'navnum' }, String(i + 1).padStart(2, '0')), name, h('span', { class: 'navcount' }, id === 'lorebook' ? s.draft.globalLore?.length ?? 0 : id === 'regex' ? s.draft.customscript?.length ?? 0 : '')], () => { s.tab = id; if (Object.hasOwn(TASKS,id)) this.task = id; this.view = 'editor'; this.touch(false); this.render(); }, 'navitem', { 'aria-current': s.tab === id ? 'page' : null })), h('div', { class: 'sidefoot muted' }, '대화로 구상하고,\n원고로 구체화하세요.', h('p', { style: 'margin-top:12px' }, `v${VERSION} · 3분 자동 저장`)));
     const chat = this.renderChat();
     this.workspace = h('div', { class: 'workspace', 'data-view': this.view }, sidebar, this.editor, chat);
+    if (this.job) header.append(h('span', { class: 'warn', role: 'status' }, '응답 처리 중 · 편집 잠금'), this.b('요청 취소', () => this.cancelRequest(), 'danger small', { 'data-action': 'cancel-request' }));
     this.root.replaceChildren(header, tools, this.workspace);
-    this.renderEditor(); this.status(); this.jobStatus();
+    this.renderEditor(); this.status(); this.jobStatus(); this.lockRequestEditors();
   }
   renderEditor() {
     const h = this.h.bind(this), s = this.s;
@@ -205,6 +227,7 @@ export class Workshop {
       this.editorAction(body, 'greeting'); this.editorAction(body, 'choiceGreeting');
     } else if (s.tab === 'assets') this.renderAssets(body);
     else if (s.tab === 'preset') renderPresetEditor(this,body);
+    this.lockRequestEditors();
   }
   editorAction(host, task) {
     host.append(this.h('div', { class: 'row' }, this.b('LLM과 ' + TASKS[task].label + ' 다듬기', () => { this.task = task; this.view = 'chat'; this.render(); this.requestInput?.focus(); }), this.b('프롬프트', () => this.showPrompt(task), 'small')));
@@ -332,7 +355,8 @@ export class Workshop {
     const h = this.h.bind(this), s = this.s;
     host.append(this.field('초기 변수 · 한 줄에 key=value', s.draft.defaultVariables, v => this.setField('defaultVariables', v), { class: 'code', placeholder: 'scene=none\ntrust=0' }));
     const entries = luaEntries(s.draft);
-    host.append(h('div', { class: 'row' }, this.b('＋ Lua 추가', () => { s.draft.triggerscript.push({ comment: '새 Lua', type: 'start', conditions: [], effect: [{ type: 'triggerlua', code: '-- RisuAI Lua\n' }] }); this.touch(); this.renderEditor(); }, 'small'), h('span', { class: 'muted' }, `${entries.length}개 Lua · 전체 트리거 ${(s.draft.triggerscript ?? []).length}개`)));
+    host.append(h('div', { class: 'row' }, this.b('＋ Lua 추가', () => { s.draft.triggerscript.push({ comment: '새 Lua', type: 'start', conditions: [], effect: [{ type: 'triggerlua', code: '-- RisuAI Lua\n' }] }); s.draft.triggerscript = luaFirstTriggers(s.draft.triggerscript); this.touch(); this.renderEditor(); }, 'small'), h('span', { class: 'muted' }, `${entries.length}개 Lua · 전체 트리거 ${(s.draft.triggerscript ?? []).length}개`)));
+    host.append(h("p", { class: "muted" }, "CHARX 저장 시 Lua 트리거를 맨 앞으로 배치해 리스에서 Lua 편집기로 인식하도록 합니다. 여러 Lua와 V2 트리거는 모두 보존되지만, 리스 기본 Lua 편집기에는 첫 번째 Lua만 표시됩니다. 전체 스크립트는 이 탭에서 편집하세요."));
     for (const e of entries) {
       const t = s.draft.triggerscript[e.ti];
       host.append(h('div', { class: 'card stack' }, this.field('Lua 이름', t.comment, v => { t.comment = v; this.touch(); }, { tag: 'input' }), h('label', { class: 'field' }, h('span', {}, '트리거 유형'), this.select(t.type, ['start', 'manual', 'input', 'output', 'display', 'request'].map(v => [v, v]), v => { t.type = v; this.touch(); }, '트리거 유형')), this.field('Lua 코드', e.code, v => { t.effect[e.ei].code = v; this.touch(); }, { class: 'code', style: 'min-height:280px' }), h('details', {}, h('summary', {}, '보존 중인 조건·효과 구조'), h('pre', { class: 'diff' }, JSON.stringify({ conditions: t.conditions, effectTypes: t.effect.map(x => x.type) }, null, 2))), this.b('이 Lua 효과 삭제', async () => { if (await this.confirm('Lua 효과를 삭제할까요?', '다른 효과와 트리거 조건은 유지됩니다.')) { t.effect.splice(e.ei, 1); if (!t.effect.length) s.draft.triggerscript.splice(e.ti, 1); this.touch(); this.renderEditor(); } }, 'small danger')));
@@ -413,7 +437,7 @@ export class Workshop {
     const scope = ['lorebook', 'regex'].includes(this.task) && (s.draft[this.task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? this.check('현재 선택한 항목만 수정', this.scopeOnly, v => { this.scopeOnly = v; }) : null;
     const composition = this.select(s.preset.mode,[['direct','직접 요청'],['preset','프리셋 요청']],v=>{s.preset.mode=v;this.presetChanged();if(v==='preset'&&!s.preset.preset){s.tab='preset';this.view='editor';}this.render();},'요청 구성');
     panel.append(messages, h('div', { class: 'composer' }, h('div', { class: 'request-options' }, taskSelect, model, composition), scope, this.requestInput,
-      h('div', { class: 'row' }, send, this.b('프롬프트', () => this.showPrompt(this.task), '', { 'data-action': 'prompt' }), this.job ? this.b('대기 중단', () => this.job?.stop?.(), 'danger small') : null), this.jobEl, h('p', { class: 'muted' }, 'Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다.')));
+      h('div', { class: 'row' }, send, this.b('프롬프트', () => this.showPrompt(this.task), '', { 'data-action': 'prompt' }), this.job ? this.b('대기 중단', () => this.cancelRequest(), 'danger small', { 'data-action': 'cancel-request' }) : null), this.jobEl, h('p', { class: 'muted' }, 'Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다.')));
     queueMicrotask(() => { messages.scrollTop = messages.scrollHeight; });
     return panel;
   }
@@ -477,7 +501,11 @@ export class Workshop {
     try {
       raw = await callModel(this.api, messages, this.settings.model, this.settings.timeout, job);
       assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
-      const packet = parseResponse(raw, task, before);
+      const packet = await reviewPacket(parseResponse(raw, task, before, true), before, (item) => {
+        assert(!job.cancelled, '요청을 취소했습니다.');
+        return this.chooseTextRange(item);
+      });
+      assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "검토 중 원고가 변경되었습니다. 최신 원고로 다시 요청하세요.");
       validateLoreSelection(packet, s);
       if (scope) {
         assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
@@ -495,6 +523,38 @@ export class Workshop {
       if (this.job?.id === job.id) this.job = null;
       this.render();
     }
+  }
+  async chooseTextRange({ source, edit, label, candidates }) {
+    const h = this.h.bind(this);
+    return this.dialog('수정 구간 확인 · ' + label, (body) => {
+      let selected = null;
+      const actual = h('pre', { class: 'diff', style: 'white-space:pre-wrap;max-height:220px;overflow:auto' }, '후보를 선택하거나 아래 원문에서 구간을 직접 선택하세요.');
+      const replacement = h('textarea', { class: 'code', style: 'width:100%;min-height:120px', 'aria-label': '교체할 내용', value: edit.after });
+      const preview = h('pre', { class: 'diff', style: 'white-space:pre-wrap;max-height:240px;overflow:auto' });
+      const accept = this.b('선택 구간으로 수정안 준비', () => {
+        if (selected) this.activeModal.close({ ...selected, after: replacement.value });
+      }, 'primary', { disabled: true });
+      const refresh = () => {
+        preview.textContent = selected ? source.slice(0, selected.start) + replacement.value + source.slice(selected.end) : '';
+      };
+      const select = (range) => {
+        selected = range;
+        actual.textContent = source.slice(range.start, range.end);
+        accept.disabled = false;
+        refresh();
+      };
+      replacement.addEventListener('input', refresh);
+      body.append(h('p', { class: 'warn' }, '원문을 확정할 수 없어 자동 적용하지 않았습니다. 실제 구간과 적용 후 내용을 비교하세요. 여기서는 수정안만 준비하며, 최종 반영은 검토 화면에서 합니다.'), h('h4', {}, 'LLM이 지목한 원문'), h('pre', { class: 'diff', style: 'white-space:pre-wrap;max-height:180px;overflow:auto' }, edit.before));
+      for (const range of candidates) {
+        const line = source.slice(0, range.start).split(/\r\n|\r|\n/).length;
+        body.append(h('div', { class: 'card stack' }, this.b(range.kind + ' · ' + line + '행 · 이 구간 선택', () => select(range), 'small'), h('pre', { style: 'white-space:pre-wrap;max-height:160px;overflow:auto' }, source.slice(range.start, range.end))));
+      }
+      if (!candidates.length) body.append(h('p', { class: 'muted' }, '추천 후보가 없습니다. 원문에서 직접 구간을 선택하거나 이 수정을 건너뛰세요.'));
+      const original = h('textarea', { readonly: true, value: source, style: 'width:100%;min-height:200px', 'aria-label': '실제 원문에서 교체 구간 선택' });
+      body.append(h('details', {}, h('summary', {}, '원문에서 직접 선택'), original, this.b('선택한 원문 구간 사용', () => {
+        if (original.selectionEnd > original.selectionStart) select({ start: original.selectionStart, end: original.selectionEnd });
+      }, 'small')), h('h4', {}, '선택한 실제 원문'), actual, h('h4', {}, '교체할 내용 · 직접 수정 가능'), replacement, h('h4', {}, '적용 후 전체 내용'), preview, accept);
+    }, [{ label: '이 수정 건너뛰기', value: null }]);
   }
   async showPrompt(task) {
     const h = this.h.bind(this), draft = this.s.promptDrafts[task] ??= clone(this.prompts[task] ?? defaultPrompt(task));

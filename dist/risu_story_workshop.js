@@ -1,9 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.1
+//@version 0.4.3
 
 /*
+Modified 2026-10-29: v0.4.3 adds explicit user review of unmatched prose edits, candidate selection, manual ranges and skip; code remains exact-only.
+Modified 2026-10-29: v0.4.2 preserves Lua mode in CHARX by placing a Lua trigger before the V2 header; retains all other triggers and separate Lua scripts.
 Modified 2026-10-28: v0.4.1 adds bulk asset unlinking with CCv3 metadata cleanup and removes the 100MiB asset limit from charx export.
 Modified 2026-10-28: v0.4.0 adds exact before/after text edits across authoring tasks, atomic validation, line-based review and response schema v2 with legacy v1 support.
 Modified 2026-10-28: v0.3.3 expands request capacity and adds lorebook selection; v0.3.4 fixes mobile lorebook lists; v0.3.5 adds sparse lorebook responses and diffs. v0.3.6 synchronizes these changes to source, restores the JSON guide and rejects wrapped array responses.
@@ -10060,6 +10062,96 @@ details[open] > summary { margin-bottom: 9px; }
     parts.push(source.slice(cursor));
     return parts.join("");
   }
+  function reviewCandidates(source, before) {
+    const result = [], seen = /* @__PURE__ */ new Set();
+    const add = (start, end, kind, score = 1) => {
+      const key2 = start + ":" + end;
+      if (start >= 0 && end > start && !seen.has(key2)) {
+        seen.add(key2);
+        result.push({ start, end, kind, score });
+      }
+    };
+    let at = source.indexOf(before);
+    while (before && at >= 0 && result.length < 50) {
+      add(at, at + before.length, "\uC815\uD655\uD788 \uC77C\uCE58");
+      at = source.indexOf(before, at + 1);
+    }
+    if (result.length) return result;
+    const keep = /[A-Za-z0-9\p{Script=Hangul}]/u;
+    const normalize = (text) => [...text].filter((c) => keep.test(c)).join("");
+    const needle = normalize(before), positions = [];
+    let normalized = "", offset = 0;
+    for (const c of source) {
+      if (keep.test(c)) {
+        normalized += c;
+        positions.push(offset);
+      }
+      offset += c.length;
+    }
+    if (needle.length >= 6) {
+      at = normalized.indexOf(needle);
+      while (at >= 0 && result.length < 50) {
+        let start = positions[at], end = positions[at + needle.length - 1] + 1;
+        if (before.length && !keep.test(before[0]) && !/\s/.test(before[0])) while (start > 0 && !keep.test(source[start - 1]) && !/\s/.test(source[start - 1])) start--;
+        if (before.length && !keep.test(before.at(-1)) && !/\s/.test(before.at(-1))) while (end < source.length && !keep.test(source[end]) && !/\s/.test(source[end])) end++;
+        add(start, end, "\uACF5\uBC31\xB7\uAE30\uD638 \uCC28\uC774");
+        at = normalized.indexOf(needle, at + 1);
+      }
+    }
+    if (result.length) return result;
+    const grams = (text) => {
+      const s = normalize(text), set = /* @__PURE__ */ new Set();
+      for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+      return set;
+    };
+    const target = grams(before), lines = [], re = /[^\r\n]+(?:\r\n|\r|\n|$)/g;
+    let match;
+    while (match = re.exec(source)) lines.push({ start: match.index, end: re.lastIndex });
+    const span = Math.min(12, Math.max(1, before.split(/\r\n|\r|\n/).length));
+    for (let i = 0; i < lines.length; i++) {
+      for (const size of /* @__PURE__ */ new Set([1, span, Math.min(12, span + 1)])) {
+        const end = lines[Math.min(lines.length - 1, i + size - 1)].end;
+        const slice = source.slice(lines[i].start, end).replace(/[\r\n]+$/, "");
+        if (slice.length > Math.max(4096, before.length * 4)) continue;
+        const other = grams(slice);
+        let common = 0;
+        for (const g of target) if (other.has(g)) common++;
+        const score = 2 * common / Math.max(1, target.size + other.size);
+        if (score >= 0.3) add(lines[i].start, lines[i].start + slice.length, "\uC720\uC0AC \uBB38\uC7A5 \xB7 \uC9C1\uC811 \uD655\uC778 \uD544\uC694", score);
+      }
+    }
+    return result.sort((a, b) => b.score - a.score).slice(0, 8);
+  }
+  async function reviewTextValue(source, value, label, choose) {
+    if (!isTextEdit(value) || typeof source !== "string") return value;
+    shape(value, ["edits"], label);
+    check(Array.isArray(value.edits) && value.edits.length > 0 && value.edits.length <= 100, "edits\uB294 1~100\uAC1C\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    for (const edit of value.edits) {
+      shape(edit, ["before", "after"], label);
+      check(typeof edit.before === "string" && edit.before.length > 0 && typeof edit.after === "string", "before/after \uD615\uC2DD \uC624\uB958");
+    }
+    try {
+      textEditRanges(source, value, label);
+      return value;
+    } catch {
+    }
+    const ranges = [];
+    for (const edit of value.edits) {
+      const candidates = reviewCandidates(source, edit.before);
+      let selected;
+      if (candidates.length === 1 && candidates[0].kind === "\uC815\uD655\uD788 \uC77C\uCE58") selected = { ...candidates[0], after: edit.after };
+      else selected = await choose({ source, edit, label, candidates });
+      if (selected) {
+        check(Number.isInteger(selected.start) && Number.isInteger(selected.end) && selected.start >= 0 && selected.end > selected.start && selected.end <= source.length && typeof selected.after === "string", "\uC120\uD0DD \uAD6C\uAC04\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        ranges.push(selected);
+      }
+    }
+    ranges.sort((a, b) => a.start - b.start);
+    for (let i = 1; i < ranges.length; i++) check(ranges[i].start >= ranges[i - 1].end, "\uC120\uD0DD\uD55C \uC218\uC815 \uAD6C\uAC04\uC774 \uACB9\uCE69\uB2C8\uB2E4. \uB354 \uB113\uC740 \uD55C \uAD6C\uAC04\uC73C\uB85C \uC9C1\uC811 \uC218\uC815\uD574 \uC8FC\uC138\uC694.");
+    let result = source;
+    for (const range2 of ranges.slice().reverse()) result = result.slice(0, range2.start) + range2.after + result.slice(range2.end);
+    return result;
+  }
   function textEditPreview(source, value, label) {
     const ranges = textEditRanges(source, value, label);
     const lineCount = (text) => (text.match(/\r\n|\r|\n/g) ?? []).length;
@@ -10081,7 +10173,7 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/core.js
-  var VERSION = "0.4.1";
+  var VERSION = "0.4.3";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10189,6 +10281,11 @@ details[open] > summary { margin-bottom: 9px; }
       if (e.type === "triggerlua") r.push({ ref: `s${ti}_${ei}`, ti, ei, comment: t.comment, code: e.code, type: t.type });
     }));
     return r;
+  }
+  function luaFirstTriggers(triggers = []) {
+    const at = triggers.findIndex((t) => t.effect?.[0]?.type === "triggerlua");
+    if (at <= 0) return triggers;
+    return [triggers[at], ...triggers.slice(0, at), ...triggers.slice(at + 1)];
   }
   function contextOf(draft) {
     return {
@@ -10506,12 +10603,38 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     }
     throw new Error("\uC54C \uC218 \uC5C6\uB294 \uC791\uC5C5\uC785\uB2C8\uB2E4.");
   }
-  function parseResponse(raw, task, draft) {
+  async function reviewPacket(packet, draft, choose) {
+    const result = clone(packet);
+    const visit = async (task, data) => {
+      if (task === "workshop") {
+        array(data.changes, "\uBCC0\uACBD \uBB36\uC74C");
+        for (const item of data.changes) {
+          assert(item.task !== "workshop", "\uC911\uCCA9 \uC791\uC5C5\uC740 \uD5C8\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+          await visit(item.task, item.data);
+        }
+      } else if (["description", "greeting", "choiceGreeting"].includes(task)) {
+        data.text = await reviewTextValue(draft[task === "description" ? "desc" : "firstMessage"], data.text, task + ".text", choose);
+      } else if (task === "lorebook") {
+        array(data.upsert, "\uB85C\uC5B4\uBD81 \uC218\uC815");
+        for (const item of data.upsert) {
+          const prior = referencedEntry(draft, "globalLore", item.ref, "l");
+          if (!prior) continue;
+          for (const key2 of ["content", "comment"]) if (Object.hasOwn(item.entry, key2)) item.entry[key2] = await reviewTextValue(prior[key2], item.entry[key2], item.ref + "." + key2, choose);
+        }
+      }
+    };
+    await visit(result.task, result.data);
+    validatePacketVersion(result);
+    validateData(result.task, result.data, draft);
+    return compactLorePacket(result, draft);
+  }
+  function parseResponse(raw, task, draft, review = false) {
     assert(typeof raw === "string" && bytes(raw) <= 1048576, "\uC751\uB2F5\uC774 \uC5C6\uAC70\uB098 1MiB \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     const validate = (response2) => {
       keys(response2, ["schemaVersion", "task", "data"]);
       assert([1, 2].includes(response2.schemaVersion) && response2.task === task, "\uC751\uB2F5 \uBC84\uC804 \uB610\uB294 \uC791\uC5C5 \uC885\uB958\uAC00 \uC694\uCCAD\uACFC \uB2E4\uB985\uB2C8\uB2E4.");
       validatePacketVersion(response2);
+      if (review) return response2;
       validateData(task, response2.data, draft);
       return compactLorePacket(response2, draft);
     };
@@ -10629,6 +10752,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       const effect = t.effect.filter((_, ei) => !deleted.has(`s${ti}_${ei}`));
       return effect.length || !t.effect.length ? [{ ...t, effect }] : [];
     });
+    draft.triggerscript = luaFirstTriggers(draft.triggerscript);
     draft.defaultVariables = applyVariables(draft.defaultVariables ?? "", data.variables, data.removeVariables ?? []);
   }
   function applyPacket(draft, packet) {
@@ -10939,7 +11063,7 @@ workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최�
 기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":"원문에서 정확히 복사한 구간","after":"교체할 새 구간"}]}를 넣어라. 한 필드당 1~100개다. 줄 번호를 출력하거나 적용 위치로 사용하지 마라.
 적용 필드: description/greeting/choiceGreeting의 text; lorebook entry의 comment/key/secondkey/content; regex rule의 comment/in/out; Lua scripts의 comment/code; 기존 variables의 각 값. workshop 내부의 각 작업에도 같은 형식을 쓴다. reply와 choices의 안내 정보는 일반 문자열이다. type/mode/flag/불리언/숫자 등 설정은 기존 값 형식을 따른다.
 before는 공백·들여쓰기·줄바꿈·기호까지 현재 원문과 정확히 같아야 하며 한 곳에만 있어야 한다. 반복되는 구간이면 주변 문맥까지 포함하라. 빈 before는 금지한다. 삽입은 기존 문맥을 before로 잡고 after에 문맥과 새 내용을 함께 넣는다. 삭제는 after:""를 쓴다.
-여러 edits는 모두 요청 당시 원문 기준이다. 앞 edit의 결과를 다음 before로 참조하지 마라. 구간이 겹치면 하나로 합쳐라. 원문 불일치·중복 매칭·겹침이 하나라도 있으면 전체 제안이 거부된다.
+여러 edits는 모두 요청 당시 원문 기준이다. 앞 edit의 결과를 다음 before로 참조하지 마라. 구간이 겹치면 하나로 합쳐라. 원문은 최대한 정확히 복사하라. 일반 문장의 원문 불일치·중복 매칭은 사용자가 실제 구간을 비교해서 선택하며, 코드·정규식과 겹치는 수정 구간은 엄격히 검증한다.
 새 항목이나 빈 필드의 첫 작성, 사용자가 명시한 전체 재작성은 완성 문자열을 사용한다. 부분 수정 요청에는 긴 본문·코드 전체를 다시 출력하지 마라. 원문과 새 문자열을 함께 반복하는 전체 교체 edits도 피하라.
 기존 항목은 원래 ref를 유지하고 변경할 필드만 넣어라. 기존 Lua는 ref와 code 또는 comment만 보낼 수 있으며 생략한 필드는 보존된다. 새 Lua는 ref:null, comment, code가 모두 필요하다. 새 로어북은 ref:null, key, content가 필요하다.
 생략한 항목·필드는 보존된다. 삭제 목록은 명시적으로 요청받은 ref만 포함하라. reply에 코드나 변경 JSON을 중복하지 마라.
@@ -12162,7 +12286,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     return payload.module;
   }
   function encodeModule(character, original = null) {
-    const payload = strToU8(JSON.stringify({ type: "risuModule", module: { id: uid(), name: character.name + " Module", description: "", ...original ?? {}, lorebook: character.globalLore ?? [], regex: character.customscript ?? [], trigger: character.triggerscript ?? [], assets: [] } }));
+    const payload = strToU8(JSON.stringify({ type: "risuModule", module: { id: uid(), name: character.name + " Module", description: "", ...original ?? {}, lorebook: character.globalLore ?? [], regex: character.customscript ?? [], trigger: luaFirstTriggers(character.triggerscript ?? []), assets: [] } }));
     const result = new Uint8Array(7 + payload.length);
     result[0] = 111;
     result[1] = 0;
@@ -12202,6 +12326,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     c.ccAssets = clone(d.assets ?? []);
     assert(typeof c.name === "string" && typeof c.desc === "string" && typeof c.firstMessage === "string", "\uCE74\uB4DC \uBCF8\uBB38 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     for (const field of ["customscript", "triggerscript", "globalLore"]) assert(Array.isArray(c[field]), "\uCE74\uB4DC \uBC30\uC5F4 \uD615\uC2DD \uC624\uB958: " + field);
+    c.triggerscript = luaFirstTriggers(c.triggerscript);
     return c;
   }
   function characterToCard(c, original = null) {
@@ -14553,6 +14678,12 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       this.doc.head.append(style);
       this.doc.documentElement.lang = "ko";
       this.root = this.h("main", { id: "story-workshop" });
+      for (const type of ["click", "beforeinput", "input", "change", "keydown", "drop"]) this.root.addEventListener(type, (event) => {
+        if (!this.job || event.target.closest?.('[data-action="cancel-request"]')) return;
+        if (type === "keydown" && !["Enter", " ", "Backspace", "Delete"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
       this.doc.body.append(this.root);
       const setting = await this.api.pluginStorage.getItem(PREFIX + "settings");
       try {
@@ -14671,6 +14802,21 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       if (this.job) this.jobEl.append(this.h("span", { class: "spinner", "aria-hidden": "true" }), this.doc.createTextNode(`${this.job.label} \xB7 ${Math.floor((Date.now() - this.job.start) / 1e3)}\uCD08`));
       else this.jobEl.textContent = "\uBA54\uC778\xB7\uBCF4\uC870 \uBAA8\uB378\uC740 \uB9AC\uC2A4\uBC14\uB4DC \uC124\uC815\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4.";
     }
+    lockRequestEditors() {
+      if (!this.root) return;
+      this.root.setAttribute("aria-busy", String(!!this.job));
+      if (!this.job) return;
+      for (const control of this.root.querySelectorAll("input, textarea, select, button")) {
+        if (control.getAttribute("data-action") !== "cancel-request") control.disabled = true;
+      }
+      for (const editable2 of this.root.querySelectorAll('[contenteditable="true"]')) editable2.setAttribute("contenteditable", "false");
+    }
+    cancelRequest() {
+      if (!this.job) return;
+      this.job.cancelled = true;
+      this.job.stop?.();
+      this.activeModal?.close(null);
+    }
     render() {
       const h = this.h.bind(this), s = this.s;
       this.statusEl = h("span", { class: "status-text", "aria-live": "polite" });
@@ -14702,10 +14848,12 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       }, "navitem", { "aria-current": s.tab === id ? "page" : null })), h("div", { class: "sidefoot muted" }, "\uB300\uD654\uB85C \uAD6C\uC0C1\uD558\uACE0,\n\uC6D0\uACE0\uB85C \uAD6C\uCCB4\uD654\uD558\uC138\uC694.", h("p", { style: "margin-top:12px" }, `v${VERSION} \xB7 3\uBD84 \uC790\uB3D9 \uC800\uC7A5`)));
       const chat = this.renderChat();
       this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
+      if (this.job) header.append(h("span", { class: "warn", role: "status" }, "\uC751\uB2F5 \uCC98\uB9AC \uC911 \xB7 \uD3B8\uC9D1 \uC7A0\uAE08"), this.b("\uC694\uCCAD \uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
       this.root.replaceChildren(header, tools, this.workspace);
       this.renderEditor();
       this.status();
       this.jobStatus();
+      this.lockRequestEditors();
     }
     renderEditor() {
       const h = this.h.bind(this), s = this.s;
@@ -14764,6 +14912,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         this.editorAction(body, "choiceGreeting");
       } else if (s.tab === "assets") this.renderAssets(body);
       else if (s.tab === "preset") renderPresetEditor(this, body);
+      this.lockRequestEditors();
     }
     editorAction(host, task) {
       host.append(this.h("div", { class: "row" }, this.b("LLM\uACFC " + TASKS[task].label + " \uB2E4\uB4EC\uAE30", () => {
@@ -14908,9 +15057,11 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       const entries = luaEntries(s.draft);
       host.append(h("div", { class: "row" }, this.b("\uFF0B Lua \uCD94\uAC00", () => {
         s.draft.triggerscript.push({ comment: "\uC0C8 Lua", type: "start", conditions: [], effect: [{ type: "triggerlua", code: "-- RisuAI Lua\n" }] });
+        s.draft.triggerscript = luaFirstTriggers(s.draft.triggerscript);
         this.touch();
         this.renderEditor();
       }, "small"), h("span", { class: "muted" }, `${entries.length}\uAC1C Lua \xB7 \uC804\uCCB4 \uD2B8\uB9AC\uAC70 ${(s.draft.triggerscript ?? []).length}\uAC1C`)));
+      host.append(h("p", { class: "muted" }, "CHARX \uC800\uC7A5 \uC2DC Lua \uD2B8\uB9AC\uAC70\uB97C \uB9E8 \uC55E\uC73C\uB85C \uBC30\uCE58\uD574 \uB9AC\uC2A4\uC5D0\uC11C Lua \uD3B8\uC9D1\uAE30\uB85C \uC778\uC2DD\uD558\uB3C4\uB85D \uD569\uB2C8\uB2E4. \uC5EC\uB7EC Lua\uC640 V2 \uD2B8\uB9AC\uAC70\uB294 \uBAA8\uB450 \uBCF4\uC874\uB418\uC9C0\uB9CC, \uB9AC\uC2A4 \uAE30\uBCF8 Lua \uD3B8\uC9D1\uAE30\uC5D0\uB294 \uCCAB \uBC88\uC9F8 Lua\uB9CC \uD45C\uC2DC\uB429\uB2C8\uB2E4. \uC804\uCCB4 \uC2A4\uD06C\uB9BD\uD2B8\uB294 \uC774 \uD0ED\uC5D0\uC11C \uD3B8\uC9D1\uD558\uC138\uC694."));
       for (const e of entries) {
         const t = s.draft.triggerscript[e.ti];
         host.append(h("div", { class: "card stack" }, this.field("Lua \uC774\uB984", t.comment, (v) => {
@@ -15091,7 +15242,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         h("div", { class: "request-options" }, taskSelect, model, composition),
         scope,
         this.requestInput,
-        h("div", { class: "row" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.job?.stop?.(), "danger small") : null),
+        h("div", { class: "row" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
         this.jobEl,
         h("p", { class: "muted" }, "Ctrl + Enter \uC804\uC1A1 \xB7 \uC0DD\uC131 \uACB0\uACFC\uB294 \uAC80\uD1A0 \uD6C4 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uB429\uB2C8\uB2E4.")
       ));
@@ -15170,7 +15321,11 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       try {
         raw = await callModel(this.api, messages, this.settings.model, this.settings.timeout, job);
         assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "\uC694\uCCAD \uC774\uD6C4 \uC791\uC5C5 \uB300\uC0C1\xB7\uC6D0\uACE0\xB7\uD504\uB86C\uD504\uD2B8\uAC00 \uBC14\uB00C\uC5B4 \uC751\uB2F5\uC744 \uD3D0\uAE30\uD588\uC2B5\uB2C8\uB2E4.");
-        const packet = parseResponse(raw, task, before);
+        const packet = await reviewPacket(parseResponse(raw, task, before, true), before, (item) => {
+          assert(!job.cancelled, "\uC694\uCCAD\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.");
+          return this.chooseTextRange(item);
+        });
+        assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "\uAC80\uD1A0 \uC911 \uC6D0\uACE0\uAC00 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uCD5C\uC2E0 \uC6D0\uACE0\uB85C \uB2E4\uC2DC \uC694\uCCAD\uD558\uC138\uC694.");
         validateLoreSelection(packet, s);
         if (scope) {
           assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "\uC120\uD0DD\uD55C \uD56D\uBAA9 \uBC16\uC758 \uBCC0\uACBD\uC774 \uD3EC\uD568\uB418\uC5B4 \uC81C\uC548\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.");
@@ -15188,6 +15343,38 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         if (this.job?.id === job.id) this.job = null;
         this.render();
       }
+    }
+    async chooseTextRange({ source, edit, label, candidates }) {
+      const h = this.h.bind(this);
+      return this.dialog("\uC218\uC815 \uAD6C\uAC04 \uD655\uC778 \xB7 " + label, (body) => {
+        let selected = null;
+        const actual = h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:220px;overflow:auto" }, "\uD6C4\uBCF4\uB97C \uC120\uD0DD\uD558\uAC70\uB098 \uC544\uB798 \uC6D0\uBB38\uC5D0\uC11C \uAD6C\uAC04\uC744 \uC9C1\uC811 \uC120\uD0DD\uD558\uC138\uC694.");
+        const replacement = h("textarea", { class: "code", style: "width:100%;min-height:120px", "aria-label": "\uAD50\uCCB4\uD560 \uB0B4\uC6A9", value: edit.after });
+        const preview = h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:240px;overflow:auto" });
+        const accept = this.b("\uC120\uD0DD \uAD6C\uAC04\uC73C\uB85C \uC218\uC815\uC548 \uC900\uBE44", () => {
+          if (selected) this.activeModal.close({ ...selected, after: replacement.value });
+        }, "primary", { disabled: true });
+        const refresh = () => {
+          preview.textContent = selected ? source.slice(0, selected.start) + replacement.value + source.slice(selected.end) : "";
+        };
+        const select = (range2) => {
+          selected = range2;
+          actual.textContent = source.slice(range2.start, range2.end);
+          accept.disabled = false;
+          refresh();
+        };
+        replacement.addEventListener("input", refresh);
+        body.append(h("p", { class: "warn" }, "\uC6D0\uBB38\uC744 \uD655\uC815\uD560 \uC218 \uC5C6\uC5B4 \uC790\uB3D9 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uC81C \uAD6C\uAC04\uACFC \uC801\uC6A9 \uD6C4 \uB0B4\uC6A9\uC744 \uBE44\uAD50\uD558\uC138\uC694. \uC5EC\uAE30\uC11C\uB294 \uC218\uC815\uC548\uB9CC \uC900\uBE44\uD558\uBA70, \uCD5C\uC885 \uBC18\uC601\uC740 \uAC80\uD1A0 \uD654\uBA74\uC5D0\uC11C \uD569\uB2C8\uB2E4."), h("h4", {}, "LLM\uC774 \uC9C0\uBAA9\uD55C \uC6D0\uBB38"), h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:180px;overflow:auto" }, edit.before));
+        for (const range2 of candidates) {
+          const line = source.slice(0, range2.start).split(/\r\n|\r|\n/).length;
+          body.append(h("div", { class: "card stack" }, this.b(range2.kind + " \xB7 " + line + "\uD589 \xB7 \uC774 \uAD6C\uAC04 \uC120\uD0DD", () => select(range2), "small"), h("pre", { style: "white-space:pre-wrap;max-height:160px;overflow:auto" }, source.slice(range2.start, range2.end))));
+        }
+        if (!candidates.length) body.append(h("p", { class: "muted" }, "\uCD94\uCC9C \uD6C4\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uC6D0\uBB38\uC5D0\uC11C \uC9C1\uC811 \uAD6C\uAC04\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \uC774 \uC218\uC815\uC744 \uAC74\uB108\uB6F0\uC138\uC694."));
+        const original = h("textarea", { readonly: true, value: source, style: "width:100%;min-height:200px", "aria-label": "\uC2E4\uC81C \uC6D0\uBB38\uC5D0\uC11C \uAD50\uCCB4 \uAD6C\uAC04 \uC120\uD0DD" });
+        body.append(h("details", {}, h("summary", {}, "\uC6D0\uBB38\uC5D0\uC11C \uC9C1\uC811 \uC120\uD0DD"), original, this.b("\uC120\uD0DD\uD55C \uC6D0\uBB38 \uAD6C\uAC04 \uC0AC\uC6A9", () => {
+          if (original.selectionEnd > original.selectionStart) select({ start: original.selectionStart, end: original.selectionEnd });
+        }, "small")), h("h4", {}, "\uC120\uD0DD\uD55C \uC2E4\uC81C \uC6D0\uBB38"), actual, h("h4", {}, "\uAD50\uCCB4\uD560 \uB0B4\uC6A9 \xB7 \uC9C1\uC811 \uC218\uC815 \uAC00\uB2A5"), replacement, h("h4", {}, "\uC801\uC6A9 \uD6C4 \uC804\uCCB4 \uB0B4\uC6A9"), preview, accept);
+      }, [{ label: "\uC774 \uC218\uC815 \uAC74\uB108\uB6F0\uAE30", value: null }]);
     }
     async showPrompt(task) {
       const h = this.h.bind(this), draft = this.s.promptDrafts[task] ??= clone(this.prompts[task] ?? defaultPrompt(task));

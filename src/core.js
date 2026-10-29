@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
-import { isTextEdit, resolveTextValue, textEditPreview } from './text-edits.js';
+import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '0.4.1';
+export const VERSION = '0.4.3';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -98,6 +98,12 @@ export function luaEntries(draft) {
   }));
   return r;
 }
+export function luaFirstTriggers(triggers = []) {
+  const at = triggers.findIndex((t) => t.effect?.[0]?.type === "triggerlua");
+  if (at <= 0) return triggers;
+  return [triggers[at], ...triggers.slice(0, at), ...triggers.slice(at + 1)];
+}
+
 export function contextOf(draft) {
   return { name: draft.name, description: draft.desc, personality: draft.personality, scenario: draft.scenario, firstMessage: draft.firstMessage,
     lorebook: (draft.globalLore ?? []).map((entry, i) => ({ ref: 'l' + i, entry })),
@@ -336,12 +342,36 @@ function validateResolvedData(task, data, draft) {
   }
   throw new Error('알 수 없는 작업입니다.');
 }
-export function parseResponse(raw, task, draft) {
+export async function reviewPacket(packet, draft, choose) {
+  const result = clone(packet);
+  const visit = async (task, data) => {
+    if (task === 'workshop') {
+      array(data.changes, '변경 묶음');
+      for (const item of data.changes) { assert(item.task !== 'workshop', '중첩 작업은 허용되지 않습니다.'); await visit(item.task, item.data); }
+    } else if (['description', 'greeting', 'choiceGreeting'].includes(task)) {
+      data.text = await reviewTextValue(draft[task === 'description' ? 'desc' : 'firstMessage'], data.text, task + '.text', choose);
+    } else if (task === 'lorebook') {
+      array(data.upsert, '로어북 수정');
+      for (const item of data.upsert) {
+        const prior = referencedEntry(draft, 'globalLore', item.ref, 'l');
+        if (!prior) continue;
+        for (const key of ['content', 'comment']) if (Object.hasOwn(item.entry, key)) item.entry[key] = await reviewTextValue(prior[key], item.entry[key], item.ref + '.' + key, choose);
+      }
+    }
+  };
+  await visit(result.task, result.data);
+  validatePacketVersion(result);
+  validateData(result.task, result.data, draft);
+  return compactLorePacket(result, draft);
+}
+
+export function parseResponse(raw, task, draft, review = false) {
   assert(typeof raw === 'string' && bytes(raw) <= 1048576, '응답이 없거나 1MiB 상한을 초과했습니다.');
   const validate=response=>{
     keys(response,['schemaVersion','task','data']);
     assert([1,2].includes(response.schemaVersion)&&response.task===task,'응답 버전 또는 작업 종류가 요청과 다릅니다.');
     validatePacketVersion(response);
+    if (review) return response;
     validateData(task,response.data,draft);return compactLorePacket(response,draft);
   };
   let exact,parsed=false;
@@ -413,6 +443,7 @@ function applyScripts(draft, data, requested = data.scripts) {
     const effect = t.effect.filter((_, ei) => !deleted.has(`s${ti}_${ei}`));
     return effect.length || !t.effect.length ? [{ ...t, effect }] : [];
   });
+  draft.triggerscript = luaFirstTriggers(draft.triggerscript);
   draft.defaultVariables = applyVariables(draft.defaultVariables ?? '', data.variables, data.removeVariables ?? []);
 }
 export function applyPacket(draft, packet) {
@@ -667,7 +698,7 @@ workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최�
 기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":"원문에서 정확히 복사한 구간","after":"교체할 새 구간"}]}를 넣어라. 한 필드당 1~100개다. 줄 번호를 출력하거나 적용 위치로 사용하지 마라.
 적용 필드: description/greeting/choiceGreeting의 text; lorebook entry의 comment/key/secondkey/content; regex rule의 comment/in/out; Lua scripts의 comment/code; 기존 variables의 각 값. workshop 내부의 각 작업에도 같은 형식을 쓴다. reply와 choices의 안내 정보는 일반 문자열이다. type/mode/flag/불리언/숫자 등 설정은 기존 값 형식을 따른다.
 before는 공백·들여쓰기·줄바꿈·기호까지 현재 원문과 정확히 같아야 하며 한 곳에만 있어야 한다. 반복되는 구간이면 주변 문맥까지 포함하라. 빈 before는 금지한다. 삽입은 기존 문맥을 before로 잡고 after에 문맥과 새 내용을 함께 넣는다. 삭제는 after:""를 쓴다.
-여러 edits는 모두 요청 당시 원문 기준이다. 앞 edit의 결과를 다음 before로 참조하지 마라. 구간이 겹치면 하나로 합쳐라. 원문 불일치·중복 매칭·겹침이 하나라도 있으면 전체 제안이 거부된다.
+여러 edits는 모두 요청 당시 원문 기준이다. 앞 edit의 결과를 다음 before로 참조하지 마라. 구간이 겹치면 하나로 합쳐라. 원문은 최대한 정확히 복사하라. 일반 문장의 원문 불일치·중복 매칭은 사용자가 실제 구간을 비교해서 선택하며, 코드·정규식과 겹치는 수정 구간은 엄격히 검증한다.
 새 항목이나 빈 필드의 첫 작성, 사용자가 명시한 전체 재작성은 완성 문자열을 사용한다. 부분 수정 요청에는 긴 본문·코드 전체를 다시 출력하지 마라. 원문과 새 문자열을 함께 반복하는 전체 교체 edits도 피하라.
 기존 항목은 원래 ref를 유지하고 변경할 필드만 넣어라. 기존 Lua는 ref와 code 또는 comment만 보낼 수 있으며 생략한 필드는 보존된다. 새 Lua는 ref:null, comment, code가 모두 필요하다. 새 로어북은 ref:null, key, content가 필요하다.
 생략한 항목·필드는 보존된다. 삭제 목록은 명시적으로 요청받은 ref만 포함하라. reply에 코드나 변경 JSON을 중복하지 마라.

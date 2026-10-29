@@ -1,3 +1,5 @@
+Modified 2026-10-29: v0.4.3 adds explicit user review of unmatched prose edits, candidate selection, manual ranges and skip; code remains exact-only.
+Modified 2026-10-29: v0.4.2 preserves Lua mode in CHARX by placing a Lua trigger before the V2 header; retains all other triggers and separate Lua scripts.
 Modified 2026-10-28: v0.4.1 adds bulk asset unlinking with CCv3 metadata cleanup and removes the 100MiB asset limit from charx export.
 Modified 2026-10-28: v0.4.0 adds exact before/after text edits across authoring tasks, atomic validation, line-based review and response schema v2 with legacy v1 support.
 Modified 2026-10-28: v0.3.3 expands request capacity and adds lorebook selection; v0.3.4 fixes mobile lorebook lists; v0.3.5 adds sparse lorebook responses and diffs. v0.3.6 synchronizes these changes to source, restores the JSON guide and rejects wrapped array responses.

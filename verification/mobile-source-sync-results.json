@@ -1,0 +1,35 @@
+{
+  "scope": "v0.4.3 mobile original vs rebuilt source: candidate search, prose review, validation, Lua ordering, serialization, UI locks and manual selection; not live RisuBard verification",
+  "files": [
+    {
+      "path": "artifacts/mobile-v0.4.3-original.js",
+      "bytes": 772625,
+      "sha256": "833f9eed0a1f91651e2de3b97952ff4be7dbd63b6a5b54086c72a295966d4c5f"
+    },
+    {
+      "path": "dist/risu_story_workshop.js",
+      "bytes": 773647,
+      "sha256": "0479b42e502bb4218fc7d8396a870c27e5ea8160f038e78f2291359269d52047"
+    }
+  ],
+  "passed": 17,
+  "checks": [
+    "candidate search: same",
+    "candidate search: 붉은달이떴다!",
+    "candidate search: 붉은 달이 오늘 떴다.",
+    "candidate search: missing",
+    "review: exact",
+    "review: candidate",
+    "review: manual",
+    "review: skip",
+    "review: overlap",
+    "review: invalid",
+    "Lua order",
+    "serialized module Lua order",
+    "packet: choose",
+    "packet: skip",
+    "packet: invalid-code",
+    "UI locking and cancellation",
+    "UI manual range choice"
+  ]
+}

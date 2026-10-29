@@ -380,11 +380,14 @@ try {
   await frame.evaluate(()=>{window.__responseOverride=JSON.stringify({schemaVersion:2,task:'description',data:{text:{edits:[{before:'없는 원문',after:'적용하면 안 됨'}]}}});});
   await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('실패 구간 검증');
   await frame.locator('[data-action="send-request"]').click();
+  await frame.getByRole('dialog').waitFor();
+  assert.equal(await frame.getByRole('textbox',{name:'캐릭터 설명',exact:true}).isDisabled(),true);
+  await frame.getByRole('button',{name:'이 수정 건너뛰기',exact:true}).click();
   await frame.waitForFunction(n=>window.__calls.length===n+2&&!document.querySelector('[data-action="send-request"]').disabled,beforeCalls);
-  assert.match(await frame.locator('.bubble.error').last().innerText(),/일치하는 구간이 없/);
+  assert.match(await frame.locator('.message.assistant .bubble').last().innerText(),/변경 사항이 없습니다/);
   assert.equal(await frame.locator('.candidate').count(),0);
   assert.equal(await frame.getByRole('textbox',{name:'캐릭터 설명',exact:true}).inputValue(),'유지할 첫 줄\n수정한 설명\n유지할 마지막 줄');
-  results.push({name:'invalid source patch makes no candidate, leaves manuscript intact and does not retry',passed:true});
+  results.push({name:'unmatched prose opens explicit review; skipping leaves manuscript intact, unlocks controls and does not retry',passed:true});
   await frame.evaluate(() => {
     chars[0].additionalAssets = Array.from({length:12}, (_, i) => [`에셋 ${i + 1}`, `assets/${i}`, 'png']);
     chars[0].ccAssets = chars[0].additionalAssets.map(a => ({type:'x-risu-asset',name:a[0],uri:a[1]}));

@@ -19,6 +19,38 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
 
+test('request locks manuscript controls, cancellation unlocks them and discards late responses', async () => {
+  const x=await make();
+  try {
+    let resolve; x.app.api.runLLMModel=()=>new Promise(r=>{resolve=r;});
+    x.app.s.requests.workshop='request'; const pending=x.app.sendRequest(); await wait();
+    assert.equal(x.app.root.getAttribute('aria-busy'),'true');
+    assert.ok([...x.app.root.querySelectorAll('input,textarea,select,button')].every(el=>el.disabled || el.dataset.action==='cancel-request'));
+    button(x.dom,'요청 취소').click(); await pending;
+    assert.equal(x.app.root.getAttribute('aria-busy'),'false');assert.equal(x.app.requestInput.disabled,false);
+    resolve({type:'success',result:JSON.stringify({schemaVersion:2,task:'workshop',data:{reply:'late',changes:[]}})});await wait();
+    assert.ok(!x.app.s.thread.some(m=>m.content==='late'));assert.equal(x.app.s.candidates.length,0);
+  } finally { x.close(); }
+});
+test('prose dialog supports candidate selection, manual ranges and editable replacement before explicit apply', async () => {
+  const x=await make();
+  try {
+    x.app.task='description';x.app.s.requests.description='change';x.app.s.draft.desc='same same';
+    x.app.api.runLLMModel=async()=>({type:'success',result:JSON.stringify({schemaVersion:2,task:'description',data:{text:{edits:[{before:'same',after:'new'}]}}})});
+    const pending=x.app.sendRequest();await wait();
+    button(x.dom,'정확히 일치 · 1행 · 이 구간 선택').click();await wait();
+    button(x.dom,'선택 구간으로 수정안 준비').click();await pending;
+    assert.equal(x.app.s.draft.desc,'same same');assert.equal(x.app.s.candidates.length,1);
+    await x.app.applyCandidate(x.app.s.candidates[0]);assert.equal(x.app.s.draft.desc,'new same');
+    const manual=x.app.chooseTextRange({source:'abcdef',edit:{before:'missing',after:'x'},label:'text',candidates:[]});
+    const source=x.dom.window.document.querySelector('[aria-label="실제 원문에서 교체 구간 선택"]');
+    source.setSelectionRange(1,4);button(x.dom,'선택한 원문 구간 사용').click();await wait();
+    const replacement=x.dom.window.document.querySelector('[aria-label="교체할 내용"]');replacement.value='manual';replacement.dispatchEvent(new x.dom.window.Event('input'));
+    button(x.dom,'선택 구간으로 수정안 준비').click();
+    assert.deepEqual(await manual,{start:1,end:4,after:'manual'});
+  } finally { x.close(); }
+});
+
 test('asset selection supports cancel, multiple deletion, select all, clear and delete all', async () => {
   const x = await make();
   try {
@@ -84,12 +116,13 @@ test('direct and preset requests review compact v2 patches, recover them, and ap
   }
 });
 
-test('failed patches do not retry or create candidates, and a later draft edit invalidates a valid patch', async () => {
+test('skipped ambiguous prose edits do not retry or create candidates; later draft changes invalidate proposals', async () => {
   const x = await make();
   try {
     x.app.task = 'description'; x.app.s.requests.description = '부분 수정'; x.app.s.draft.desc = 'same same';
     x.app.api.runLLMModel = async options => { x.calls.push(options); return { type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: { edits: [{ before: 'same', after: 'changed' }] } } }) }; };
-    await x.app.sendRequest(); assert.equal(x.calls.length, 1); assert.equal(x.app.s.candidates.length, 0); assert.match(x.app.s.thread.at(-1).content, /여러 곳/); assert.equal(x.app.s.draft.desc, 'same same');
+    x.app.chooseTextRange = async item => { assert.equal(item.candidates.length, 2); return null; };
+    await x.app.sendRequest(); assert.equal(x.calls.length, 1); assert.equal(x.app.s.candidates.length, 0); assert.match(x.app.s.thread.at(-1).content, /변경 사항이 없습니다/); assert.equal(x.app.s.draft.desc, 'same same');
     x.app.s.draft.desc = 'same'; x.app.touch(); await x.app.sendRequest(); assert.equal(x.app.s.candidates.length, 1);
     x.app.s.draft.desc = 'manual edit'; x.app.touch();
     await assert.rejects(x.app.applyCandidate(x.app.s.candidates[0]), /다른 시점/); assert.equal(x.app.s.draft.desc, 'manual edit');
