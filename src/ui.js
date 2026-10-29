@@ -3,10 +3,10 @@ import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, mig
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
-import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket } from './core.js';
+import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket, withCharacterIcon } from './core.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
-const fieldNames = { name: '이름', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
+const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
 const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
 
 export class Workshop {
@@ -366,6 +366,13 @@ export class Workshop {
   }
   renderAssets(host) {
     const h = this.h.bind(this), s = this.s, list = s.draft.additionalAssets ??= [];
+    host.append(h('section', { class: 'card stack', 'aria-label': '봇 아이콘' },
+      h('h3', {}, '봇 아이콘 · 대표 이미지'),
+      h('p', { class: 'muted', 'data-icon-status': '' }, s.draft.image ? '봇 아이콘이 등록되어 있습니다.' : '등록된 봇 아이콘이 없습니다.'),
+      h('div', { class: 'row' }, this.b(s.draft.image ? '봇 아이콘 교체' : '봇 아이콘 등록', () => this.editIcon(), 'small'),
+        this.b('봇 아이콘 해제', () => this.editIcon(true), 'small danger', { disabled: !s.draft.image })),
+      h('p', { class: 'muted' }, '이미지 파일 20MiB 이하. 원고 저장·charx 내보내기에 반영하며, 아래 추가 에셋의 전체 삭제와는 별개입니다.')));
+    host.append(h('h3', {}, '추가 에셋'));
     this.assetSelection = new Set(list.filter(entry => this.assetSelection?.has(entry)));
     const selection = this.assetSelection, boxes = [], count = h('span', { class: 'muted', role: 'status', 'data-asset-count': '' });
     const remove = this.b('선택 삭제', () => this.deleteAssets([...selection]), 'small danger', { disabled: !selection.size });
@@ -397,6 +404,26 @@ export class Workshop {
       const path = await this.api.saveAsset(data); assert(this.s.sessionId === target, '작업 대상이 바뀌어 참조를 추가하지 않았습니다.');
       const ext = file.name.split('.').pop().toLowerCase(); this.s.draft.additionalAssets.push([file.name.replace(/\.[^.]+$/, ''), path, ext]); this.touch(); this.renderEditor();
     }));
+  }
+  async editIcon(remove = false) {
+    assert(!this.job, '요청 처리 중에는 봇 아이콘을 변경할 수 없습니다.');
+    const session = this.s, draft = session.draft, revision = session.revision;
+    const current = () => assert(this.s === session && session.draft === draft && session.revision === revision && !this.job, '작업 대상이나 원고가 변경되어 봇 아이콘을 반영하지 않았습니다. 다시 시도해 주세요.');
+    let path = '';
+    if (remove) {
+      if (!draft.image || !await this.confirm('봇 아이콘을 해제할까요?', '현재 원고의 대표 이미지 참조를 제거합니다. 공유 파일과 추가 에셋은 유지하며, 본체에는 저장 후 반영됩니다.')) return;
+    } else {
+      const file = await this.file('image/*'); if (!file) return;
+      current();
+      assert(file.size > 0 && file.size <= 20 * 1024 * 1024, '봇 아이콘은 비어 있지 않은 20MiB 이하 이미지여야 합니다.');
+      assert(!file.type || file.type.startsWith('image/'), '이미지 파일을 선택해 주세요.');
+      const data = new Uint8Array(await file.arrayBuffer()); current();
+      path = await this.api.saveAsset(data);
+      assert(typeof path === 'string' && path.length > 0, '봇 아이콘 파일을 저장하지 못했습니다.');
+    }
+    current();
+    session.draft = withCharacterIcon(draft, path);
+    this.touch(); this.renderEditor();
   }
   async deleteAssets(entries) {
     if (!entries.length) return;

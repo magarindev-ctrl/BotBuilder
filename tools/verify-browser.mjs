@@ -397,6 +397,9 @@ try {
   await frame.getByRole('button',{name:'확인',exact:true}).click();
   await frame.locator('.navitem').filter({hasText:'에셋 목록'}).click();
   const assetWrites = await frame.evaluate(() => window.__hostWrites.length);
+  const [iconChooser] = await Promise.all([page.waitForEvent('filechooser'),frame.getByRole('button',{name:'봇 아이콘 등록',exact:true}).click()]);
+  await iconChooser.setFiles({name:'portrait.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=','base64')});
+  await frame.getByRole('button',{name:'봇 아이콘 교체',exact:true}).waitFor();
   await frame.getByRole('checkbox',{name:'에셋 1 선택',exact:true}).check();
   await frame.getByRole('checkbox',{name:'에셋 3 선택',exact:true}).check();
   await frame.getByRole('button',{name:'선택 삭제',exact:true}).click();
@@ -430,6 +433,12 @@ try {
   await frame.waitForFunction(async () => JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft.additionalAssets.length === 0);
   const storedAssets = await frame.evaluate(async () => ({draft:JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft,writes:window.__hostWrites.length}));
   assert.deepEqual(storedAssets.draft.ccAssets,[]); assert.equal(storedAssets.writes,assetWrites);
+  assert.equal(storedAssets.draft.image,'assets/mock');
+  await frame.getByRole('button',{name:'봇 아이콘 해제',exact:true}).click();
+  await frame.getByRole('button',{name:'확인',exact:true}).click();
+  await frame.getByRole('button',{name:'봇 아이콘 등록',exact:true}).waitFor();
+  assert.equal(await frame.getByRole('button',{name:'봇 아이콘 해제',exact:true}).isDisabled(),true);
+  results.push({name:'bot icon file selection, draft registration, persistence across bulk asset deletion and explicit removal',passed:true});
   results.push({name:'asset selection, cancelled/multiple/all deletion, metadata persistence and mobile layout at 320/390px; no implicit host writes',passed:true});
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');

@@ -19,6 +19,34 @@ async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop
 }
 const button = (dom, text) => [...dom.window.document.querySelectorAll('button')].find(e => e.textContent === text);
 
+test('bot icon menu registers, replaces, confirms removal and keeps additional assets', async () => {
+  const x=await make();
+  try {
+    x.app.s.tab='assets';x.app.s.draft.additionalAssets=[['keep','shared','png']];x.app.render();
+    assert.ok(button(x.dom,'봇 아이콘 등록'));assert.equal(button(x.dom,'봇 아이콘 해제').disabled,true);
+    x.app.file=async()=>({size:3,type:'image/png',arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer});
+    let saves=0;x.app.api.saveAsset=async()=>`assets/icon-${++saves}`;
+    await x.app.editIcon();assert.equal(x.app.s.draft.image,'assets/icon-1');assert.ok(button(x.dom,'봇 아이콘 교체'));
+    await x.app.editIcon();assert.equal(x.app.s.draft.image,'assets/icon-2');
+    await x.app.saveSlot('manual');assert.equal(restoreSnapshot(x.app.slots.manual).draft.image,'assets/icon-2');
+    x.app.confirm=async()=>false;await x.app.editIcon(true);assert.equal(x.app.s.draft.image,'assets/icon-2');
+    x.app.confirm=async()=>true;await x.app.editIcon(true);assert.equal(x.app.s.draft.image,'');
+    assert.equal(x.app.s.draft.additionalAssets[0][0],'keep');assert.equal(x.app.s.revision,3);
+  } finally { x.close(); }
+});
+test('cancelled, invalid, failed and stale icon registrations leave the prior icon intact', async () => {
+  const x=await make();
+  try {
+    x.app.s.draft.image='original';x.app.file=async()=>null;await x.app.editIcon();assert.equal(x.app.s.revision,0);
+    x.app.file=async()=>({size:21*1024*1024,type:'image/png'});await assert.rejects(x.app.editIcon(),/20MiB/);
+    x.app.file=async()=>({size:3,type:'text/plain'});await assert.rejects(x.app.editIcon(),/이미지 파일/);
+    x.app.file=async()=>({size:3,type:'image/png',arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer});
+    x.app.api.saveAsset=async()=>{throw Error('storage failed');};await assert.rejects(x.app.editIcon(),/storage failed/);
+    x.app.api.saveAsset=async()=>{x.app.touch();return 'new';};await assert.rejects(x.app.editIcon(),/원고가 변경/);
+    assert.equal(x.app.s.draft.image,'original');
+  } finally { x.close(); }
+});
+
 test('request locks manuscript controls, cancellation unlocks them and discards late responses', async () => {
   const x=await make();
   try {

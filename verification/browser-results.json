@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 23,
+  "passed": 24,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -183,7 +183,7 @@
           "minTouch": 44
         },
         {
-          "width": 360,
+          "width": 390,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -206,6 +206,10 @@
     },
     {
       "name": "unmatched prose opens explicit review; skipping leaves manuscript intact, unlocks controls and does not retry",
+      "passed": true
+    },
+    {
+      "name": "bot icon file selection, draft registration, persistence across bulk asset deletion and explicit removal",
       "passed": true
     },
     {

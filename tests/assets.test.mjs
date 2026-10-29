@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { unzipSync, strFromU8, Unzip } from 'fflate';
-import { blankCharacter, clone, removeAdditionalAssets, sessionFromCharacter, saveExisting, snapshot, restoreSnapshot } from '../src/core.js';
+import { blankCharacter, clone, removeAdditionalAssets, withCharacterIcon, mergeCharacter, sessionFromCharacter, saveExisting, snapshot, restoreSnapshot } from '../src/core.js';
 import { exportCharx, importCharx, unpack } from '../src/charx.js';
 
 function fixture() {
@@ -28,6 +28,27 @@ function realmThumbnail(archive) {
   return icon;
 }
 const portraitPng = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'));
+test('icon replacement and removal clean old icon metadata, preserve other assets and survive recovery/export', async () => {
+  const c=fixture(), original=clone(c), session=sessionFromCharacter(c);
+  session.draft=withCharacterIcon(session.draft,'new-portrait');
+  const restored=restoreSnapshot(snapshot(session));
+  assert.equal(restored.draft.image,'new-portrait');assert.deepEqual(c,original);
+  assert.deepEqual(restored.draft.additionalAssets,c.additionalAssets);assert.deepEqual(restored.draft.emotionImages,c.emotionImages);
+  assert.ok(!restored.draft.ccAssets.some(a=>a.type==='icon'&&a.name==='main'));
+  let reads=[];const api={readImage:async path=>{reads.push(path);return portraitPng;}};
+  await exportCharx(api,restored.draft);assert.ok(reads.includes('new-portrait'));assert.ok(!reads.includes(c.image));
+  const removed=withCharacterIcon(restored.draft,'');reads=[];
+  const {card}=unpack(await exportCharx(api,removed));
+  assert.ok(!card.data.assets.some(a=>a.type==='icon'));assert.ok(!reads.includes('new-portrait'));
+});
+test('host save includes icon edits, preserves concurrent unrelated changes, and detects conflicting icon edits', async () => {
+  const c=fixture(),session=sessionFromCharacter(c);session.draft=withCharacterIcon(session.draft,'new');
+  let current=clone(c);current.desc='external description';current.chats[0].message.push({data:'keep'});
+  const api={getDatabase:async()=>({characters:[current]}),getCharacterFromIndex:async()=>clone(current),setCharacterToIndex:async(_,value)=>{current=clone(value);}};
+  const result=await saveExisting(api,session);assert.deepEqual(result.conflicts,[]);
+  assert.equal(current.image,'new');assert.equal(current.desc,'external description');assert.equal(current.chats[0].message[0].data,'keep');
+  const fresh=clone(c);fresh.image='external icon';assert.ok(mergeCharacter(session.base,session.draft,fresh).conflicts.includes('image'));
+});
 test('representative image is discoverable by the Realm path selector and referenced by card.json', async () => {
   const c = blankCharacter(); c.image = 'assets/portrait';
   const archive = await exportCharx({ readImage: async path => { assert.equal(path,c.image); return portraitPng; } }, c);

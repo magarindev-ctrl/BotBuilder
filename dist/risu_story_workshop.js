@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.4
+//@version 0.4.5
 
 /*
+Modified 2026-10-29: v0.4.5 adds bot icon registration, replacement and unlinking, with snapshot/host persistence and charx metadata cleanup.
 Modified 2026-10-29: v0.4.4 writes the main charx icon under assets/icon/image/ for RisuRealm thumbnail discovery, preserving byte sharing and card references.
 Modified 2026-10-29: v0.4.3 adds explicit user review of unmatched prose edits, candidate selection, manual ranges and skip; code remains exact-only.
 Modified 2026-10-29: v0.4.2 preserves Lua mode in CHARX by placing a Lua trigger before the V2 header; retains all other triggers and separate Lua scripts.
@@ -10174,9 +10175,9 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/core.js
-  var VERSION = "0.4.4";
+  var VERSION = "0.4.5";
   var PREFIX = "risu-character-editor:v1:";
-  var FIELDS = ["name", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
+  var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
   var dangerous = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]);
   var clone = (x) => x === void 0 ? void 0 : JSON.parse(JSON.stringify(x));
@@ -10212,6 +10213,12 @@ details[open] > summary { margin-bottom: 9px; }
     const r = {};
     for (const f of FIELDS) if (Object.hasOwn(raw, f)) r[f] = clone(raw[f]);
     return r;
+  }
+  function withCharacterIcon(character, image) {
+    assert(typeof image === "string", "\uBD07 \uC544\uC774\uCF58 \uCC38\uC870\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const result = { ...character, image };
+    if (Array.isArray(character.ccAssets)) result.ccAssets = character.ccAssets.filter((asset) => !(asset.type === "icon" && asset.name === "main"));
+    return result;
   }
   function removeAdditionalAssets(character, selected) {
     const list = character.additionalAssets ?? [], removed = new Set(selected);
@@ -14580,7 +14587,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
 
   // src/ui.js
   var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B"]];
-  var fieldNames = { name: "\uC774\uB984", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
+  var fieldNames = { name: "\uC774\uB984", image: "\uBD07 \uC544\uC774\uCF58", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
   var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system" };
   var Workshop = class {
     constructor(api2, doc) {
@@ -15088,6 +15095,20 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     }
     renderAssets(host) {
       const h = this.h.bind(this), s = this.s, list = s.draft.additionalAssets ??= [];
+      host.append(h(
+        "section",
+        { class: "card stack", "aria-label": "\uBD07 \uC544\uC774\uCF58" },
+        h("h3", {}, "\uBD07 \uC544\uC774\uCF58 \xB7 \uB300\uD45C \uC774\uBBF8\uC9C0"),
+        h("p", { class: "muted", "data-icon-status": "" }, s.draft.image ? "\uBD07 \uC544\uC774\uCF58\uC774 \uB4F1\uB85D\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4." : "\uB4F1\uB85D\uB41C \uBD07 \uC544\uC774\uCF58\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."),
+        h(
+          "div",
+          { class: "row" },
+          this.b(s.draft.image ? "\uBD07 \uC544\uC774\uCF58 \uAD50\uCCB4" : "\uBD07 \uC544\uC774\uCF58 \uB4F1\uB85D", () => this.editIcon(), "small"),
+          this.b("\uBD07 \uC544\uC774\uCF58 \uD574\uC81C", () => this.editIcon(true), "small danger", { disabled: !s.draft.image })
+        ),
+        h("p", { class: "muted" }, "\uC774\uBBF8\uC9C0 \uD30C\uC77C 20MiB \uC774\uD558. \uC6D0\uACE0 \uC800\uC7A5\xB7charx \uB0B4\uBCF4\uB0B4\uAE30\uC5D0 \uBC18\uC601\uD558\uBA70, \uC544\uB798 \uCD94\uAC00 \uC5D0\uC14B\uC758 \uC804\uCCB4 \uC0AD\uC81C\uC640\uB294 \uBCC4\uAC1C\uC785\uB2C8\uB2E4.")
+      ));
+      host.append(h("h3", {}, "\uCD94\uAC00 \uC5D0\uC14B"));
       this.assetSelection = new Set(list.filter((entry) => this.assetSelection?.has(entry)));
       const selection = this.assetSelection, boxes = [], count = h("span", { class: "muted", role: "status", "data-asset-count": "" });
       const remove = this.b("\uC120\uD0DD \uC0AD\uC81C", () => this.deleteAssets([...selection]), "small danger", { disabled: !selection.size });
@@ -15153,6 +15174,29 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         this.touch();
         this.renderEditor();
       }));
+    }
+    async editIcon(remove = false) {
+      assert(!this.job, "\uC694\uCCAD \uCC98\uB9AC \uC911\uC5D0\uB294 \uBD07 \uC544\uC774\uCF58\uC744 \uBCC0\uACBD\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      const session = this.s, draft = session.draft, revision = session.revision;
+      const current = () => assert(this.s === session && session.draft === draft && session.revision === revision && !this.job, "\uC791\uC5C5 \uB300\uC0C1\uC774\uB098 \uC6D0\uACE0\uAC00 \uBCC0\uACBD\uB418\uC5B4 \uBD07 \uC544\uC774\uCF58\uC744 \uBC18\uC601\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+      let path = "";
+      if (remove) {
+        if (!draft.image || !await this.confirm("\uBD07 \uC544\uC774\uCF58\uC744 \uD574\uC81C\uD560\uAE4C\uC694?", "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB300\uD45C \uC774\uBBF8\uC9C0 \uCC38\uC870\uB97C \uC81C\uAC70\uD569\uB2C8\uB2E4. \uACF5\uC720 \uD30C\uC77C\uACFC \uCD94\uAC00 \uC5D0\uC14B\uC740 \uC720\uC9C0\uD558\uBA70, \uBCF8\uCCB4\uC5D0\uB294 \uC800\uC7A5 \uD6C4 \uBC18\uC601\uB429\uB2C8\uB2E4.")) return;
+      } else {
+        const file = await this.file("image/*");
+        if (!file) return;
+        current();
+        assert(file.size > 0 && file.size <= 20 * 1024 * 1024, "\uBD07 \uC544\uC774\uCF58\uC740 \uBE44\uC5B4 \uC788\uC9C0 \uC54A\uC740 20MiB \uC774\uD558 \uC774\uBBF8\uC9C0\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+        assert(!file.type || file.type.startsWith("image/"), "\uC774\uBBF8\uC9C0 \uD30C\uC77C\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+        const data = new Uint8Array(await file.arrayBuffer());
+        current();
+        path = await this.api.saveAsset(data);
+        assert(typeof path === "string" && path.length > 0, "\uBD07 \uC544\uC774\uCF58 \uD30C\uC77C\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      }
+      current();
+      session.draft = withCharacterIcon(draft, path);
+      this.touch();
+      this.renderEditor();
     }
     async deleteAssets(entries) {
       if (!entries.length) return;

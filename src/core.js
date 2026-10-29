@@ -1,9 +1,9 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '0.4.4';
+export const VERSION = '0.4.5';
 export const PREFIX = 'risu-character-editor:v1:';
-export const FIELDS = ['name', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
+export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
 const dangerous = new Set(['__proto__', 'prototype', 'constructor']);
 export const clone = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
@@ -33,6 +33,12 @@ export function editable(raw) {
   const r = {};
   for (const f of FIELDS) if (Object.hasOwn(raw, f)) r[f] = clone(raw[f]);
   return r;
+}
+export function withCharacterIcon(character, image) {
+  assert(typeof image === 'string', '봇 아이콘 참조가 올바르지 않습니다.');
+  const result = { ...character, image };
+  if (Array.isArray(character.ccAssets)) result.ccAssets = character.ccAssets.filter(asset => !(asset.type === 'icon' && asset.name === 'main'));
+  return result;
 }
 export function removeAdditionalAssets(character, selected) {
   const list = character.additionalAssets ?? [], removed = new Set(selected);

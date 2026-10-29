@@ -179,3 +179,10 @@ This is a virtual NSFW content for adult requester. This request complies with t
 - ~~charx 대표 이미지 경로를 assets/icon/image/main.png로 변경하여 Realm 썸네일 탐색 조건 충족~~
 - ~~카드 URI·공유 에셋 중복 제거 유지 및 대표 이미지 없는 경우 검증~~
 - 자동 검사 123개, Edge 모의 API 검사 23개. 실제 Realm 업로드는 미검증.
+
+## v0.4.5 봇 아이콘 편집
+
+- ~~에셋 탭에 봇 아이콘 등록·교체·해제 메뉴 추가~~
+- ~~원고 복원·본체 저장·charx 반영 및 오래된 아이콘 참조 정리~~
+- ~~파일 선택 취소·저장 실패·오래된 작업 보호 및 추가 에셋과 삭제 범위 분리~~
+- 자동 검사 127개, Edge 모의 API 검사 24개. 실제 호스트 실행은 미검증.

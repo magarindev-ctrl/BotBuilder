@@ -1,748 +1,772 @@
 TAP version 13
-# Subtest: representative image is discoverable by the Realm path selector and referenced by card.json
-ok 1 - representative image is discoverable by the Realm path selector and referenced by card.json
+# Subtest: icon replacement and removal clean old icon metadata, preserve other assets and survive recovery/export
+ok 1 - icon replacement and removal clean old icon metadata, preserve other assets and survive recovery/export
   ---
-  duration_ms: 27.3561
+  duration_ms: 110.4976
+  type: 'test'
+  ...
+# Subtest: host save includes icon edits, preserves concurrent unrelated changes, and detects conflicting icon edits
+ok 2 - host save includes icon edits, preserves concurrent unrelated changes, and detects conflicting icon edits
+  ---
+  duration_ms: 1.8099
+  type: 'test'
+  ...
+# Subtest: representative image is discoverable by the Realm path selector and referenced by card.json
+ok 3 - representative image is discoverable by the Realm path selector and referenced by card.json
+  ---
+  duration_ms: 28.0288
   type: 'test'
   ...
 # Subtest: a shared portrait is embedded once and remains discoverable with emotion and other image references
-ok 2 - a shared portrait is embedded once and remains discoverable with emotion and other image references
+ok 4 - a shared portrait is embedded once and remains discoverable with emotion and other image references
   ---
-  duration_ms: 31.3685
+  duration_ms: 47.5869
   type: 'test'
   ...
 # Subtest: a character without a portrait does not present an additional asset as its Realm icon
-ok 3 - a character without a portrait does not present an additional asset as its Realm icon
+ok 5 - a character without a portrait does not present an additional asset as its Realm icon
   ---
-  duration_ms: 30.4727
+  duration_ms: 29.8939
   type: 'test'
   ...
 # Subtest: bulk removal preserves order, shared references, portrait and emotions without mutating input
-ok 4 - bulk removal preserves order, shared references, portrait and emotions without mutating input
+ok 6 - bulk removal preserves order, shared references, portrait and emotions without mutating input
   ---
-  duration_ms: 1.2486
+  duration_ms: 0.6156
   type: 'test'
   ...
 # Subtest: duplicate names retain metadata until the last registration is removed; unknown metadata is preserved
-ok 5 - duplicate names retain metadata until the last registration is removed; unknown metadata is preserved
+ok 7 - duplicate names retain metadata until the last registration is removed; unknown metadata is preserved
   ---
-  duration_ms: 0.25
+  duration_ms: 0.1434
   type: 'test'
   ...
 # Subtest: import, delete and export removes original card metadata references and never reads removed assets
-ok 6 - import, delete and export removes original card metadata references and never reads removed assets
+ok 8 - import, delete and export removes original card metadata references and never reads removed assets
   ---
-  duration_ms: 233.6585
+  duration_ms: 215.1977
   type: 'test'
   ...
 # Subtest: deletion survives recovery and host save while concurrent additions and chats survive
-ok 7 - deletion survives recovery and host save while concurrent additions and chats survive
+ok 9 - deletion survives recovery and host save while concurrent additions and chats survive
   ---
-  duration_ms: 2.4786
+  duration_ms: 1.1255
   type: 'test'
   ...
 # Subtest: charx export accepts more than 100MiB of asset bytes and retains import safeguards
-ok 8 - charx export accepts more than 100MiB of asset bytes and retains import safeguards
+ok 10 - charx export accepts more than 100MiB of asset bytes and retains import safeguards
   ---
-  duration_ms: 222.0727
+  duration_ms: 214.8942
   type: 'test'
   ...
 # Subtest: large-request settings migrate legacy limits and preserve explicit current limits
-ok 9 - large-request settings migrate legacy limits and preserve explicit current limits
+ok 11 - large-request settings migrate legacy limits and preserve explicit current limits
   ---
-  duration_ms: 73.9736
+  duration_ms: 37.6165
   type: 'test'
   ...
 # Subtest: selected lore is included once with stable refs and excluded proposal data stays out
-ok 10 - selected lore is included once with stable refs and excluded proposal data stays out
+ok 12 - selected lore is included once with stable refs and excluded proposal data stays out
   ---
-  duration_ms: 7.1416
+  duration_ms: 3.7565
   type: 'test'
   ...
 # Subtest: lore selections survive recovery, removal, insertion and host reorder
-ok 11 - lore selections survive recovery, removal, insertion and host reorder
+ok 13 - lore selections survive recovery, removal, insertion and host reorder
   ---
-  duration_ms: 3.2655
+  duration_ms: 2.1256
   type: 'test'
   ...
 # Subtest: sparse lore response drops no-ops while preserving omitted entries and native settings
-ok 12 - sparse lore response drops no-ops while preserving omitted entries and native settings
+ok 14 - sparse lore response drops no-ops while preserving omitted entries and native settings
   ---
-  duration_ms: 1.0693
+  duration_ms: 0.7393
   type: 'test'
   ...
 # Subtest: array or nested envelopes stay rejected with prose, fences and BOM
-ok 13 - array or nested envelopes stay rejected with prose, fences and BOM
+ok 15 - array or nested envelopes stay rejected with prose, fences and BOM
   ---
-  duration_ms: 0.912
+  duration_ms: 0.6858
   type: 'test'
   ...
 # Subtest: templates expand only once and include complete working context + conversation
-ok 14 - templates expand only once and include complete working context + conversation
+ok 16 - templates expand only once and include complete working context + conversation
   ---
-  duration_ms: 0.2697
+  duration_ms: 0.246
   type: 'test'
   ...
 # Subtest: responses retain strict key, task, range and prototype validation after wrapper cleanup
-ok 15 - responses retain strict key, task, range and prototype validation after wrapper cleanup
+ok 17 - responses retain strict key, task, range and prototype validation after wrapper cleanup
   ---
-  duration_ms: 0.2865
+  duration_ms: 0.3521
   type: 'test'
   ...
 # Subtest: task-specific output examples validate and distinguish dialogue from explicit manuscript changes
-ok 16 - task-specific output examples validate and distinguish dialogue from explicit manuscript changes
+ok 18 - task-specific output examples validate and distinguish dialogue from explicit manuscript changes
   ---
-  duration_ms: 2.1273
+  duration_ms: 1.5125
   type: 'test'
   ...
 # Subtest: OOC headings, code fences, BOM and trailing explanations are removed around one valid response
-ok 17 - OOC headings, code fences, BOM and trailing explanations are removed around one valid response
+ok 19 - OOC headings, code fences, BOM and trailing explanations are removed around one valid response
   ---
-  duration_ms: 0.3906
+  duration_ms: 0.3452
   type: 'test'
   ...
 # Subtest: wrapper cleanup preserves JSON string content including braces, escaped quotes and embedded code fences
-ok 18 - wrapper cleanup preserves JSON string content including braces, escaped quotes and embedded code fences
+ok 20 - wrapper cleanup preserves JSON string content including braces, escaped quotes and embedded code fences
   ---
-  duration_ms: 0.2564
+  duration_ms: 0.2121
   type: 'test'
   ...
 # Subtest: multiple response objects, arrays, nested envelopes and damaged JSON are never guessed or repaired
-ok 19 - multiple response objects, arrays, nested envelopes and damaged JSON are never guessed or repaired
+ok 21 - multiple response objects, arrays, nested envelopes and damaged JSON are never guessed or repaired
   ---
-  duration_ms: 0.3699
+  duration_ms: 0.2924
   type: 'test'
   ...
 # Subtest: cleanup keeps size limits and does not discard schema errors from the candidate object
-ok 20 - cleanup keeps size limits and does not discard schema errors from the candidate object
+ok 22 - cleanup keeps size limits and does not discard schema errors from the candidate object
   ---
-  duration_ms: 3.4289
+  duration_ms: 3.0159
   type: 'test'
   ...
 # Subtest: proposal validation and apply preserve unrelated native fields
-ok 21 - proposal validation and apply preserve unrelated native fields
+ok 23 - proposal validation and apply preserve unrelated native fields
   ---
-  duration_ms: 0.3732
+  duration_ms: 0.3776
   type: 'test'
   ...
 # Subtest: Lua apply retains trigger conditions, other effects, variable names and untouched raw lines
-ok 22 - Lua apply retains trigger conditions, other effects, variable names and untouched raw lines
+ok 24 - Lua apply retains trigger conditions, other effects, variable names and untouched raw lines
   ---
-  duration_ms: 0.535
+  duration_ms: 0.4853
   type: 'test'
   ...
 # Subtest: bad multi-task changes fail without any partial mutation
-ok 23 - bad multi-task changes fail without any partial mutation
+ok 25 - bad multi-task changes fail without any partial mutation
   ---
-  duration_ms: 0.2393
+  duration_ms: 0.2131
   type: 'test'
   ...
 # Subtest: choice bundle checks button/handler/content + existing handler conflicts
-ok 24 - choice bundle checks button/handler/content + existing handler conflicts
+ok 26 - choice bundle checks button/handler/content + existing handler conflicts
   ---
-  duration_ms: 2.3877
+  duration_ms: 1.5867
   type: 'test'
   ...
 # Subtest: three-way save preserves fresh chats and unedited fields, rejects same-field conflicts
-ok 25 - three-way save preserves fresh chats and unedited fields, rejects same-field conflicts
+ok 27 - three-way save preserves fresh chats and unedited fields, rejects same-field conflicts
   ---
-  duration_ms: 0.4108
+  duration_ms: 0.3583
   type: 'test'
   ...
 # Subtest: item merge keeps external edits to a different lore item and external additions
-ok 26 - item merge keeps external edits to a different lore item and external additions
+ok 28 - item merge keeps external edits to a different lore item and external additions
   ---
-  duration_ms: 0.3686
+  duration_ms: 0.3436
   type: 'test'
   ...
 # Subtest: ambiguous duplicate arrays and external edits to a modified item conflict
-ok 27 - ambiguous duplicate arrays and external edits to a modified item conflict
+ok 29 - ambiguous duplicate arrays and external edits to a modified item conflict
   ---
-  duration_ms: 0.416
+  duration_ms: 0.3898
   type: 'test'
   ...
 # Subtest: indexed save resolves stable character ID after reorder and checks readback
-ok 28 - indexed save resolves stable character ID after reorder and checks readback
+ok 30 - indexed save resolves stable character ID after reorder and checks readback
   ---
-  duration_ms: 0.3965
+  duration_ms: 0.442
   type: 'test'
   ...
 # Subtest: snapshot excludes chats, keeps full draft state, candidates and unsaved prompt edits
-ok 29 - snapshot excludes chats, keeps full draft state, candidates and unsaved prompt edits
+ok 31 - snapshot excludes chats, keeps full draft state, candidates and unsaved prompt edits
   ---
-  duration_ms: 0.24
+  duration_ms: 0.2049
   type: 'test'
   ...
 # Subtest: model mode, plugin-provider permission and successful response use one request
-ok 30 - model mode, plugin-provider permission and successful response use one request
+ok 32 - model mode, plugin-provider permission and successful response use one request
   ---
-  duration_ms: 0.3194
+  duration_ms: 0.2975
   type: 'test'
   ...
 # Subtest: waiting can stop even if provider never resolves, with no automatic retry
-ok 31 - waiting can stop even if provider never resolves, with no automatic retry
+ok 33 - waiting can stop even if provider never resolves, with no automatic retry
   ---
-  duration_ms: 0.2143
+  duration_ms: 0.21
   type: 'test'
   ...
 # Subtest: cumulative host stream is read as snapshots rather than concatenated
-ok 32 - cumulative host stream is read as snapshots rather than concatenated
+ok 34 - cumulative host stream is read as snapshots rather than concatenated
   ---
-  duration_ms: 1.3357
+  duration_ms: 1.0619
   type: 'test'
   ...
 # Subtest: regex text test captures, global/first, HTML-as-text and Risu replacement syntax
-ok 33 - regex text test captures, global/first, HTML-as-text and Risu replacement syntax
+ok 35 - regex text test captures, global/first, HTML-as-text and Risu replacement syntax
   ---
-  duration_ms: 4.4234
+  duration_ms: 3.8517
   type: 'test'
   ...
 # Subtest: regex rejects unsupported constructs, flags, over-limit input and obeys stop
-ok 34 - regex rejects unsupported constructs, flags, over-limit input and obeys stop
+ok 36 - regex rejects unsupported constructs, flags, over-limit input and obeys stop
   ---
-  duration_ms: 0.565
+  duration_ms: 0.5101
   type: 'test'
   ...
 # Subtest: regex zero-width matches terminate and match limit is clearly partial
-ok 35 - regex zero-width matches terminate and match limit is clearly partial
+ok 37 - regex zero-width matches terminate and match limit is clearly partial
   ---
-  duration_ms: 597.5833
+  duration_ms: 585.7466
   type: 'test'
   ...
 # Subtest: charx module codec preserves native regex, Lua effects and lore extensions
-ok 36 - charx module codec preserves native regex, Lua effects and lore extensions
+ok 38 - charx module codec preserves native regex, Lua effects and lore extensions
   ---
-  duration_ms: 0.4472
+  duration_ms: 0.5813
   type: 'test'
   ...
 # Subtest: CCv3 conversion retains extension data and never grants imported low-level permissions
-ok 37 - CCv3 conversion retains extension data and never grants imported low-level permissions
+ok 39 - CCv3 conversion retains extension data and never grants imported low-level permissions
   ---
-  duration_ms: 0.3585
+  duration_ms: 0.3962
   type: 'test'
   ...
 # Subtest: charx full roundtrip embeds referenced image bytes and preserves native Lua/lore
-ok 38 - charx full roundtrip embeds referenced image bytes and preserves native Lua/lore
+ok 40 - charx full roundtrip embeds referenced image bytes and preserves native Lua/lore
   ---
-  duration_ms: 45.2016
+  duration_ms: 29.1633
   type: 'test'
   ...
 # Subtest: installed module reads request only modules, deduplicate IDs and never write host state
-ok 39 - installed module reads request only modules, deduplicate IDs and never write host state
+ok 41 - installed module reads request only modules, deduplicate IDs and never write host state
   ---
-  duration_ms: 2.6621
+  duration_ms: 2.1088
   type: 'test'
   ...
 # Subtest: selection resolves ID and namespace while preserving database order and prompt-only snapshots
-ok 40 - selection resolves ID and namespace while preserving database order and prompt-only snapshots
+ok 42 - selection resolves ID and namespace while preserving database order and prompt-only snapshots
   ---
-  duration_ms: 0.4
+  duration_ms: 0.3394
   type: 'test'
   ...
 # Subtest: module and preset toggles merge compatible shared keys and block conflicting definitions
-ok 41 - module and preset toggles merge compatible shared keys and block conflicting definitions
+ok 43 - module and preset toggles merge compatible shared keys and block conflicting definitions
   ---
-  duration_ms: 1.0659
+  duration_ms: 0.8364
   type: 'test'
   ...
 # Subtest: module lore CBS uses local toggles, reaches lore blocks and records per-entry provenance
-ok 42 - module lore CBS uses local toggles, reaches lore blocks and records per-entry provenance
+ok 44 - module lore CBS uses local toggles, reaches lore blocks and records per-entry provenance
   ---
-  duration_ms: 6.1173
+  duration_ms: 3.4488
   type: 'test'
   ...
 # Subtest: unresolved references, missing lore destinations and explicit global exclusion are distinct
-ok 43 - unresolved references, missing lore destinations and explicit global exclusion are distinct
+ok 45 - unresolved references, missing lore destinations and explicit global exclusion are distinct
   ---
-  duration_ms: 1.616
+  duration_ms: 1.0724
   type: 'test'
   ...
 # Subtest: runtime components block until explicitly excluded and no module code is executed
-ok 44 - runtime components block until explicitly excluded and no module code is executed
+ok 46 - runtime components block until explicitly excluded and no module code is executed
   ---
-  duration_ms: 1.9713
+  duration_ms: 1.3995
   type: 'test'
   ...
 # Subtest: 63 output rules and presentation features do not block BB requests or alter response data
-ok 45 - 63 output rules and presentation features do not block BB requests or alter response data
+ok 47 - 63 output rules and presentation features do not block BB requests or alter response data
   ---
-  duration_ms: 2.3496
+  duration_ms: 0.797
   type: 'test'
   ...
 # Subtest: input/process and unknown rules remain blocked while output/display and empty IN are scoped out
-ok 46 - input/process and unknown rules remain blocked while output/display and empty IN are scoped out
+ok 48 - input/process and unknown rules remain blocked while output/display and empty IN are scoped out
   ---
-  duration_ms: 0.4076
+  duration_ms: 0.3185
   type: 'test'
   ...
 # Subtest: Lua and JS callback triggers remain relevant despite display/manual/output event labels
-ok 47 - Lua and JS callback triggers remain relevant despite display/manual/output event labels
+ok 49 - Lua and JS callback triggers remain relevant despite display/manual/output event labels
   ---
-  duration_ms: 0.3531
+  duration_ms: 0.2311
   type: 'test'
   ...
 # Subtest: legacy explicit runtime exclusions remain intact with phase-specific diagnostics
-ok 48 - legacy explicit runtime exclusions remain intact with phase-specific diagnostics
+ok 50 - legacy explicit runtime exclusions remain intact with phase-specific diagnostics
   ---
-  duration_ms: 0.7084
+  duration_ms: 0.5399
   type: 'test'
   ...
 # Subtest: preset output/display regex and native-literal user_input do not block or duplicate the current request
-ok 49 - preset output/display regex and native-literal user_input do not block or duplicate the current request
+ok 51 - preset output/display regex and native-literal user_input do not block or duplicate the current request
   ---
-  duration_ms: 0.6258
+  duration_ms: 0.3492
   type: 'test'
   ...
 # Subtest: preset input/process regex remain explicit blockers and saved exclusions still apply
-ok 50 - preset input/process regex remain explicit blockers and saved exclusions still apply
+ok 52 - preset input/process regex remain explicit blockers and saved exclusions still apply
   ---
-  duration_ms: 0.5811
+  duration_ms: 0.3847
   type: 'test'
   ...
 # Subtest: reported if user_input block is omitted like native CBS while the chat block contains the request once
-ok 51 - reported if user_input block is omitted like native CBS while the chat block contains the request once
+ok 53 - reported if user_input block is omitted like native CBS while the chat block contains the request once
   ---
-  duration_ms: 0.5538
+  duration_ms: 0.2636
   type: 'test'
   ...
 # Subtest: unsupported lore decorators are identified and per-entry exclusion allows supported entries
-ok 52 - unsupported lore decorators are identified and per-entry exclusion allows supported entries
+ok 54 - unsupported lore decorators are identified and per-entry exclusion allows supported entries
   ---
-  duration_ms: 0.7747
+  duration_ms: 0.409
   type: 'test'
   ...
 # Subtest: refreshing changed installed modules resets exclusions; unchanged modules and old state migrate safely
-ok 53 - refreshing changed installed modules resets exclusions; unchanged modules and old state migrate safely
+ok 55 - refreshing changed installed modules resets exclusions; unchanged modules and old state migrate safely
   ---
-  duration_ms: 0.6369
+  duration_ms: 0.3602
   type: 'test'
   ...
 # Subtest: malformed module records/options fail atomically and module asset macros return names only
-ok 54 - malformed module records/options fail atomically and module asset macros return names only
+ok 56 - malformed module records/options fail atomically and module asset macros return names only
   ---
-  duration_ms: 0.5457
+  duration_ms: 0.4022
   type: 'test'
   ...
 # Subtest: preset lore blocks and CBS use only checked manuscript entries without changing the draft
-ok 55 - preset lore blocks and CBS use only checked manuscript entries without changing the draft
+ok 57 - preset lore blocks and CBS use only checked manuscript entries without changing the draft
   ---
-  duration_ms: 5.5447
+  duration_ms: 4.3185
   type: 'test'
   ...
 # Subtest: expanded preset and CBS limits accept content beyond previous caps
-ok 56 - expanded preset and CBS limits accept content beyond previous caps
+ok 58 - expanded preset and CBS limits accept content beyond previous caps
   ---
-  duration_ms: 172.0828
+  duration_ms: 174.4125
   type: 'test'
   ...
 # Subtest: user-reported \#if_pure expression with /if closing responds to the imported OOC toggle
-ok 57 - user-reported \#if_pure expression with /if closing responds to the imported OOC toggle
+ok 59 - user-reported \#if_pure expression with /if closing responds to the imported OOC toggle
   ---
-  duration_ms: 0.8394
+  duration_ms: 0.8141
   type: 'test'
   ...
 # Subtest: infix ? and calc results match pinned upstream RPN functions with local variable bindings
-ok 58 - infix ? and calc results match pinned upstream RPN functions with local variable bindings
+ok 60 - infix ? and calc results match pinned upstream RPN functions with local variable bindings
   ---
-  duration_ms: 26.9484
+  duration_ms: 23.0826
   type: 'test'
   ...
 # Subtest: condition booleans, right-to-left when operators and whitespace match pinned upstream blocks
-ok 59 - condition booleans, right-to-left when operators and whitespace match pinned upstream blocks
+ok 61 - condition booleans, right-to-left when operators and whitespace match pinned upstream blocks
   ---
-  duration_ms: 1.2283
+  duration_ms: 1.0975
   type: 'test'
   ...
 # Subtest: cache blocks mark preceding role-filtered messages without adding prompt text
-ok 60 - cache blocks mark preceding role-filtered messages without adding prompt text
+ok 62 - cache blocks mark preceding role-filtered messages without adding prompt text
   ---
-  duration_ms: 0.9706
+  duration_ms: 0.9177
   type: 'test'
   ...
 # Subtest: standalone and inline :else branches preserve the native keep and normal whitespace rules
-ok 61 - standalone and inline :else branches preserve the native keep and normal whitespace rules
+ok 63 - standalone and inline :else branches preserve the native keep and normal whitespace rules
   ---
-  duration_ms: 0.3378
+  duration_ms: 0.3219
   type: 'test'
   ...
 # Subtest: empty comma-separated module references do not block; real references explain explicit exclusion
-ok 62 - empty comma-separated module references do not block; real references explain explicit exclusion
+ok 64 - empty comma-separated module references do not block; real references explain explicit exclusion
   ---
-  duration_ms: 0.7441
+  duration_ms: 0.6804
   type: 'test'
   ...
 # Subtest: upstream-compatible AES-GCM + gzip + MessagePack + RPack preset formats decode
-ok 63 - upstream-compatible AES-GCM + gzip + MessagePack + RPack preset formats decode
+ok 65 - upstream-compatible AES-GCM + gzip + MessagePack + RPack preset formats decode
   ---
-  duration_ms: 8.3201
+  duration_ms: 7.8189
   type: 'test'
   ...
 # Subtest: preset import filters connection credentials and rejects non-preset or malformed data
-ok 64 - preset import filters connection credentials and rejects non-preset or malformed data
+ok 66 - preset import filters connection credentials and rejects non-preset or malformed data
   ---
-  duration_ms: 0.4536
+  duration_ms: 0.4425
   type: 'test'
   ...
 # Subtest: corrupt binary, authentication failure, unknown version and expansion limits reject
-ok 65 - corrupt binary, authentication failure, unknown version and expansion limits reject
+ok 67 - corrupt binary, authentication failure, unknown version and expansion limits reject
   ---
-  duration_ms: 376.8824
+  duration_ms: 370.0983
   type: 'test'
   ...
 # Subtest: toggle tree preserves groups and switch/select/text/textarea native index values
-ok 66 - toggle tree preserves groups and switch/select/text/textarea native index values
+ok 68 - toggle tree preserves groups and switch/select/text/textarea native index values
   ---
-  duration_ms: 0.4391
+  duration_ms: 0.4548
   type: 'test'
   ...
 # Subtest: v2 condition edits roundtrip and evaluate toggle comparisons with AND/OR
-ok 67 - v2 condition edits roundtrip and evaluate toggle comparisons with AND/OR
+ok 69 - v2 condition edits roundtrip and evaluate toggle comparisons with AND/OR
   ---
-  duration_ms: 1.7615
+  duration_ms: 0.6886
   type: 'test'
   ...
 # Subtest: CBS evaluates nested branches, comments and variables without reparsing inserted values
-ok 68 - CBS evaluates nested branches, comments and variables without reparsing inserted values
+ok 70 - CBS evaluates nested branches, comments and variables without reparsing inserted values
   ---
-  duration_ms: 0.3455
+  duration_ms: 0.4186
   type: 'test'
   ...
 # Subtest: assembly keeps block order, roles, selected conditions, history and current request once
-ok 69 - assembly keeps block order, roles, selected conditions, history and current request once
+ok 71 - assembly keeps block order, roles, selected conditions, history and current request once
   ---
-  duration_ms: 0.624
+  duration_ms: 0.5873
   type: 'test'
   ...
 # Subtest: missing or overlapping chat ranges block transmission rather than losing or duplicating the request
-ok 70 - missing or overlapping chat ranges block transmission rather than losing or duplicating the request
+ok 72 - missing or overlapping chat ranges block transmission rather than losing or duplicating the request
   ---
-  duration_ms: 0.5166
+  duration_ms: 0.5699
   type: 'test'
   ...
 # Subtest: typed contexts, slot format, local variables and assistant prefill compose explicitly
-ok 71 - typed contexts, slot format, local variables and assistant prefill compose explicitly
+ok 73 - typed contexts, slot format, local variables and assistant prefill compose explicitly
   ---
-  duration_ms: 0.3866
+  duration_ms: 0.472
   type: 'test'
   ...
 # Subtest: typed lore wrapper conditions and imported legacy block flags are applied
-ok 72 - typed lore wrapper conditions and imported legacy block flags are applied
+ok 74 - typed lore wrapper conditions and imported legacy block flags are applied
   ---
-  duration_ms: 0.584
+  duration_ms: 0.622
   type: 'test'
   ...
 # Subtest: external modules, regex and overlays require explicit exclusion; unsupported syntax stays blocked
-ok 73 - external modules, regex and overlays require explicit exclusion; unsupported syntax stays blocked
+ok 75 - external modules, regex and overlays require explicit exclusion; unsupported syntax stays blocked
   ---
-  duration_ms: 0.9597
+  duration_ms: 1.0889
   type: 'test'
   ...
 # Subtest: legacy formatting order maps lastChat without duplicating the current request
-ok 74 - legacy formatting order maps lastChat without duplicating the current request
+ok 76 - legacy formatting order maps lastChat without duplicating the current request
   ---
-  duration_ms: 0.224
+  duration_ms: 0.2601
   type: 'test'
   ...
 # Subtest: ChatML roles and disabled blocks preserve user-controlled order
-ok 75 - ChatML roles and disabled blocks preserve user-controlled order
+ok 77 - ChatML roles and disabled blocks preserve user-controlled order
   ---
-  duration_ms: 0.6844
+  duration_ms: 0.7241
   type: 'test'
   ...
 # Subtest: workspace validation rejects corrupt switches and global data without mutating input
-ok 76 - workspace validation rejects corrupt switches and global data without mutating input
+ok 78 - workspace validation rejects corrupt switches and global data without mutating input
   ---
-  duration_ms: 0.2463
+  duration_ms: 0.2742
   type: 'test'
   ...
 # Subtest: prose review offers exact duplicates, punctuation differences and similar sentences without auto-applying
-ok 77 - prose review offers exact duplicates, punctuation differences and similar sentences without auto-applying
+ok 79 - prose review offers exact duplicates, punctuation differences and similar sentences without auto-applying
   ---
-  duration_ms: 3.8965
+  duration_ms: 1.4816
   type: 'test'
   ...
 # Subtest: review preserves exact patches and rejects malformed, out-of-range or overlapping selections
-ok 78 - review preserves exact patches and rejects malformed, out-of-range or overlapping selections
+ok 80 - review preserves exact patches and rejects malformed, out-of-range or overlapping selections
   ---
-  duration_ms: 1.9366
+  duration_ms: 0.6196
   type: 'test'
   ...
 # Subtest: packet review allows manual prose selection but keeps Lua and regex edits exact-only
-ok 79 - packet review allows manual prose selection but keeps Lua and regex edits exact-only
+ok 81 - packet review allows manual prose selection but keeps Lua and regex edits exact-only
   ---
-  duration_ms: 6.7887
+  duration_ms: 3.6505
   type: 'test'
   ...
 # Subtest: Lua-first ordering preserves separate scripts and other triggers through charx module serialization
-ok 80 - Lua-first ordering preserves separate scripts and other triggers through charx module serialization
+ok 82 - Lua-first ordering preserves separate scripts and other triggers through charx module serialization
   ---
-  duration_ms: 2.4509
+  duration_ms: 1.706
   type: 'test'
   ...
 # Subtest: all edits locate the immutable source, apply in source order and keep literal replacement characters
-ok 81 - all edits locate the immutable source, apply in source order and keep literal replacement characters
+ok 83 - all edits locate the immutable source, apply in source order and keep literal replacement characters
   ---
-  duration_ms: 4.7605
+  duration_ms: 1.0953
   type: 'test'
   ...
 # Subtest: ambiguous, overlapping, absent and empty anchors fail instead of guessing
-ok 82 - ambiguous, overlapping, absent and empty anchors fail instead of guessing
+ok 84 - ambiguous, overlapping, absent and empty anchors fail instead of guessing
   ---
-  duration_ms: 1.4374
+  duration_ms: 0.2734
   type: 'test'
   ...
 # Subtest: exact whitespace and CRLF are preserved; insertion and deletion use explicit anchors
-ok 83 - exact whitespace and CRLF are preserved; insertion and deletion use explicit anchors
+ok 85 - exact whitespace and CRLF are preserved; insertion and deletion use explicit anchors
   ---
-  duration_ms: 0.4878
+  duration_ms: 0.16
   type: 'test'
   ...
 # Subtest: edit payload has strict keys, types and a bounded edit count
-ok 84 - edit payload has strict keys, types and a bounded edit count
+ok 86 - edit payload has strict keys, types and a bounded edit count
   ---
-  duration_ms: 0.4006
+  duration_ms: 0.2607
   type: 'test'
   ...
 # Subtest: line previews track original and resulting line ranges without modifying the packet
-ok 85 - line previews track original and resulting line ranges without modifying the packet
+ok 87 - line previews track original and resulting line ranges without modifying the packet
   ---
-  duration_ms: 1.4521
+  duration_ms: 0.8841
   type: 'test'
   ...
 # Subtest: one workshop packet patches description, greeting, lore, regex, Lua and variables atomically
-ok 86 - one workshop packet patches description, greeting, lore, regex, Lua and variables atomically
+ok 88 - one workshop packet patches description, greeting, lore, regex, Lua and variables atomically
   ---
-  duration_ms: 7.4846
+  duration_ms: 5.5758
   type: 'test'
   ...
 # Subtest: a late invalid edit rejects the whole change bundle without mutating any target
-ok 87 - a late invalid edit rejects the whole change bundle without mutating any target
+ok 89 - a late invalid edit rejects the whole change bundle without mutating any target
   ---
-  duration_ms: 0.4526
+  duration_ms: 0.3597
   type: 'test'
   ...
 # Subtest: new entries require full strings while full replacement and mixed settings remain supported
-ok 88 - new entries require full strings while full replacement and mixed settings remain supported
+ok 90 - new entries require full strings while full replacement and mixed settings remain supported
   ---
-  duration_ms: 1.3568
+  duration_ms: 0.4854
   type: 'test'
   ...
 # Subtest: references, excluded lore, duplicate edits/removals and variable constraints stay enforced
-ok 89 - references, excluded lore, duplicate edits/removals and variable constraints stay enforced
+ok 91 - references, excluded lore, duplicate edits/removals and variable constraints stay enforced
   ---
-  duration_ms: 1.4006
+  duration_ms: 0.6553
   type: 'test'
   ...
 # Subtest: Lua comment-only edits preserve code and code-only edits preserve metadata
-ok 90 - Lua comment-only edits preserve code and code-only edits preserve metadata
+ok 92 - Lua comment-only edits preserve code and code-only edits preserve metadata
   ---
-  duration_ms: 0.6075
+  duration_ms: 0.3759
   type: 'test'
   ...
 # Subtest: legacy v1 responses and recovery stay valid; edits require v2 and remain compact in storage
-ok 91 - legacy v1 responses and recovery stay valid; edits require v2 and remain compact in storage
+ok 93 - legacy v1 responses and recovery stay valid; edits require v2 and remain compact in storage
   ---
-  duration_ms: 3.0206
+  duration_ms: 2.0484
   type: 'test'
   ...
 # Subtest: patching choice bundles validates resolved button handlers and preserves other trigger effects
-ok 92 - patching choice bundles validates resolved button handlers and preserves other trigger effects
+ok 94 - patching choice bundles validates resolved button handlers and preserves other trigger effects
   ---
-  duration_ms: 0.7289
+  duration_ms: 0.5255
   type: 'test'
   ...
 # Subtest: every task partial-edit example validates against its stated source
-ok 93 - every task partial-edit example validates against its stated source
+ok 95 - every task partial-edit example validates against its stated source
   ---
-  duration_ms: 1.1605
+  duration_ms: 0.7091
   type: 'test'
   ...
 # Subtest: long CSS patches keep the response small and omit unchanged source from review
-ok 94 - long CSS patches keep the response small and omit unchanged source from review
+ok 96 - long CSS patches keep the response small and omit unchanged source from review
   ---
-  duration_ms: 6.6824
+  duration_ms: 3.8677
+  type: 'test'
+  ...
+# Subtest: bot icon menu registers, replaces, confirms removal and keeps additional assets
+ok 97 - bot icon menu registers, replaces, confirms removal and keeps additional assets
+  ---
+  duration_ms: 79.309
+  type: 'test'
+  ...
+# Subtest: cancelled, invalid, failed and stale icon registrations leave the prior icon intact
+ok 98 - cancelled, invalid, failed and stale icon registrations leave the prior icon intact
+  ---
+  duration_ms: 11.3637
   type: 'test'
   ...
 # Subtest: request locks manuscript controls, cancellation unlocks them and discards late responses
-ok 95 - request locks manuscript controls, cancellation unlocks them and discards late responses
+ok 99 - request locks manuscript controls, cancellation unlocks them and discards late responses
   ---
-  duration_ms: 126.7583
+  duration_ms: 64.9489
   type: 'test'
   ...
 # Subtest: prose dialog supports candidate selection, manual ranges and editable replacement before explicit apply
-ok 96 - prose dialog supports candidate selection, manual ranges and editable replacement before explicit apply
+ok 100 - prose dialog supports candidate selection, manual ranges and editable replacement before explicit apply
   ---
-  duration_ms: 110.0803
+  duration_ms: 109.7058
   type: 'test'
   ...
 # Subtest: asset selection supports cancel, multiple deletion, select all, clear and delete all
-ok 97 - asset selection supports cancel, multiple deletion, select all, clear and delete all
+ok 101 - asset selection supports cancel, multiple deletion, select all, clear and delete all
   ---
-  duration_ms: 139.4821
+  duration_ms: 139.8591
   type: 'test'
   ...
 # Subtest: asset deletion refuses a changed draft or session while confirmation is pending
-ok 98 - asset deletion refuses a changed draft or session while confirmation is pending
+ok 102 - asset deletion refuses a changed draft or session while confirmation is pending
   ---
-  duration_ms: 15.4875
+  duration_ms: 14.201
   type: 'test'
   ...
 # Subtest: direct and preset requests review compact v2 patches, recover them, and apply only on explicit approval
-ok 99 - direct and preset requests review compact v2 patches, recover them, and apply only on explicit approval
+ok 103 - direct and preset requests review compact v2 patches, recover them, and apply only on explicit approval
   ---
-  duration_ms: 78.727
+  duration_ms: 48.3116
   type: 'test'
   ...
 # Subtest: skipped ambiguous prose edits do not retry or create candidates; later draft changes invalidate proposals
-ok 100 - skipped ambiguous prose edits do not retry or create candidates; later draft changes invalidate proposals
+ok 104 - skipped ambiguous prose edits do not retry or create candidates; later draft changes invalidate proposals
   ---
-  duration_ms: 18.9524
+  duration_ms: 20.452
   type: 'test'
   ...
 # Subtest: preset file picker accepts the expanded size range and rejects files over 32MiB
-ok 101 - preset file picker accepts the expanded size range and rejects files over 32MiB
+ok 105 - preset file picker accepts the expanded size range and rejects files over 32MiB
   ---
-  duration_ms: 144.6148
+  duration_ms: 144.84
   type: 'test'
   ...
 # Subtest: lore checkbox state follows reorder and persists in both recovery slots
-ok 102 - lore checkbox state follows reorder and persists in both recovery slots
+ok 106 - lore checkbox state follows reorder and persists in both recovery slots
   ---
-  duration_ms: 67.6714
+  duration_ms: 67.1526
   type: 'test'
   ...
 # Subtest: array response with OOC prose creates no accepted reply or candidate
-ok 103 - array response with OOC prose creates no accepted reply or candidate
+ok 107 - array response with OOC prose creates no accepted reply or candidate
   ---
-  duration_ms: 12.6784
+  duration_ms: 10.5405
   type: 'test'
   ...
 # Subtest: lore diff displays changed fields only and JSON guide uses current included refs
-ok 104 - lore diff displays changed fields only and JSON guide uses current included refs
+ok 108 - lore diff displays changed fields only and JSON guide uses current included refs
   ---
-  duration_ms: 34.3828
+  duration_ms: 20.6924
   type: 'test'
   ...
 # Subtest: preset OOC prefill stays configured while response leftovers are removed before conversation and proposal handling
-ok 105 - preset OOC prefill stays configured while response leftovers are removed before conversation and proposal handling
+ok 109 - preset OOC prefill stays configured while response leftovers are removed before conversation and proposal handling
   ---
-  duration_ms: 31.5065
+  duration_ms: 30.9426
   type: 'test'
   ...
 # Subtest: installed-module dialog selects referenced modules read-only and persists modules/toggles through import and recovery
-ok 106 - installed-module dialog selects referenced modules read-only and persists modules/toggles through import and recovery
+ok 110 - installed-module dialog selects referenced modules read-only and persists modules/toggles through import and recovery
   ---
-  duration_ms: 100.8564
+  duration_ms: 100.4176
   type: 'test'
   ...
 # Subtest: module selection cancellation, permission refusal and a session change preserve the current selection
-ok 107 - module selection cancellation, permission refusal and a session change preserve the current selection
+ok 111 - module selection cancellation, permission refusal and a session change preserve the current selection
   ---
-  duration_ms: 53.0301
+  duration_ms: 39.5736
   type: 'test'
   ...
 # Subtest: runtime exclusion controls block dispatch until explicitly changed and persist their choice
-ok 108 - runtime exclusion controls block dispatch until explicitly changed and persist their choice
+ok 112 - runtime exclusion controls block dispatch until explicitly changed and persist their choice
   ---
-  duration_ms: 26.1841
+  duration_ms: 25.0682
   type: 'test'
   ...
 # Subtest: presentation-only modules allow dispatch and preserve structured chapter text; diagnostic sources remain text
-ok 109 - presentation-only modules allow dispatch and preserve structured chapter text; diagnostic sources remain text
+ok 113 - presentation-only modules allow dispatch and preserve structured chapter text; diagnostic sources remain text
   ---
-  duration_ms: 30.5312
+  duration_ms: 31.0611
   type: 'test'
   ...
 # Subtest: preset postprocessing diagnostics and literal user_input allow structured requests without changing exclusion settings
-ok 110 - preset postprocessing diagnostics and literal user_input allow structured requests without changing exclusion settings
+ok 114 - preset postprocessing diagnostics and literal user_input allow structured requests without changing exclusion settings
   ---
-  duration_ms: 21.8726
+  duration_ms: 30.7187
   type: 'test'
   ...
 # Subtest: binary preset import, local save, reload and both recovery slots preserve editable toggles
-ok 111 - binary preset import, local save, reload and both recovery slots preserve editable toggles
+ok 115 - binary preset import, local save, reload and both recovery slots preserve editable toggles
   ---
-  duration_ms: 28.0614
+  duration_ms: 35.4591
   type: 'test'
   ...
 # Subtest: preset preview equals actual transmission, history appears once and unsupported blocks never send
-ok 112 - preset preview equals actual transmission, history appears once and unsupported blocks never send
+ok 116 - preset preview equals actual transmission, history appears once and unsupported blocks never send
   ---
-  duration_ms: 31.8028
+  duration_ms: 29.0889
   type: 'test'
   ...
 # Subtest: incomplete condition edits survive preset save and reload, and correction unblocks assembly
-ok 113 - incomplete condition edits survive preset save and reload, and correction unblocks assembly
+ok 117 - incomplete condition edits survive preset save and reload, and correction unblocks assembly
   ---
-  duration_ms: 41.1205
+  duration_ms: 42.7589
   type: 'test'
   ...
 # Subtest: changing a preset toggle discards a pending response and older snapshots still restore
-ok 114 - changing a preset toggle discards a pending response and older snapshots still restore
+ok 118 - changing a preset toggle discards a pending response and older snapshots still restore
   ---
-  duration_ms: 56.2283
+  duration_ms: 39.2556
   type: 'test'
   ...
 # Subtest: workshop renders manuscript + persistent chat, with prompt beside every send action
-ok 115 - workshop renders manuscript + persistent chat, with prompt beside every send action
+ok 119 - workshop renders manuscript + persistent chat, with prompt beside every send action
   ---
-  duration_ms: 29.5174
+  duration_ms: 29.4404
   type: 'test'
   ...
 # Subtest: autosave does not overwrite initial recovery data and two slots are independent
-ok 116 - autosave does not overwrite initial recovery data and two slots are independent
+ok 120 - autosave does not overwrite initial recovery data and two slots are independent
   ---
-  duration_ms: 6.2246
+  duration_ms: 5.9706
   type: 'test'
   ...
 # Subtest: send dispatches once without a confirmation dialog and preserves the manuscript
-ok 117 - send dispatches once without a confirmation dialog and preserves the manuscript
+ok 121 - send dispatches once without a confirmation dialog and preserves the manuscript
   ---
-  duration_ms: 10.3609
+  duration_ms: 10.3999
   type: 'test'
   ...
 # Subtest: generated proposals require explicit apply and stale candidates cannot apply
-ok 118 - generated proposals require explicit apply and stale candidates cannot apply
+ok 122 - generated proposals require explicit apply and stale candidates cannot apply
   ---
-  duration_ms: 13.369
+  duration_ms: 13.4979
   type: 'test'
   ...
 # Subtest: prompt save and reset affect only selected task
-ok 119 - prompt save and reset affect only selected task
+ok 123 - prompt save and reset affect only selected task
   ---
-  duration_ms: 61.3623
+  duration_ms: 62.0827
   type: 'test'
   ...
 # Subtest: saved prompt survives reload while unsaved prompt edits remain drafts
-ok 120 - saved prompt survives reload while unsaved prompt edits remain drafts
+ok 124 - saved prompt survives reload while unsaved prompt edits remain drafts
   ---
-  duration_ms: 10.8111
+  duration_ms: 9.8048
   type: 'test'
   ...
 # Subtest: late model result is discarded after manuscript changes
-ok 121 - late model result is discarded after manuscript changes
+ok 125 - late model result is discarded after manuscript changes
   ---
-  duration_ms: 36.1068
+  duration_ms: 35.9749
   type: 'test'
   ...
 # Subtest: direct send still blocks duplicate requests and over-limit input
-ok 122 - direct send still blocks duplicate requests and over-limit input
+ok 126 - direct send still blocks duplicate requests and over-limit input
   ---
-  duration_ms: 30.9195
+  duration_ms: 30.8065
   type: 'test'
   ...
 # Subtest: theme follows system changes until a saved explicit preference overrides them
-ok 123 - theme follows system changes until a saved explicit preference overrides them
+ok 127 - theme follows system changes until a saved explicit preference overrides them
   ---
-  duration_ms: 52.5198
+  duration_ms: 49.2988
   type: 'test'
   ...
-1..123
-# tests 123
+1..127
+# tests 127
 # suites 0
-# pass 123
+# pass 127
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1926.1928
+# duration_ms 1784.0098
