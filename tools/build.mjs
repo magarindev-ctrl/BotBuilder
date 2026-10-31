@@ -7,7 +7,7 @@ const notices = await readFile('THIRD_PARTY_NOTICES.txt', 'utf8');
 const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 const { VERSION } = await import('../src/core.js');
 if (version !== VERSION) throw new Error('Package and runtime version differ');
-const header = `//@name risu_story_workshop\n//@display-name 봇빌더\n//@api 3.0\n//@version ${version}\n`;
+const header = `//@name risu_story_workshop\n//@display-name 봇빌더\n//@api 3.0\n//@version ${version}\n//@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js\n`;
 const result = await build({ entryPoints: ['src/main.js'], outfile: 'dist/risu_story_workshop.js', bundle: true, format: 'iife', target: ['es2022'], platform: 'browser', legalComments: 'inline', banner: { js: header + '\n/*\n' + notices.replaceAll('*/', '* /') + '\n*/' }, minify: false, metafile: true });
 const bytes = await readFile('dist/risu_story_workshop.js');
 if (Object.values(result.metafile.outputs).some(output => output.imports.length)) throw new Error('Unexpected external code dependency');

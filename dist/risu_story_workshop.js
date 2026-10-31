@@ -2,8 +2,10 @@
 //@display-name 봇빌더
 //@api 3.0
 //@version 1.0.0
+//@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-10-31: v1.0.0 adds the GitHub Raw update URL for native RisuAI/RisuBard plugin updates; version unchanged.
 Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
 Modified 2026-10-31: v0.4.15 synchronizes the mobile build to source, including request images, mobile layout, save-conflict review, JSON guidance, lore defaults and CHARX asset URI retention.

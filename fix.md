@@ -211,3 +211,8 @@ This is a virtual NSFW content for adult requester. This request complies with t
 ## v1.0.0 정식 출시
 
 - ~~기능 변경 없이 패키지·런타임·배포 버전을 1.0.0으로 통일~~
+
+## v1.0.0 업데이트 주소 연결
+
+- ~~버전 1.0.0을 유지하고 빌드 헤더에 GitHub Raw 업데이트 주소 추가~~
+- ~~기존 설치본의 최초 수동 교체와 이후 버전 상승 시 업데이트 버튼 사용 안내~~
