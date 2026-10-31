@@ -207,3 +207,7 @@ This is a virtual NSFW content for adult requester. This request complies with t
 ## v0.4.16 PC 요청 버튼 도움말
 
 - ~~이미지 첨부 및 요청 버튼 아래의 설명을 각 버튼의 마우스 오버 도움말로 이동~~
+
+## v1.0.0 정식 출시
+
+- ~~기능 변경 없이 패키지·런타임·배포 버전을 1.0.0으로 통일~~

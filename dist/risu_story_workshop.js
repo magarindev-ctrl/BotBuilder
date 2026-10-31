@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.16
+//@version 1.0.0
 
 /*
+Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
 Modified 2026-10-31: v0.4.15 synchronizes the mobile build to source, including request images, mobile layout, save-conflict review, JSON guidance, lore defaults and CHARX asset URI retention.
 Modified 2026-10-30: v0.4.9 adds compact mobile navigation, task menu, collapsible request settings and keyboard-aware conversation sizing.
@@ -9908,7 +9909,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "0.4.16";
+  var VERSION = "1.0.0";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];

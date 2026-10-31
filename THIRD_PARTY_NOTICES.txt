@@ -1,3 +1,4 @@
+Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
 Modified 2026-10-31: v0.4.15 synchronizes the mobile build to source, including request images, mobile layout, save-conflict review, JSON guidance, lore defaults and CHARX asset URI retention.
 Modified 2026-10-30: v0.4.9 adds compact mobile navigation, task menu, collapsible request settings and keyboard-aware conversation sizing.
