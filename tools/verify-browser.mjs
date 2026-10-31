@@ -48,6 +48,15 @@ try {
   await page.locator('#plugin').evaluate((iframe, source) => { iframe.srcdoc = source; }, frameHtml);
   const frame = await (await page.locator('#plugin').elementHandle()).contentFrame();
   await frame.waitForSelector('#story-workshop', { state: 'attached' });
+  const ensureRequest = async () => {
+    const input=frame.getByRole('textbox',{name:'LLM에게 보낼 요청'});
+    if (!(await input.inputValue())) await input.fill('다음 검증 요청');
+  };
+  const toolbarAction = async name => {
+    const button=frame.getByRole('button',{name,exact:true});
+    if (!(await button.isVisible())) await frame.getByRole('button',{name:'작업 메뉴',exact:true}).click();
+    await frame.getByRole('button',{name,exact:true}).click();
+  };
   await frame.waitForFunction(() => typeof window.__open === 'function');
   await frame.evaluate(() => window.__open());
   await page.locator('#plugin').waitFor({ state: 'visible' });
@@ -56,6 +65,7 @@ try {
   const sizes = await frame.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth, editor: document.querySelector('.editor').getBoundingClientRect().width, chat: document.querySelector('.conversation').getBoundingClientRect().width }));
   assert.equal(sizes.overflow, false); assert.ok(sizes.editor >= 400 && sizes.chat >= 340); results.push({ name: 'desktop two-pane layout', passed: true, sizes });
   const checkLayout = async label => {
+    await frame.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const measured = await frame.evaluate(() => {
       const rect = selector => { const element=document.querySelector(selector), r=element.getBoundingClientRect(); return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height}; };
       const root=document.querySelector('#story-workshop'), editor=document.querySelector('.editor'), chat=document.querySelector('.conversation');
@@ -116,7 +126,7 @@ try {
   assert.equal(await frame.evaluate(async () => JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:settings')).theme), 'dark');
   results.push({ name: 'system dark mode and persistent explicit theme selection', passed: true });
   await frame.getByRole('textbox', { name: 'LLM에게 보낼 요청' }).fill('기억을 거래하는 도시의 시뮬레이션을 같이 구상하자.');
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.getByText('기억을 거래하는 항구 도시를 배경으로 시작해볼까요?', { exact: false }).waitFor();
   assert.equal(await frame.evaluate(() => window.__calls.length), 1); assert.equal(await frame.locator('.modal-overlay').count(), 0); results.push({ name: 'single-click model request without confirmation dialog', passed: true });
   await frame.locator('[data-action="prompt"]').click();
@@ -139,7 +149,7 @@ try {
   await frame.getByRole('button', { name: '창 닫기', exact: true }).click();
   await frame.getByRole('combobox', { name: 'LLM 요청 종류' }).selectOption('description');
   await frame.getByRole('textbox', { name: 'LLM에게 보낼 요청' }).fill('도시의 기록관 캐릭터 설명을 써줘.');
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.locator('[data-action="apply-candidate"]').waitFor();
   await page.locator('#plugin').screenshot({ path: 'artifacts/workshop-proposal.png', animations: 'disabled' });
   await frame.locator('[data-action="apply-candidate"]').click();
@@ -165,13 +175,13 @@ try {
   await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
   await frame.getByRole('checkbox',{name:'추가 설정',exact:true}).check();
   await frame.getByRole('combobox',{name:'말투',exact:true}).selectOption('1');
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
   assert.match(await frame.locator('.editor').innerText(),/조건 활성/);
   await page.locator('#plugin').screenshot({path:'artifacts/workshop-preset-preview.png',animations:'disabled'});
   await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
   await frame.getByRole('checkbox',{name:'추가 설정',exact:true}).uncheck();
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   assert.doesNotMatch(await frame.locator('.editor').innerText(),/조건 활성/);
   results.push({name:'binary risup imported under CSP; v2 toggle condition controls assembled content',passed:true});
   console.log('Checking preset edits and dispatch');
@@ -181,10 +191,10 @@ try {
   await frame.getByRole('button',{name:'아래로',exact:true}).click();
   await page.locator('#plugin').screenshot({path:'artifacts/workshop-preset-blocks.png',animations:'disabled'});
   await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('프리셋을 적용해서 기록관 설명을 다듬어줘.');
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   const preview=await frame.locator('.editor section.card').evaluateAll(sections=>sections.map(s=>({role:s.querySelector('h3').textContent.split('. ')[1],content:s.querySelector('pre').textContent})));
   assert.equal(preview[0].role,'assistant');assert.match(preview[0].content,/편집된 규칙/);
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===3&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.equal(await frame.locator('[data-action="apply-candidate"]').count(),0);
   assert.match(await frame.locator('.message.assistant .bubble').last().innerText(),/적용할 변경 사항이 없습니다/);
@@ -196,7 +206,7 @@ try {
   results.push({name:'block text, role and order edits match transmitted messages; local preset selections save',passed:true});
   await frame.getByRole('button',{name:'프롬프트 블록',exact:true}).click();
   await frame.getByRole('textbox',{name:'블록 본문',exact:true}).fill('{{unsupported_host_macro}}');
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.getByRole('alert').filter({hasText:'지원하지 않는 CBS'}).waitFor();
   assert.equal(await frame.evaluate(()=>window.__calls.length),3);
   results.push({name:'unsupported preset syntax stops before model dispatch',passed:true});
@@ -210,11 +220,11 @@ try {
   await frame.getByRole('combobox',{name:'추가할 블록 유형',exact:true}).selectOption('cache');
   await frame.getByRole('button',{name:'블록 추가',exact:true}).click();
   await frame.getByRole('combobox',{name:'캐시 대상 역할',exact:true}).selectOption('user');
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
   assert.match(await frame.locator('.editor').innerText(),/What Cattleya have to respond!/);
   await frame.locator('.editor section.card .pill').filter({hasText:'캐시 지점'}).waitFor();
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===4&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.role==='user'&&m.cachePoint===true)));
   assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.content.includes('(What Cattleya have to respond!)'))));
@@ -222,7 +232,7 @@ try {
   await page.locator('#plugin').screenshot({path:'artifacts/workshop-cbs-compat.png',animations:'disabled'});
   await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
   await frame.getByRole('combobox',{name:'OOC',exact:true}).selectOption('1');
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   assert.doesNotMatch(await frame.locator('.editor').innerText(),/What Cattleya have to respond!/);
   results.push({name:'reported if_pure/infix syntax responds to OOC toggles under CSP and cachePoint reaches the model API',passed:true});
   const moduleChooser=page.waitForEvent('filechooser');await frame.locator('[data-action="import-preset"]').click();
@@ -243,10 +253,10 @@ try {
   await frame.getByText('모듈 로어북 포함 항목 확인',{exact:true}).waitFor();
   await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
   await frame.getByRole('combobox',{name:'모듈 집중',exact:true}).selectOption('1');
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
   assert.match(await frame.locator('.editor').innerText(),/모듈 연결=1/);assert.match(await frame.locator('.editor').innerText(),/상세 모드/);
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===5&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.ok(await frame.evaluate(()=>window.__calls[4].messages.some(m=>m.content.includes('모듈 자료:')&&m.content.includes('상세 모드'))));
   assert.deepEqual(await frame.evaluate(()=>window.__hostWrites),[]);assert.deepEqual(await frame.evaluate(()=>window.__dbReads),[['modules']]);
@@ -256,17 +266,17 @@ try {
   await frame.locator('[data-action="select-modules"]').click();
   await frame.getByRole('checkbox',{name:'실행 모듈 · script-id',exact:true}).check();
   await frame.getByRole('button',{name:'선택 모듈 적용',exact:true}).click();
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
   await frame.getByText('전송할 수 없는 항목:',{exact:false}).waitFor();
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.getByRole('alert').filter({hasText:'실행은 지원하지 않습니다'}).waitFor();
   assert.equal(await frame.evaluate(()=>window.__calls.length),5);assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);
   await frame.getByRole('button',{name:'모듈',exact:true}).click();
   await frame.getByRole('checkbox',{name:'이 모듈의 요청 관련 미지원 처리를 제외',exact:true}).check();
   await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
   await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['script-id'].skipRuntime===true);
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===6&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);assert.deepEqual(await frame.evaluate(()=>window.__hostWrites),[]);
   results.push({name:'module runtime features block dispatch until explicitly excluded; exclusions persist and no module JS executes',passed:true});
@@ -282,8 +292,8 @@ try {
   assert.equal(await frame.locator('.editor pre b').count(),0);
   await frame.locator('.toast.bad').waitFor({state:'hidden'});
   await page.locator('#plugin').screenshot({path:'artifacts/bb-runtime-phases.png',animations:'disabled'});
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===7&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.equal(await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['presentation-id'].skipRuntime),false);
   assert.equal(await frame.evaluate(()=>window.__moduleExecuted),undefined);
@@ -293,11 +303,11 @@ try {
   await (await postChooser).setFiles({name:'post-preset.risup',mimeType:'application/octet-stream',buffer:Buffer.from(await encodePreset(postPreset))});
   await frame.waitForFunction(()=>document.querySelector('[aria-label="프리셋 이름"]')?.value==='후처리 호환 프리셋');
   await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('이전과 다른 이번 요청 USER_INPUT_CURRENT');
-  await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
+  await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
   const postTrace=JSON.parse(await frame.locator('.editor details').filter({has:frame.locator('summary').filter({hasText:'블록별 포함·제외 결과'})}).locator('pre').textContent());
   assert.equal(postTrace[1].status,'empty');
   await page.locator('#plugin').screenshot({path:'artifacts/bb-preset-phases.png',animations:'disabled'});
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===8&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.equal(await frame.evaluate(()=>window.__calls[7].messages.filter(m=>m.content.includes('USER_INPUT_CURRENT')).length),1);
   assert.equal(await frame.evaluate(()=>window.__calls[7].messages.some(m=>m.content.includes('{{user_input}}'))),false);
@@ -311,7 +321,7 @@ try {
   assert.match(await outputGuide.innerText(),/올바른 출력 예시/);assert.match(await outputGuide.innerText(),/잘못된 출력 예시/);
   await frame.getByRole('button',{name:'창 닫기',exact:true}).click();
   await frame.evaluate(()=>window.__wrapResponse=true);
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===9&&!document.querySelector('[data-action="send-request"]').disabled);
   const cleanedReply=await frame.locator('.message.assistant .bubble').last().innerText();
   assert.match(cleanedReply,/항구 도시/);assert.doesNotMatch(cleanedReply,/OOC Response|schemaVersion|부가 설명/);
@@ -329,7 +339,7 @@ try {
     chars[0].desc = '유지할 첫 줄\n원래 설명\n유지할 마지막 줄';
     chars[0].globalLore = Array.from({length:75}, (_, i) => ({comment:`로어북 ${i+1} · 긴 제목 줄바꿈과 선택 구분 검사`, key:'entry-'+i, content:'BODY_'+i}));
   });
-  await frame.getByRole('button',{name:'캐릭터 불러오기',exact:true}).click();
+  await toolbarAction('캐릭터 불러오기');
   const characterDialog=frame.getByRole('dialog');
   assert.doesNotMatch(await characterDialog.innerText(),/\[object HTML/);
   const characterSearch=characterDialog.getByRole('textbox',{name:'이름으로 찾기'});
@@ -355,7 +365,7 @@ try {
     const next=document.querySelector('.lore-request-list');return {before,after:next.scrollTop,checked:next.querySelectorAll('input')[10].checked};
   });
   assert.equal(scroll.after,scroll.before);assert.equal(scroll.checked,false);
-  await frame.getByRole('button',{name:'임시 저장',exact:true}).click();
+  await toolbarAction('임시 저장');
   await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual'))?.session?.loreIncluded?.[10]===false);
   await page.setViewportSize({width:390,height:850});
   await page.locator('#plugin').screenshot({path:'artifacts/bb-lore-mobile.png',animations:'disabled'});
@@ -365,7 +375,7 @@ try {
   await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('설명의 한 구간만 수정');
   const beforeCalls=await frame.evaluate(()=>window.__calls.length);
   await frame.evaluate(()=>{window.__responseOverride='## OOC\n'+JSON.stringify({schemaVersion:2,task:'description',data:{text:{edits:[{before:'원래 설명',after:'수정한 설명'}]}}})+'\n완료';});
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(n=>window.__calls.length===n+1&&!document.querySelector('[data-action="send-request"]').disabled,beforeCalls);
   const patchCandidate=frame.locator('.candidate');
   await patchCandidate.locator('summary').click();
@@ -387,7 +397,7 @@ try {
   await page.setViewportSize({width:1440,height:1000});
   await frame.evaluate(()=>{window.__responseOverride=JSON.stringify({schemaVersion:2,task:'description',data:{text:{edits:[{before:'없는 원문',after:'적용하면 안 됨'}]}}});});
   await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('실패 구간 검증');
-  await frame.locator('[data-action="send-request"]').click();
+  await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.getByRole('dialog').waitFor();
   assert.equal(await frame.getByRole('textbox',{name:'캐릭터 설명',exact:true}).isDisabled(),true);
   await frame.getByRole('button',{name:'이 수정 건너뛰기',exact:true}).click();
@@ -400,7 +410,7 @@ try {
     chars[0].additionalAssets = Array.from({length:12}, (_, i) => [`에셋 ${i + 1}`, `assets/${i}`, 'png']);
     chars[0].ccAssets = chars[0].additionalAssets.map(a => ({type:'x-risu-asset',name:a[0],uri:a[1]}));
   });
-  await frame.getByRole('button',{name:'캐릭터 불러오기',exact:true}).click();
+  await toolbarAction('캐릭터 불러오기');
   await frame.getByRole('button',{name:'현재 선택된 캐릭터',exact:true}).click();
   await frame.getByRole('button',{name:'확인',exact:true}).click();
   await frame.locator('.navitem').filter({hasText:'에셋 목록'}).click();
@@ -437,8 +447,8 @@ try {
   await frame.waitForFunction(() => document.querySelectorAll('[data-asset-row]').length === 0);
   assert.equal(await frame.locator('[data-asset-row]').count(),0);
   assert.equal(await frame.getByRole('button',{name:'전체 삭제',exact:true}).isDisabled(),true);
-  await frame.getByRole('button',{name:'임시 저장',exact:true}).click();
-  await frame.waitForFunction(async () => JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft.additionalAssets.length === 0);
+  await toolbarAction('임시 저장');
+  await frame.waitForFunction(async () => {const draft=JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft;return draft.image==='assets/mock'&&draft.additionalAssets.length===0&&Array.isArray(draft.ccAssets)&&draft.ccAssets.length===0;});
   const storedAssets = await frame.evaluate(async () => ({draft:JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft,writes:window.__hostWrites.length}));
   assert.deepEqual(storedAssets.draft.ccAssets,[]); assert.equal(storedAssets.writes,assetWrites);
   assert.equal(storedAssets.draft.image,'assets/mock');
@@ -449,7 +459,47 @@ try {
   results.push({name:'bot icon file selection, draft registration, persistence across bulk asset deletion and explicit removal',passed:true});
   results.push({name:'asset selection, cancelled/multiple/all deletion, metadata persistence and mobile layout at 320/390px; no implicit host writes',passed:true});
   assert.deepEqual(errors, []);
+  // Decode real PNG bytes in the browser, including the clipboard path.
+  await page.setViewportSize({width:1440,height:1000});
+  await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
+  await page.setViewportSize({width:390,height:568});
+  await frame.getByRole('button',{name:'대화',exact:true}).click();
+  const png=await frame.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=4;canvas.height=3;canvas.getContext('2d').fillRect(0,0,4,3);return canvas.toDataURL('image/png').split(',')[1];});
+  await frame.locator('input[aria-label="요청에 이미지 첨부"]').setInputFiles({name:'capture.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});
+  await frame.waitForFunction(()=>document.querySelectorAll('.request-previews img').length===1);
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('');
+  await frame.evaluate(png=>{
+    const bytes=Uint8Array.from(atob(png),c=>c.charCodeAt(0)),transfer=new DataTransfer();
+    transfer.items.add(new File([bytes],'clipboard.png',{type:'image/png'}));transfer.setData('text/plain','이 화면을 설명해줘');
+    document.querySelector('[aria-label="LLM에게 보낼 요청"]').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));
+  },png);
+  await frame.waitForFunction(()=>document.querySelectorAll('.request-previews img').length===2);
+  assert.equal(await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).inputValue(),'이 화면을 설명해줘');
+  await checkLayout('390x568 chat with two image previews');
+  await page.locator('#plugin').screenshot({path:'artifacts/bb-request-images-mobile.png',animations:'disabled'});
+  await frame.getByRole('button',{name:'요청 설정 ▾',exact:true}).click();
+  await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('workshop');
+  // Attachments are scoped to the request task; switch back to description.
+  await frame.getByRole('button',{name:'요청 설정 ▾',exact:true}).click();
+  await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
+  assert.equal(await frame.locator('.request-previews img').count(),2);
+  await frame.evaluate(()=>{window.__responseOverride=JSON.stringify({schemaVersion:1,task:'description',data:{text:'이미지를 참고한 제안'}});});
+  const imageCall=await frame.evaluate(()=>window.__calls.length);
+  await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(n=>window.__calls.length===n+1&&!document.querySelector('[data-action="send-request"]').disabled,imageCall);
+  const attached=await frame.evaluate(n=>window.__calls[n].messages.flatMap(m=>m.multimodals??[]),imageCall);
+  assert.equal(attached.length,2);assert.ok(attached.every(i=>i.type==='image'&&i.width===4&&i.height===3&&i.base64.startsWith('data:image/png;base64,')));
+  assert.equal(await frame.locator('.request-previews img').count(),0);assert.equal(await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).inputValue(),'');
+  await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('이어서 설명해줘');await frame.locator('[data-action="send-request"]').click();
+  await frame.waitForFunction(n=>window.__calls.length===n+2&&!document.querySelector('[data-action="send-request"]').disabled,imageCall);
+  assert.equal(await frame.evaluate(n=>window.__calls[n+1].messages.flatMap(m=>m.multimodals??[]).length,imageCall),0);
+  await frame.getByRole('button',{name:'이미지 다시 첨부',exact:true}).click();
+  assert.equal(await frame.locator('.request-previews img').count(),2);
+  await toolbarAction('임시 저장');
+  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.requestImages?.description?.length===2);
+  results.push({name:'mobile file and clipboard image decoding, task isolation, multimodal dispatch, composer reset, explicit reattachment and storage persistence',passed:true});
+  assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');
-  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 20, layouts:layouts.length }, null, 2));
+  console.log(JSON.stringify({ passed: results.length, errors, screenshots: 21, layouts:layouts.length }, null, 2));
 } catch(error) { console.error('Browser errors:', errors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

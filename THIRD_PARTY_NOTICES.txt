@@ -1,3 +1,6 @@
+Modified 2026-10-31: v0.4.15 synchronizes the mobile build to source, including request images, mobile layout, save-conflict review, JSON guidance, lore defaults and CHARX asset URI retention.
+Modified 2026-10-30: v0.4.9 adds compact mobile navigation, task menu, collapsible request settings and keyboard-aware conversation sizing.
+Modified 2026-10-30: v0.4.8 adds request image attachments, clipboard image paste, previews and native RisuAI multimodal transport.
 Modified 2026-10-29: v0.4.6 fixes DOM array rendering in character search results and alternate greetings, and verifies selection through the character list.
 Modified 2026-10-29: v0.4.5 adds bot icon registration, replacement and unlinking, with snapshot/host persistence and charx metadata cleanup.
 Modified 2026-10-29: v0.4.4 writes the main charx icon under assets/icon/image/ for RisuRealm thumbnail discovery, preserving byte sharing and card references.

@@ -12,7 +12,7 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 12));
 async function make(initial = {}, response = { schemaVersion: 1, task: 'workshop', data: { reply: '세계관부터 함께 정해보죠.', changes: [] } }, systemDark = false) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://local.test/' });
   const media = new dom.window.EventTarget(); media.matches = systemDark;
-  dom.window.matchMedia = () => media;
+  dom.window.matchMedia = query => query.includes('prefers-color-scheme') ? media : { matches: false };
   const store = new Map(Object.entries(initial)), calls = [], regs = {};
   const api = { pluginStorage: { getItem: async k => store.get(k) ?? null, setItem: async (k, v) => store.set(k, v), removeItem: async k => store.delete(k) }, registerSetting: async (name, callback) => regs.open = callback, registerButton: async () => ({}), onUnload: async fn => regs.unload = fn, showContainer: async () => {}, hideContainer: async () => {}, runLLMModel: async options => { calls.push(options); return { type: 'success', result: JSON.stringify(response) }; } };
   const app = new Workshop(api, dom.window.document); await app.init(); return { app, dom, store, calls, regs, setSystemDark: dark => { media.matches = dark; media.dispatchEvent(new dom.window.Event('change')); }, close: () => { app.destroy(); dom.window.close(); } };
@@ -185,7 +185,7 @@ test('skipped ambiguous prose edits do not retry or create candidates; later dra
     x.app.api.runLLMModel = async options => { x.calls.push(options); return { type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: { edits: [{ before: 'same', after: 'changed' }] } } }) }; };
     x.app.chooseTextRange = async item => { assert.equal(item.candidates.length, 2); return null; };
     await x.app.sendRequest(); assert.equal(x.calls.length, 1); assert.equal(x.app.s.candidates.length, 0); assert.match(x.app.s.thread.at(-1).content, /변경 사항이 없습니다/); assert.equal(x.app.s.draft.desc, 'same same');
-    x.app.s.draft.desc = 'same'; x.app.touch(); await x.app.sendRequest(); assert.equal(x.app.s.candidates.length, 1);
+    x.app.s.draft.desc = 'same'; x.app.touch(); x.app.s.requests.description = '부분 수정'; await x.app.sendRequest(); assert.equal(x.app.s.candidates.length, 1);
     x.app.s.draft.desc = 'manual edit'; x.app.touch();
     await assert.rejects(x.app.applyCandidate(x.app.s.candidates[0]), /다른 시점/); assert.equal(x.app.s.draft.desc, 'manual edit');
   } finally { x.close(); }
@@ -266,7 +266,7 @@ test('installed-module dialog selects referenced modules read-only and persists 
     y=await make(Object.fromEntries(x.store));assert.equal(y.app.s.preset.modules[0].namespace,'world');assert.equal(y.app.s.preset.values.toggle_focus,'1');
     assert.equal(y.app.slots.manual.session.preset.modules.length,1);assert.equal(y.app.slots.autosave.session.preset.modules.length,1);
     x.app.s.requests.workshop='모듈 사용';await x.app.sendRequest();assert.match(JSON.stringify(x.calls[0].messages),/상세 모드/);
-    x.app.s.preset.mode='direct';await x.app.sendRequest();assert.doesNotMatch(JSON.stringify(x.calls[1].messages),/모듈 자료|모듈 원문 자료/);
+    x.app.s.preset.mode='direct';x.app.s.requests.workshop='모듈 사용';await x.app.sendRequest();assert.doesNotMatch(JSON.stringify(x.calls[1].messages),/모듈 자료|모듈 원문 자료/);
   }finally{y?.close();x.close();}
 });
 test('module selection cancellation, permission refusal and a session change preserve the current selection',async()=>{
@@ -332,7 +332,7 @@ test('preset preview equals actual transmission, history appears once and unsupp
     x.app.s.requests.workshop='구상하자';const report=x.app.previewRequest();
     assert.deepEqual(report.issues,[]);await x.app.sendRequest();assert.deepEqual(x.calls[0].messages,report.messages);
     assert.equal(x.calls[0].messages.filter(m=>m.content.includes('unique_history_token')).length,1);
-    x.app.s.preset.preset.promptTemplate[0].text='{{unsupported_macro}}';
+    x.app.s.preset.preset.promptTemplate[0].text='{{unsupported_macro}}';x.app.s.requests.workshop='구상하자';
     await assert.rejects(x.app.sendRequest(),/CBS/);assert.equal(x.calls.length,1);
     x.app.s.preset.mode='direct';await x.app.sendRequest();assert.equal(x.calls.length,2);
   }finally{x.close();}
@@ -461,4 +461,42 @@ test('theme follows system changes until a saved explicit preference overrides t
     y = await make(Object.fromEntries(x.store), undefined, true);
     assert.equal(y.app.settings.theme, 'light'); assert.equal(y.dom.window.document.documentElement.dataset.theme, 'light');
   } finally { y?.close(); x.close(); }
+});
+
+test('direct and preset image-only requests preserve preview, clear pending images, restore and require explicit reattachment', async()=>{
+ for(const mode of ['direct','preset']) {
+  const x=await make();try {
+   if(mode==='preset')await applyImportedPreset(x.app,new TextEncoder().encode(JSON.stringify(samplePreset())),'p.json');
+   const image={id:'pending',name:'capture.png',mime:'image/png',data:'data:image/png;base64,AQID',width:1,height:1};
+   x.app.s.requestImages={workshop:[image]};const expected=x.app.previewRequest().messages;
+   await x.app.sendRequest();assert.deepEqual(x.calls[0].messages,expected);assert.match(x.app.s.thread[0].content,/첨부한 화면/);
+   assert.equal(x.app.s.requests.workshop,'');assert.deepEqual(x.app.s.requestImages.workshop,[]);assert.deepEqual(x.app.s.thread[0].images,[image]);
+   await x.app.saveSlot('manual');const restored=restoreSnapshot(x.app.slots.manual);assert.deepEqual(restored.thread[0].images,[image]);
+   x.app.s.requests.workshop='다음 요청';await x.app.sendRequest();assert.equal(x.calls[1].messages.flatMap(m=>m.multimodals??[]).length,0);
+   button(x.dom,'이미지 다시 첨부').click();await wait();assert.equal(x.app.s.requestImages.workshop.length,1);assert.notEqual(x.app.s.requestImages.workshop[0].id,image.id);
+   button(x.dom,'첨부 삭제').click();await wait();assert.deepEqual(x.app.s.requestImages.workshop,[]);
+  }finally{x.close();}
+ }
+});
+test('conflict dialog requires an explicit selection and cancellation leaves host untouched', async()=>{
+ const x=await make();try {
+  const {sessionFromCharacter,clone}=await import('../src/core.js');
+  const initial=newSession().draft;initial.desc='base';let current=clone(initial),writes=0;
+  await x.app.replaceSession(sessionFromCharacter(initial));x.app.s.draft.desc='BB draft';x.app.touch();current.desc='host edit';
+  x.app.api.getDatabase=async()=>({characters:[current]});x.app.api.getCharacterFromIndex=async()=>clone(current);x.app.api.setCharacterToIndex=async(_,next)=>{writes++;current=clone(next);};x.app.confirm=async()=>true;
+  let pending=x.app.saveHost();await wait();assert.match(x.dom.window.document.querySelector('[role=dialog]').textContent,/처음 불러왔던 내용/);
+  button(x.dom,'선택한 내용으로 저장').click();await wait();assert.equal(writes,0);assert.ok(x.app.activeModal);
+  button(x.dom,'취소 · 원고 유지').click();await pending;assert.equal(writes,0);assert.equal(x.app.s.draft.desc,'BB draft');assert.equal(x.app.ioBusy,false);
+  pending=x.app.saveHost();await wait();const choice=x.dom.window.document.querySelector('[aria-label="캐릭터 설명 저장 방식"]');choice.value='draft';choice.dispatchEvent(new x.dom.window.Event('change'));
+  button(x.dom,'선택한 내용으로 저장').click();await pending;assert.equal(writes,1);assert.equal(current.desc,'BB draft');assert.equal(x.app.s.base.desc,'BB draft');
+ }finally{x.close();}
+});
+test('changing the draft during save-conflict review prevents the write', async()=>{
+ const x=await make();try {
+  const {sessionFromCharacter,clone}=await import('../src/core.js');const initial=newSession().draft;initial.desc='base';const current=clone(initial);current.desc='host';
+  await x.app.replaceSession(sessionFromCharacter(initial));x.app.s.draft.desc='draft';x.app.touch();let writes=0;
+  x.app.api.getDatabase=async()=>({characters:[current]});x.app.api.getCharacterFromIndex=async()=>clone(current);x.app.api.setCharacterToIndex=async()=>{writes++;};x.app.confirm=async()=>true;
+  x.app.reviewSaveConflicts=async()=>{x.app.setField('desc','new draft');return {desc:'draft'};};
+  await assert.rejects(x.app.saveHost(),/검토 중/);assert.equal(writes,0);assert.equal(x.app.s.draft.desc,'new draft');assert.equal(x.app.ioBusy,false);
+ }finally{x.close();}
 });

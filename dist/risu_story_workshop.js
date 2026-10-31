@@ -1,9 +1,12 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.6
+//@version 0.4.15
 
 /*
+Modified 2026-10-31: v0.4.15 synchronizes the mobile build to source, including request images, mobile layout, save-conflict review, JSON guidance, lore defaults and CHARX asset URI retention.
+Modified 2026-10-30: v0.4.9 adds compact mobile navigation, task menu, collapsible request settings and keyboard-aware conversation sizing.
+Modified 2026-10-30: v0.4.8 adds request image attachments, clipboard image paste, previews and native RisuAI multimodal transport.
 Modified 2026-10-29: v0.4.6 fixes DOM array rendering in character search results and alternate greetings, and verifies selection through the character list.
 Modified 2026-10-29: v0.4.5 adds bot icon registration, replacement and unlinking, with snapshot/host persistence and charx metadata cleanup.
 Modified 2026-10-29: v0.4.4 writes the main charx icon under assets/icon/image/ for RisuRealm thumbnail discovery, preserving byte sharing and card references.
@@ -3108,278 +3111,6 @@ Public License instead of this License.  But first, please read
       }));
     }
   });
-
-  // src/style.js
-  var CSS = `
-:root {
-  color-scheme: light;
-  --bg: #f4f2ed; --paper: #fffefa; --line: #dddcd3;
-  --ink: #243431; --muted: #66746f;
-  --accent: #23685b; --accent-bg: #e6f0eb; --warm: #a05a39; --error: #a53232;
-  --hover: #eaece5; --hover-line: #b9c6be; --focus: #93beb0;
-  --primary-bg: #23685b; --primary-ink: #fff; --primary-hover: #1c554a;
-  --selected: #e1e9df; --subtle: #86908a; --brand-line: #9eb5a9;
-  --hero-bg: linear-gradient(135deg, #e7eee4, #f7f4e9); --hero-line: #cdd9cf;
-  --hero-ink: #53665b; --step-line: #cfdbd0; --chat-bg: #fcfcf8; --bubble-bg: #e9eee5;
-  --candidate-bg: #fffdf4; --candidate-line: #dac99b; --candidate-tag: #efe7c8; --candidate-ink: #795e25;
-  --diff-bg: #f8f8f2; --before-bg: #f8eeee; --before-ink: #895d54; --after-bg: #edf5eb; --after-ink: #3d644e;
-  --warn-bg: #fbf0da; --warn-ink: #985324; --toast-bg: #253e34; --overlay: #18251f66;
-  font-family: Inter, "Pretendard", "Malgun Gothic", system-ui, sans-serif;
-  font-size: 14px;
-}
-:root[data-theme=dark] {
-  color-scheme: dark;
-  --bg: #171717; --paper: #222; --line: #414141;
-  --ink: #ededed; --muted: #b5b5b5;
-  --accent: #d5d5d5; --accent-bg: #353535; --warm: #c4c4c4; --error: #f4aaa3;
-  --hover: #333; --hover-line: #777; --focus: #aaa;
-  --primary-bg: #dedede; --primary-ink: #181818; --primary-hover: #f3f3f3;
-  --selected: #383838; --subtle: #aaa; --brand-line: #757575;
-  --hero-bg: linear-gradient(135deg, #252525, #2b2b2b); --hero-line: #4b4b4b;
-  --hero-ink: #c4c4c4; --step-line: #626262; --chat-bg: #1c1c1c; --bubble-bg: #333;
-  --candidate-bg: #292929; --candidate-line: #666; --candidate-tag: #414141; --candidate-ink: #e4e4e4;
-  --diff-bg: #1b1b1b; --before-bg: #342b2b; --before-ink: #e6bdb9; --after-bg: #303030; --after-ink: #e0e0e0;
-  --warn-bg: #352f23; --warn-ink: #eed09b; --toast-bg: #414141; --overlay: #0009;
-}
-* { box-sizing: border-box; }
-html, body { width: 100%; height: 100%; min-height: 0; margin: 0; overflow: hidden; }
-body { background: var(--bg); color: var(--ink); }
-#story-workshop {
-  position: fixed; inset: 0; isolation: isolate;
-  display: grid; grid-template-rows: auto auto minmax(0, 1fr);
-  min-width: 0; min-height: 0; overflow: hidden;
-  background: var(--bg); color: var(--ink);
-}
-button, input, textarea, select { font: inherit; }
-button {
-  cursor: pointer; border: 1px solid var(--line); color: var(--ink); background: var(--paper);
-  border-radius: 9px; padding: 8px 12px; min-height: 36px; max-width: 100%;
-}
-button:hover { background: var(--hover); border-color: var(--hover-line); }
-button:disabled { opacity: .48; cursor: not-allowed; }
-button.primary { background: var(--primary-bg); color: var(--primary-ink); border-color: var(--primary-bg); }
-button.primary:hover { background: var(--primary-hover); }
-button.ghost { background: transparent; border-color: transparent; }
-button.small { padding: 5px 9px; min-height: 30px; font-size: 12px; }
-button.danger { color: var(--error); }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-input, textarea, select {
-  border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink);
-  padding: 9px 11px; min-width: 0; max-width: 100%;
-}
-textarea { resize: vertical; line-height: 1.7; min-height: 110px; width: 100%; }
-textarea::placeholder, input::placeholder { color: var(--muted); opacity: .8; }
-input:not([type=checkbox]), select { width: 100%; }
-input[type=checkbox] { accent-color: var(--accent); }
-textarea.code, .code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; tab-size: 2; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin: 0; min-width: 0; }
-h1, h2, h3, p { margin: 0; overflow-wrap: anywhere; }
-h1 { font-size: 18px; letter-spacing: -.7px; }
-h2 { font-size: 21px; font-weight: 650; letter-spacing: -.7px; }
-h3 { font-size: 14px; font-weight: 650; }
-.muted { color: var(--muted); font-size: 12px; line-height: 1.65; }
-.eyebrow { font-size: 10px; letter-spacing: 2px; color: var(--warm); font-weight: 700; }
-.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.between { justify-content: space-between; }
-.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-.fill { flex: 1; min-width: 0; }
-.pill { font-size: 11px; border-radius: 20px; background: var(--accent-bg); color: var(--accent); padding: 4px 8px; white-space: nowrap; }
-.warn { color: var(--warn-ink); background: var(--warn-bg); border-radius: 8px; padding: 10px; line-height: 1.6; font-size: 12px; }
-.error { color: var(--error); }
-.topbar {
-  min-height: 77px; padding: 14px 24px; display: flex; flex-wrap: wrap;
-  align-items: center; justify-content: space-between; gap: 12px 16px;
-  border-bottom: 1px solid var(--line); background: var(--paper); min-width: 0;
-}
-.brand { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
-.brandmark {
-  display: grid; place-items: center; width: 39px; height: 39px; flex-shrink: 0;
-  border: 1px solid var(--brand-line); border-radius: 50% 50% 10px 10px;
-  color: var(--accent); font-size: 17px; font-weight: 700; font-family: Georgia, serif;
-}
-.document-title { flex: 1 1 180px; flex-wrap: nowrap; overflow: hidden; }
-.document-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.header-actions { flex: 0 1 auto; }
-.toolbar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0;
-  padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--paper);
-}
-.toolbar-files, .toolbar-saves { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.toolbar-saves { margin-left: auto; }
-.workspace {
-  display: grid; grid-template-columns: 172px minmax(0, 1fr) minmax(320px, 420px);
-  min-width: 0; min-height: 0; overflow: hidden; background: var(--bg);
-}
-.sidebar { padding: 25px 12px; border-right: 1px solid var(--line); overflow: auto; min-width: 0; min-height: 0; }
-.sidebar .eyebrow { padding: 0 12px 14px; display: block; }
-.navitem { display: flex; gap: 10px; text-align: left; width: 100%; border: 0; background: transparent; padding: 13px 10px; margin: 3px 0; border-radius: 8px; align-items: center; }
-.navitem[aria-current=page] { color: var(--accent); background: var(--selected); font-weight: 650; }
-.navnum { font-family: Georgia, serif; color: var(--subtle); font-size: 12px; flex-shrink: 0; }
-.navcount { margin-left: auto; color: var(--subtle); font-size: 11px; }
-.sidefoot { margin: 26px 10px; padding-top: 17px; border-top: 1px solid var(--line); }
-.editor { overflow: auto; min-width: 0; min-height: 0; padding: 28px 32px 60px; background: var(--bg); overscroll-behavior: contain; }
-.sectionhead { margin-bottom: 24px; }
-.sectionhead p { margin-top: 8px; }
-.field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.field > span:first-child { font-size: 12px; font-weight: 650; }
-.card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
-.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
-.ruled { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
-.hero { padding: 25px; border: 1px solid var(--hero-line); border-radius: 14px; background: var(--hero-bg); min-width: 0; }
-.hero h2 { font-family: Georgia, "Malgun Gothic", serif; font-weight: 500; font-size: 26px; line-height: 1.5; }
-.hero p { max-width: 620px; margin-top: 13px; line-height: 1.8; font-size: 13px; color: var(--hero-ink); }
-.steps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
-.step { border: 1px solid var(--step-line); border-radius: 20px; padding: 5px 10px; color: var(--hero-ink); font-size: 11px; }
-.list-editor { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
-.preset-block-list { max-height: 560px; overflow: auto; }
-.itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
-.listitem.active { border-color: var(--brand-line); background: var(--accent-bg); }
-/* Lorebook rows must not inherit the mobile horizontal button strip. */
-.itemlist.lore-request-list {
-  display: flex; flex-direction: column; align-self: start;
-  width: 100%; min-width: 0; min-height: 0; max-height: 560px;
-  overflow-y: auto; overflow-x: hidden; gap: 8px;
-  padding: 2px; scrollbar-gutter: stable; touch-action: pan-y;
-}
-.lore-request-item {
-  display: flex; flex-direction: column; flex: 0 0 auto;
-  width: 100%; min-width: 0; gap: 2px; padding: 6px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
-}
-.lore-request-item.is-selected { border-color: var(--brand-line); background: var(--accent-bg); }
-.lore-request-list .listitem {
-  display: block; width: 100%; min-width: 0; max-width: none;
-  min-height: 44px; height: auto; padding: 10px; line-height: 1.5;
-  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
-}
-.lore-request-toggle.row {
-  flex-wrap: nowrap; min-height: 44px; width: 100%; margin: 0;
-  padding: 8px 10px; gap: 10px; cursor: pointer; line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.lore-request-toggle input[type=checkbox] {
-  flex: 0 0 20px; width: 20px; height: 20px; min-width: 20px; margin: 0;
-}
-
-.textarea-large { min-height: 330px; }
-.conversation {
-  display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
-  border-left: 1px solid var(--line); background: var(--chat-bg);
-}
-.chathead { padding: 20px 20px 15px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.messages {
-  flex: 1 1 0; min-height: 0; min-width: 0; overflow: auto; padding: 22px 20px;
-  display: flex; flex-direction: column; gap: 18px; overscroll-behavior: contain;
-}
-.message { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex-shrink: 0; }
-.message.user { align-items: flex-end; }
-.msglabel { font-size: 10px; letter-spacing: .7px; color: var(--subtle); }
-.bubble { font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
-.message.user .bubble { background: var(--bubble-bg); border-radius: 12px 12px 2px 12px; padding: 11px 14px; max-width: 95%; }
-.message.assistant .bubble { padding: 0 3px; }
-.chatempty { margin: auto 0; padding: 20px 8px; color: var(--muted); }
-.chatempty h3 { color: var(--ink); font-size: 17px; font-family: Georgia, "Malgun Gothic", serif; font-weight: 500; margin-bottom: 12px; }
-.chatempty p { font-size: 12px; line-height: 1.9; }
-.composer {
-  flex: 0 1 auto; min-height: 0; min-width: 0; overflow: auto;
-  padding: 15px 18px 18px; background: var(--paper); border-top: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 9px; overscroll-behavior: contain;
-}
-.composer > * { flex-shrink: 0; }
-.composer textarea { min-height: 80px; max-height: 180px; }
-.composer select { font-size: 12px; padding: 7px; }
-.request-options { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr); gap: 6px; }
-.candidate { background: var(--candidate-bg); border: 1px solid var(--candidate-line); border-radius: 10px; padding: 13px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
-.candidate .pill { background: var(--candidate-tag); color: var(--candidate-ink); }
-.diff { border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 360px; overflow: auto; background: var(--diff-bg); min-width: 0; }
-.diff .before { color: var(--before-ink); background: var(--before-bg); padding: 8px; }
-.diff .after { color: var(--after-ink); background: var(--after-bg); padding: 8px; margin-top: 6px; }
-details { min-width: 0; }
-details > summary { cursor: pointer; font-size: 12px; color: var(--accent); padding: 5px 0; }
-details[open] > summary { margin-bottom: 9px; }
-.jobbar { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; min-height: 24px; }
-.spinner { display: inline-block; flex-shrink: 0; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--toast-bg); color: #fff; padding: 12px 18px; border-radius: 10px; max-width: min(700px, 90vw); box-shadow: 0 4px 24px #0002; font-size: 13px; line-height: 1.6; pointer-events: none; }
-.toast.bad { background: #843d35; }
-.modal-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 100; display: grid; place-items: center; padding: 20px; }
-.modal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; width: min(860px, 100%); max-height: 100%; min-height: 0; min-width: 0; display: flex; flex-direction: column; box-shadow: 0 18px 80px #0005; }
-.modalhead { padding: 18px 22px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.modalbody { padding: 22px; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
-.modalbody > * { flex-shrink: 0; }
-.modalfoot { padding: 14px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
-.empty { padding: 30px 14px; border: 1px dashed var(--line); border-radius: 10px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.9; }
-.mobile-switch { display: none; }
-.status-text { font-size: 11px; line-height: 1.5; color: var(--muted); }
-.nowrap { white-space: nowrap; }
-.testresult { max-height: 400px; overflow: auto; }
-.assetrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 70px auto; gap: 8px; align-items: center; }
-
-@media (min-width: 1550px) {
-  .workspace { grid-template-columns: 190px minmax(0, 1fr) minmax(400px, 480px); }
-  .editor { padding: 32px 50px; }
-}
-@media (max-width: 1100px) {
-  .workspace { grid-template-columns: 132px minmax(0, 1fr) 320px; }
-  .editor { padding: 22px 20px; }
-  .sidebar { padding: 20px 7px; }
-  .navitem { gap: 7px; padding: 12px 7px; font-size: 13px; }
-  .list-editor { grid-template-columns: minmax(0, 1fr); }
-  .itemlist { flex-direction: row; overflow-x: auto; }
-  .preset-block-list { max-height: 140px; }
-  .itemlist.lore-request-list { flex-direction: column; max-height: 42vh; max-height: min(42dvh, 420px); }
-  .lore-request-list .listitem { min-width: 0; max-width: none; }
-  .listitem { min-width: 120px; max-width: 180px; flex-shrink: 0; }
-  .topbar { padding: 12px 16px; }
-  .toolbar { padding: 8px 16px; }
-  .status-text { max-width: 230px; }
-}
-@media (max-width: 840px) {
-  .topbar { min-height: 72px; padding: 12px 16px; gap: 10px; }
-  .brand { flex: 0 1 auto; }
-  .document-title { flex: 1 1 130px; }
-  .header-actions { margin-left: auto; }
-  .toolbar { padding: 8px 12px; }
-  .toolbar-files, .toolbar-saves { flex: 1 1 auto; }
-  .toolbar-saves { margin-left: 0; }
-  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .sidebar .eyebrow, .sidefoot, .navnum, .navcount { display: none; }
-  .navitem { width: auto; flex-shrink: 0; white-space: nowrap; padding: 10px; margin: 0; }
-  .editor { padding: 22px 16px; }
-  .conversation { grid-row: 1 / -1; border-left: 0; }
-  .mobile-switch { display: flex; gap: 4px; }
-  .mobile-switch button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
-  .workspace[data-view=editor] .conversation { display: none; }
-  .workspace[data-view=chat] .editor, .workspace[data-view=chat] .sidebar { display: none; }
-  .grid2 { grid-template-columns: minmax(0, 1fr); }
-  .assetrow { grid-template-columns: minmax(0, 1fr) auto; }
-  .assetrow input:nth-child(2) { grid-column: 1 / -1; }
-  .modal-overlay { padding: 10px; }
-  .modalbody { padding: 16px; }
-  .hero { padding: 19px; }
-  .hero h2 { font-size: 23px; }
-  .toolbar button { font-size: 12px; min-height: 34px; }
-  .chathead { padding: 15px 18px; }
-  .brandmark { width: 34px; height: 34px; }
-  .topbar h1 { font-size: 17px; }
-}
-@media (max-height: 650px) {
-  .topbar { min-height: 60px; padding: 8px 14px; gap: 8px 12px; }
-  .toolbar { padding: 6px 12px; gap: 6px; }
-  .toolbar-files, .toolbar-saves { gap: 6px; }
-  .chathead { padding: 10px 14px; }
-  .composer { padding: 10px 12px; gap: 7px; }
-  .composer textarea { min-height: 64px; max-height: 110px; }
-  .composer > .muted:last-child { display: none; }
-  .jobbar { min-height: 20px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner { animation-duration: 2s; }
-  * { scroll-behavior: auto !important; transition: none !important; }
-}
-`;
 
   // node_modules/re2js/build/index.js
   /*!
@@ -10176,7 +9907,7 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/core.js
-  var VERSION = "0.4.6";
+  var VERSION = "0.4.15";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10232,7 +9963,7 @@ details[open] > summary { margin-bottom: 9px; }
     return result;
   }
   function blankCharacter() {
-    return { type: "character", chaId: uid(), name: "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30", desc: "", firstMessage: "", notes: "", chats: [{ id: uid(), name: "Chat 1", message: [], note: "", localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: "none", bias: [], emotionImages: [], globalLore: [], sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: "", creatorNotes: "", systemPrompt: "", postHistoryInstructions: "", alternateGreetings: [], tags: [], creator: "", characterVersion: "1.0", personality: "", scenario: "", firstMsgIndex: -1, additionalText: "", defaultVariables: "", additionalAssets: [] };
+    return { type: "character", chaId: uid(), name: "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30", desc: "", firstMessage: "", notes: "", chats: [{ id: uid(), name: "Chat 1", message: [], note: "", localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: "none", bias: [], emotionImages: [], globalLore: [], loreSettings: { scanDepth: 5, tokenBudget: 99999, recursiveScanning: false, fullWordMatching: false }, sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: "", creatorNotes: "", systemPrompt: "", postHistoryInstructions: "", alternateGreetings: [], tags: [], creator: "", characterVersion: "1.0", personality: "", scenario: "", firstMsgIndex: -1, additionalText: "", defaultVariables: "", additionalAssets: [] };
   }
   function newSession() {
     return { schemaVersion: 1, sessionId: uid(), targetId: null, revision: 0, promptRevision: 0, base: null, draft: blankCharacter(), source: null, thread: [], brief: "", kind: "character", requests: {}, selected: {}, loreIncluded: [], candidates: [], regexInput: "", tab: "overview", promptDrafts: {}, cardMeta: null };
@@ -10246,6 +9977,7 @@ details[open] > summary { margin-bottom: 9px; }
     delete s.source.chatFolders;
     delete s.source.chatPage;
     s.draft = { ...blankCharacter(), ...s.source };
+    if (!Object.hasOwn(s.source, "loreSettings")) delete s.draft.loreSettings;
     s.base = editable(raw);
     return s;
   }
@@ -10276,6 +10008,8 @@ details[open] > summary { margin-bottom: 9px; }
     for (const a of s.draft.additionalAssets ?? []) assert(Array.isArray(a) && a.length >= 2 && typeof a[0] === "string" && typeof a[1] === "string", "\uC800\uC7A5\uBCF8 \uC5D0\uC14B \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     assert(s.requests && s.selected && s.promptDrafts, "\uC800\uC7A5\uBCF8 \uC791\uC5C5 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     if (s.loreIncluded !== void 0) assert(Array.isArray(s.loreIncluded) && s.loreIncluded.every((value2) => typeof value2 === "boolean"), "\uC800\uC7A5\uBCF8 \uB85C\uC5B4\uBD81 \uD3EC\uD568 \uC124\uC815\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    for (const images of Object.values(s.requestImages ?? {})) validateRequestImages(images);
+    for (const message of s.thread) if (message.images) validateRequestImages(message.images);
     s.loreIncluded = loreSelection(s);
     for (const c of s.candidates) if (!c.status) {
       assert(c.before && c.packet, "\uC800\uC7A5\uBCF8 \uC81C\uC548 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
@@ -10848,10 +10582,21 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     assert(fresh?.chaId === targetId && (!fresh.type || fresh.type === "character"), "\uCE90\uB9AD\uD130 \uC704\uCE58\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
     return { index, fresh };
   }
-  async function saveExisting(api2, session) {
+  async function saveExisting(api2, session, resolution = null) {
     const { index, fresh } = await readTarget(api2, session.targetId);
+    if (resolution) assert(resolution.current?.chaId === fresh.chaId && equal(editable(resolution.current), editable(fresh)), "\uBE44\uAD50 \uC774\uD6C4 \uB9AC\uC2A4 \uC6D0\uBCF8\uC774 \uB2E4\uC2DC \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC800\uC7A5\uC744 \uB20C\uB7EC \uCD5C\uC2E0 \uB0B4\uC6A9\uC744 \uBE44\uAD50\uD558\uC138\uC694.");
     const result = mergeCharacter(session.base, session.draft, fresh);
-    if (result.conflicts.length) return result;
+    if (result.conflicts.length) {
+      if (!resolution) return { ...result, current: fresh };
+      const fields = conflictFields(result);
+      assert(fields.length && result.conflicts.every((item) => fields.some((field) => item === field || item.startsWith(field + "[") || item.startsWith(field + ":"))), "\uC54C \uC218 \uC5C6\uB294 \uCDA9\uB3CC \uC720\uD615\uC785\uB2C8\uB2E4. \uC800\uC7A5\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+      for (const field of fields) {
+        const choice = resolution.choices?.[field];
+        assert(choice === "draft" || choice === "current", "\uCDA9\uB3CC\uD55C \uBAA8\uB4E0 \uC601\uC5ED\uC5D0\uC11C \uC800\uC7A5\uD560 \uB0B4\uC6A9\uC744 \uC120\uD0DD\uD558\uC138\uC694.");
+        result.merged[field] = clone(choice === "draft" ? session.draft[field] : fresh[field]);
+      }
+      result.conflicts = [];
+    }
     const last = await api2.getCharacterFromIndex(index);
     assert(last?.chaId === session.targetId && equal(editable(last), editable(fresh)), "\uC800\uC7A5 \uC9C1\uC804\uC5D0 \uC6D0\uBCF8\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
     for (const field of result.changed) last[field] = result.merged[field];
@@ -11009,6 +10754,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     for (const message of messages) {
       chars += message.content.length;
       size += bytes(message.content);
+      for (const image of message.multimodals ?? []) size += bytes(image.base64 ?? "");
     }
     assert(chars <= limit, `\uC804\uC1A1 \uB0B4\uC6A9 ${chars.toLocaleString()}\uC790\uAC00 \uC124\uC815\uD55C ${limit.toLocaleString()}\uC790 \uC548\uC804 \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uC791\uC5C5 \uC124\uC815\uC5D0\uC11C \uD55C\uB3C4\uB97C \uC870\uC815\uD558\uC138\uC694. \uC790\uB3D9\uC73C\uB85C \uC790\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     assert(size <= PROMPT_BYTES_LIMIT, "\uC804\uCCB4 \uC804\uC1A1 \uB0B4\uC6A9\uC774 32MiB \uC548\uC804 \uD55C\uB3C4\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uC790\uB8CC\uB97C \uC904\uC5EC \uC8FC\uC138\uC694.");
@@ -11067,7 +10813,14 @@ JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설
 workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
 workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
 아래 예시는 구조와 이스케이프 참고용이다. 예시 내용 자체를 복사하지 말고 사용자 요청에 맞는 실제 완성 데이터로 교체하라.
-전송 전에 JSON 문법, task 값, 필수 필드와 값의 자료형을 확인하라.
+[출력 직전 필수 점검 — 점검 과정은 출력하지 않음]
+1. JSON.parse로 읽을 수 있는 표준 JSON 하나를 완성한다. 문법과 구조를 모두 맞춘 뒤 응답한다.
+2. reply/content/before/after/code/in/out의 대사, HTML 속성, 코드 안 큰따옴표도 모두 \"로 쓴다. 문자열 안 실제 줄바꿈은 금지하고 \n으로 쓴다. 정규식의 역슬래시도 한 번 더 이스케이프한다. 데이터의 따옴표나 공백을 삭제해서 문법을 맞추지 마라.
+3. 괄호는 연 순서의 역순으로 닫는다. edits는 배열이고 각 원소는 before/after 객체다. 마지막 after 문자열 뒤에는 edit 객체 }, edits 배열 ], in 객체 }, rule 객체 }, upsert 항목 객체 } 순으로 닫는다. 배열을 닫기 전에 불필요한 }를 추가하지 마라.
+4. 항목 사이에만 쉼표를 넣고 마지막 항목 뒤에는 넣지 마라. 중복 키, 주석, 생략 기호, NaN, Infinity는 쓰지 마라.
+5. schemaVersion/task/data와 작업별 필수 키·자료형·ref를 다시 확인한다. before의 정확성은 JSON 디코딩 후 원문 기준이다. 원문의 역슬래시·따옴표·줄바꿈은 JSON에서 이스케이프하여 같은 문자열로 복원되게 한다.
+6. reply는 짧은 요약으로 쓰고 실제 수정 데이터는 changes에 한 번만 넣는다. 검토 전 제안이므로 이미 적용·저장했다고 말하지 마라. 요청량이 너무 크면 완결된 항목 단위의 수정안을 제안하고 미완료 범위를 reply에 명시한다. 내용·문자열·배열·객체를 중간에 끊거나 나머지를 생략 기호로 대체하지 마라.
+${jsonSyntaxExamples(task)}
 [공통 텍스트 부분편집]
 기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":"원문에서 정확히 복사한 구간","after":"교체할 새 구간"}]}를 넣어라. 한 필드당 1~100개다. 줄 번호를 출력하거나 적용 위치로 사용하지 마라.
 적용 필드: description/greeting/choiceGreeting의 text; lorebook entry의 comment/key/secondkey/content; regex rule의 comment/in/out; Lua scripts의 comment/code; 기존 variables의 각 값. workshop 내부의 각 작업에도 같은 형식을 쓴다. reply와 choices의 안내 정보는 일반 문자열이다. type/mode/flag/불리언/숫자 등 설정은 기존 값 형식을 따른다.
@@ -11166,6 +10919,390 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     else visit(packet.task, packet.data, resolved);
     return rows;
   }
+  var REQUEST_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  var REQUEST_IMAGE_MAX = 4;
+  var REQUEST_IMAGE_BYTES = 5 * 1024 * 1024;
+  var REQUEST_IMAGE_TOTAL = 12 * 1024 * 1024;
+  function conflictFields(result) {
+    return FIELDS.filter((field) => result.conflicts.some((item) => item === field || item.startsWith(field + "[") || item.startsWith(field + ":")));
+  }
+  function requestImages(session, task) {
+    return session.requestImages?.[task] ?? [];
+  }
+  function validateRequestImages(images) {
+    assert(Array.isArray(images) && images.length <= REQUEST_IMAGE_MAX, "\uC774\uBBF8\uC9C0\uB294 \uC694\uCCAD\uB2F9 \uCD5C\uB300 4\uC7A5\uAE4C\uC9C0 \uCCA8\uBD80\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+    let total = 0;
+    for (const image of images) {
+      assert(image && REQUEST_IMAGE_TYPES.includes(image.mime) && typeof image.data === "string", "\uC774\uBBF8\uC9C0 \uCCA8\uBD80 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      const prefix = "data:" + image.mime + ";base64,";
+      assert(image.data.startsWith(prefix), "\uC774\uBBF8\uC9C0 \uB370\uC774\uD130 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      const encoded = image.data.slice(prefix.length);
+      assert(encoded.length > 0 && encoded.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(encoded), "\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC190\uC0C1\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+      const size = encoded.length / 4 * 3 - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
+      assert(size <= REQUEST_IMAGE_BYTES, "\uC774\uBBF8\uC9C0 \uD55C \uC7A5\uC740 5MiB \uC774\uD558\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+      total += size;
+    }
+    assert(total <= REQUEST_IMAGE_TOTAL, "\uCCA8\uBD80 \uC774\uBBF8\uC9C0 \uD569\uACC4\uB294 12MiB \uC774\uD558\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    return images;
+  }
+  function withRequestImages(messages, images) {
+    validateRequestImages(images);
+    if (!images.length) return messages;
+    const result = messages.map((m) => ({ ...m }));
+    let index = result.length - 1;
+    while (index >= 0 && result[index].role !== "user") index--;
+    assert(index >= 0, "\uC774\uBBF8\uC9C0\uB97C \uCCA8\uBD80\uD560 \uC0AC\uC6A9\uC790 \uBA54\uC2DC\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uD504\uB9AC\uC14B \uAD6C\uC131\uC744 \uD655\uC778\uD558\uC138\uC694.");
+    result[index].multimodals = [...result[index].multimodals ?? [], ...images.map((image) => ({ type: "image", base64: image.data, width: image.width, height: image.height }))];
+    return result;
+  }
+  async function readRequestImage(file, doc) {
+    assert(file && file.size > 0 && file.size <= REQUEST_IMAGE_BYTES, "\uC774\uBBF8\uC9C0 \uD55C \uC7A5\uC740 5MiB \uC774\uD558\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    const data = new Uint8Array(await file.arrayBuffer());
+    let mime;
+    if (data[0] === 137 && data[1] === 80 && data[2] === 78 && data[3] === 71 && data[4] === 13 && data[5] === 10 && data[6] === 26 && data[7] === 10) mime = "image/png";
+    else if (data[0] === 255 && data[1] === 216 && data[2] === 255) mime = "image/jpeg";
+    else if (String.fromCharCode(...data.slice(0, 4)) === "RIFF" && String.fromCharCode(...data.slice(8, 12)) === "WEBP") mime = "image/webp";
+    assert(mime, "PNG, JPG, WEBP \uC774\uBBF8\uC9C0 \uD30C\uC77C\uB9CC \uCCA8\uBD80\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+    let binary = "";
+    for (let i = 0; i < data.length; i += 32768) binary += String.fromCharCode(...data.subarray(i, i + 32768));
+    const url = "data:" + mime + ";base64," + btoa(binary);
+    const dimensions = await new Promise((resolve, reject) => {
+      const img = doc.createElement("img");
+      const timer = setTimeout(() => {
+        img.src = "";
+        reject(new Error("\uC774\uBBF8\uC9C0\uB97C \uC77D\uB294 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4."));
+      }, 15e3);
+      img.onload = () => {
+        clearTimeout(timer);
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("\uC774\uBBF8\uC9C0\uB97C \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uB978 \uD30C\uC77C\uB85C \uB2E4\uC2DC \uCCA8\uBD80\uD558\uC138\uC694."));
+      };
+      img.src = url;
+    });
+    assert(dimensions.width > 0 && dimensions.height > 0 && dimensions.width * dimensions.height <= 4e7, "\uC774\uBBF8\uC9C0 \uD574\uC0C1\uB3C4\uAC00 \uB108\uBB34 \uD06C\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. 4\uCC9C\uB9CC \uD53D\uC140 \uC774\uD558\uB85C \uC904\uC5EC \uC8FC\uC138\uC694.");
+    return { id: uid(), name: file.name || "\uD074\uB9BD\uBCF4\uB4DC \uC774\uBBF8\uC9C0", mime, data: url, size: data.length, ...dimensions };
+  }
+  function jsonSyntaxExamples(task) {
+    const scalar = { content: '\uADF8\uB294 "\uCD9C\uBC1C\uD558\uC790"\uB77C\uACE0 \uB9D0\uD588\uB2E4.\n\uB2E4\uC74C \uC904', pattern: String.raw`\d+\s*`, html: '<div class="panel">\uC548\uB0B4</div>' };
+    const regexData = { upsert: [{ ref: "r0", rule: { in: { edits: [{ before: "(\uAE30\uC874|\uD56D\uBAA9)", after: "(\uAE30\uC874|\uD56D\uBAA9|\uCD94\uAC00)" }] } } }], remove: [] };
+    const packet = task === "workshop" ? { schemaVersion: 2, task, data: { reply: "\uC815\uADDC\uC2DD \uC218\uC815\uC548\uC744 \uC81C\uC548\uD569\uB2C8\uB2E4.", changes: [{ task: "regex", data: regexData }] } } : { schemaVersion: 2, task: "regex", data: regexData };
+    return "[\uBB38\uC790\uC5F4 \uC774\uC2A4\uCF00\uC774\uD504 \uC608\uC2DC \u2014 \uAD6C\uC870 \uC124\uBA85\uC6A9\uC774\uBA70 \uC751\uB2F5 \uC2A4\uD0A4\uB9C8\uAC00 \uC544\uB2D8]\n" + JSON.stringify(scalar, null, 2) + (["workshop", "regex"].includes(task) ? "\n[\uC815\uADDC\uC2DD \uBD80\uBD84 \uC218\uC815\uC758 \uC644\uC804\uD55C JSON \uC608\uC2DC \u2014 r0\uAC00 \uC2E4\uC81C \uC874\uC7AC\uD558\uACE0 \uC6D0\uBB38\uC774 \uC77C\uCE58\uD560 \uB54C\uB9CC \uC0AC\uC6A9]\n" + JSON.stringify(packet, null, 2) : "");
+  }
+
+  // src/style.js
+  var CSS = `
+:root {
+  color-scheme: light;
+  --bg: #f4f2ed; --paper: #fffefa; --line: #dddcd3;
+  --ink: #243431; --muted: #66746f;
+  --accent: #23685b; --accent-bg: #e6f0eb; --warm: #a05a39; --error: #a53232;
+  --hover: #eaece5; --hover-line: #b9c6be; --focus: #93beb0;
+  --primary-bg: #23685b; --primary-ink: #fff; --primary-hover: #1c554a;
+  --selected: #e1e9df; --subtle: #86908a; --brand-line: #9eb5a9;
+  --hero-bg: linear-gradient(135deg, #e7eee4, #f7f4e9); --hero-line: #cdd9cf;
+  --hero-ink: #53665b; --step-line: #cfdbd0; --chat-bg: #fcfcf8; --bubble-bg: #e9eee5;
+  --candidate-bg: #fffdf4; --candidate-line: #dac99b; --candidate-tag: #efe7c8; --candidate-ink: #795e25;
+  --diff-bg: #f8f8f2; --before-bg: #f8eeee; --before-ink: #895d54; --after-bg: #edf5eb; --after-ink: #3d644e;
+  --warn-bg: #fbf0da; --warn-ink: #985324; --toast-bg: #253e34; --overlay: #18251f66;
+  font-family: Inter, "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  font-size: 14px;
+}
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --bg: #171717; --paper: #222; --line: #414141;
+  --ink: #ededed; --muted: #b5b5b5;
+  --accent: #d5d5d5; --accent-bg: #353535; --warm: #c4c4c4; --error: #f4aaa3;
+  --hover: #333; --hover-line: #777; --focus: #aaa;
+  --primary-bg: #dedede; --primary-ink: #181818; --primary-hover: #f3f3f3;
+  --selected: #383838; --subtle: #aaa; --brand-line: #757575;
+  --hero-bg: linear-gradient(135deg, #252525, #2b2b2b); --hero-line: #4b4b4b;
+  --hero-ink: #c4c4c4; --step-line: #626262; --chat-bg: #1c1c1c; --bubble-bg: #333;
+  --candidate-bg: #292929; --candidate-line: #666; --candidate-tag: #414141; --candidate-ink: #e4e4e4;
+  --diff-bg: #1b1b1b; --before-bg: #342b2b; --before-ink: #e6bdb9; --after-bg: #303030; --after-ink: #e0e0e0;
+  --warn-bg: #352f23; --warn-ink: #eed09b; --toast-bg: #414141; --overlay: #0009;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; min-height: 0; margin: 0; overflow: hidden; }
+body { background: var(--bg); color: var(--ink); }
+#story-workshop {
+  position: fixed; inset: 0; isolation: isolate;
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr);
+  min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--bg); color: var(--ink);
+}
+button, input, textarea, select { font: inherit; }
+button {
+  cursor: pointer; border: 1px solid var(--line); color: var(--ink); background: var(--paper);
+  border-radius: 9px; padding: 8px 12px; min-height: 36px; max-width: 100%;
+}
+button:hover { background: var(--hover); border-color: var(--hover-line); }
+button:disabled { opacity: .48; cursor: not-allowed; }
+button.primary { background: var(--primary-bg); color: var(--primary-ink); border-color: var(--primary-bg); }
+button.primary:hover { background: var(--primary-hover); }
+button.ghost { background: transparent; border-color: transparent; }
+button.small { padding: 5px 9px; min-height: 30px; font-size: 12px; }
+button.danger { color: var(--error); }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+input, textarea, select {
+  border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink);
+  padding: 9px 11px; min-width: 0; max-width: 100%;
+}
+textarea { resize: vertical; line-height: 1.7; min-height: 110px; width: 100%; }
+textarea::placeholder, input::placeholder { color: var(--muted); opacity: .8; }
+input:not([type=checkbox]), select { width: 100%; }
+input[type=checkbox] { accent-color: var(--accent); }
+textarea.code, .code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; tab-size: 2; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin: 0; min-width: 0; }
+h1, h2, h3, p { margin: 0; overflow-wrap: anywhere; }
+h1 { font-size: 18px; letter-spacing: -.7px; }
+h2 { font-size: 21px; font-weight: 650; letter-spacing: -.7px; }
+h3 { font-size: 14px; font-weight: 650; }
+.muted { color: var(--muted); font-size: 12px; line-height: 1.65; }
+.eyebrow { font-size: 10px; letter-spacing: 2px; color: var(--warm); font-weight: 700; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.between { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.fill { flex: 1; min-width: 0; }
+.pill { font-size: 11px; border-radius: 20px; background: var(--accent-bg); color: var(--accent); padding: 4px 8px; white-space: nowrap; }
+.warn { color: var(--warn-ink); background: var(--warn-bg); border-radius: 8px; padding: 10px; line-height: 1.6; font-size: 12px; }
+.error { color: var(--error); }
+.topbar {
+  min-height: 77px; padding: 14px 24px; display: flex; flex-wrap: wrap;
+  align-items: center; justify-content: space-between; gap: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--paper); min-width: 0;
+}
+.brand { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+.brandmark {
+  display: grid; place-items: center; width: 39px; height: 39px; flex-shrink: 0;
+  border: 1px solid var(--brand-line); border-radius: 50% 50% 10px 10px;
+  color: var(--accent); font-size: 17px; font-weight: 700; font-family: Georgia, serif;
+}
+.document-title { flex: 1 1 180px; flex-wrap: nowrap; overflow: hidden; }
+.document-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-actions { flex: 0 1 auto; }
+.toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0;
+  padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--paper);
+}
+.toolbar-files, .toolbar-saves { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.toolbar-saves { margin-left: auto; }
+.workspace {
+  display: grid; grid-template-columns: 172px minmax(0, 1fr) minmax(320px, 420px);
+  min-width: 0; min-height: 0; overflow: hidden; background: var(--bg);
+}
+.sidebar { padding: 25px 12px; border-right: 1px solid var(--line); overflow: auto; min-width: 0; min-height: 0; }
+.sidebar .eyebrow { padding: 0 12px 14px; display: block; }
+.navitem { display: flex; gap: 10px; text-align: left; width: 100%; border: 0; background: transparent; padding: 13px 10px; margin: 3px 0; border-radius: 8px; align-items: center; }
+.navitem[aria-current=page] { color: var(--accent); background: var(--selected); font-weight: 650; }
+.navnum { font-family: Georgia, serif; color: var(--subtle); font-size: 12px; flex-shrink: 0; }
+.navcount { margin-left: auto; color: var(--subtle); font-size: 11px; }
+.sidefoot { margin: 26px 10px; padding-top: 17px; border-top: 1px solid var(--line); }
+.editor { overflow: auto; min-width: 0; min-height: 0; padding: 28px 32px 60px; background: var(--bg); overscroll-behavior: contain; }
+.sectionhead { margin-bottom: 24px; }
+.sectionhead p { margin-top: 8px; }
+.field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.field > span:first-child { font-size: 12px; font-weight: 650; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
+.ruled { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
+.hero { padding: 25px; border: 1px solid var(--hero-line); border-radius: 14px; background: var(--hero-bg); min-width: 0; }
+.hero h2 { font-family: Georgia, "Malgun Gothic", serif; font-weight: 500; font-size: 26px; line-height: 1.5; }
+.hero p { max-width: 620px; margin-top: 13px; line-height: 1.8; font-size: 13px; color: var(--hero-ink); }
+.steps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.step { border: 1px solid var(--step-line); border-radius: 20px; padding: 5px 10px; color: var(--hero-ink); font-size: 11px; }
+.list-editor { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
+.preset-block-list { max-height: 560px; overflow: auto; }
+.itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
+.listitem.active { border-color: var(--brand-line); background: var(--accent-bg); }
+/* Lorebook rows must not inherit the mobile horizontal button strip. */
+.itemlist.lore-request-list {
+  display: flex; flex-direction: column; align-self: start;
+  width: 100%; min-width: 0; min-height: 0; max-height: 560px;
+  overflow-y: auto; overflow-x: hidden; gap: 8px;
+  padding: 2px; scrollbar-gutter: stable; touch-action: pan-y;
+}
+.lore-request-item {
+  display: flex; flex-direction: column; flex: 0 0 auto;
+  width: 100%; min-width: 0; gap: 2px; padding: 6px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+}
+.lore-request-item.is-selected { border-color: var(--brand-line); background: var(--accent-bg); }
+.lore-request-list .listitem {
+  display: block; width: 100%; min-width: 0; max-width: none;
+  min-height: 44px; height: auto; padding: 10px; line-height: 1.5;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
+.lore-request-toggle.row {
+  flex-wrap: nowrap; min-height: 44px; width: 100%; margin: 0;
+  padding: 8px 10px; gap: 10px; cursor: pointer; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.lore-request-toggle input[type=checkbox] {
+  flex: 0 0 20px; width: 20px; height: 20px; min-width: 20px; margin: 0;
+}
+
+.textarea-large { min-height: 330px; }
+.conversation {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
+  border-left: 1px solid var(--line); background: var(--chat-bg);
+}
+.chathead { padding: 20px 20px 15px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.messages {
+  flex: 1 1 0; min-height: 0; min-width: 0; overflow: auto; padding: 22px 20px;
+  display: flex; flex-direction: column; gap: 18px; overscroll-behavior: contain;
+}
+.message { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex-shrink: 0; }
+.message.user { align-items: flex-end; }
+.msglabel { font-size: 10px; letter-spacing: .7px; color: var(--subtle); }
+.bubble { font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.message.user .bubble { background: var(--bubble-bg); border-radius: 12px 12px 2px 12px; padding: 11px 14px; max-width: 95%; }
+.message.assistant .bubble { padding: 0 3px; }
+.chatempty { margin: auto 0; padding: 20px 8px; color: var(--muted); }
+.chatempty h3 { color: var(--ink); font-size: 17px; font-family: Georgia, "Malgun Gothic", serif; font-weight: 500; margin-bottom: 12px; }
+.chatempty p { font-size: 12px; line-height: 1.9; }
+.composer {
+  flex: 0 1 auto; min-height: 0; min-width: 0; overflow: auto;
+  padding: 15px 18px 18px; background: var(--paper); border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 9px; overscroll-behavior: contain;
+}
+.composer > * { flex-shrink: 0; }
+.composer textarea { min-height: 80px; max-height: 180px; }
+.composer select { font-size: 12px; padding: 7px; }
+.request-options { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr); gap: 6px; }
+.candidate { background: var(--candidate-bg); border: 1px solid var(--candidate-line); border-radius: 10px; padding: 13px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
+.candidate .pill { background: var(--candidate-tag); color: var(--candidate-ink); }
+.diff { border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 360px; overflow: auto; background: var(--diff-bg); min-width: 0; }
+.diff .before { color: var(--before-ink); background: var(--before-bg); padding: 8px; }
+.diff .after { color: var(--after-ink); background: var(--after-bg); padding: 8px; margin-top: 6px; }
+details { min-width: 0; }
+details > summary { cursor: pointer; font-size: 12px; color: var(--accent); padding: 5px 0; }
+details[open] > summary { margin-bottom: 9px; }
+.jobbar { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; min-height: 24px; }
+.spinner { display: inline-block; flex-shrink: 0; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--toast-bg); color: #fff; padding: 12px 18px; border-radius: 10px; max-width: min(700px, 90vw); box-shadow: 0 4px 24px #0002; font-size: 13px; line-height: 1.6; pointer-events: none; }
+.toast.bad { background: #843d35; }
+.modal-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 100; display: grid; place-items: center; padding: 20px; }
+.modal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; width: min(860px, 100%); max-height: 100%; min-height: 0; min-width: 0; display: flex; flex-direction: column; box-shadow: 0 18px 80px #0005; }
+.modalhead { padding: 18px 22px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.modalbody { padding: 22px; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+.modalbody > * { flex-shrink: 0; }
+.modalfoot { padding: 14px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.empty { padding: 30px 14px; border: 1px dashed var(--line); border-radius: 10px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.9; }
+.mobile-switch { display: none; }
+.status-text { font-size: 11px; line-height: 1.5; color: var(--muted); }
+.nowrap { white-space: nowrap; }
+.testresult { max-height: 400px; overflow: auto; }
+.assetrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 70px auto; gap: 8px; align-items: center; }
+
+@media (min-width: 1550px) {
+  .workspace { grid-template-columns: 190px minmax(0, 1fr) minmax(400px, 480px); }
+  .editor { padding: 32px 50px; }
+}
+@media (max-width: 1100px) {
+  .workspace { grid-template-columns: 132px minmax(0, 1fr) 320px; }
+  .editor { padding: 22px 20px; }
+  .sidebar { padding: 20px 7px; }
+  .navitem { gap: 7px; padding: 12px 7px; font-size: 13px; }
+  .list-editor { grid-template-columns: minmax(0, 1fr); }
+  .itemlist { flex-direction: row; overflow-x: auto; }
+  .preset-block-list { max-height: 140px; }
+  .itemlist.lore-request-list { flex-direction: column; max-height: 42vh; max-height: min(42dvh, 420px); }
+  .lore-request-list .listitem { min-width: 0; max-width: none; }
+  .listitem { min-width: 120px; max-width: 180px; flex-shrink: 0; }
+  .topbar { padding: 12px 16px; }
+  .toolbar { padding: 8px 16px; }
+  .status-text { max-width: 230px; }
+}
+@media (max-width: 840px) {
+  .topbar { min-height: 72px; padding: 12px 16px; gap: 10px; }
+  .brand { flex: 0 1 auto; }
+  .document-title { flex: 1 1 130px; }
+  .header-actions { margin-left: auto; }
+  .toolbar { padding: 8px 12px; }
+  .toolbar-files, .toolbar-saves { flex: 1 1 auto; }
+  .toolbar-saves { margin-left: 0; }
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar .eyebrow, .sidefoot, .navnum, .navcount { display: none; }
+  .navitem { width: auto; flex-shrink: 0; white-space: nowrap; padding: 10px; margin: 0; }
+  .editor { padding: 22px 16px; }
+  .conversation { grid-row: 1 / -1; border-left: 0; }
+  .mobile-switch { display: flex; gap: 4px; }
+  .mobile-switch button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
+  .workspace[data-view=editor] .conversation { display: none; }
+  .workspace[data-view=chat] .editor, .workspace[data-view=chat] .sidebar { display: none; }
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .assetrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .assetrow input:nth-child(2) { grid-column: 1 / -1; }
+  .modal-overlay { padding: 10px; }
+  .modalbody { padding: 16px; }
+  .hero { padding: 19px; }
+  .hero h2 { font-size: 23px; }
+  .toolbar button { font-size: 12px; min-height: 34px; }
+  .chathead { padding: 15px 18px; }
+  .brandmark { width: 34px; height: 34px; }
+  .topbar h1 { font-size: 17px; }
+}
+@media (max-height: 650px) {
+  .topbar { min-height: 60px; padding: 8px 14px; gap: 8px 12px; }
+  .toolbar { padding: 6px 12px; gap: 6px; }
+  .toolbar-files, .toolbar-saves { gap: 6px; }
+  .chathead { padding: 10px 14px; }
+  .composer { padding: 10px 12px; gap: 7px; }
+  .composer textarea { min-height: 64px; max-height: 110px; }
+  .composer > .muted:last-child { display: none; }
+  .jobbar { min-height: 20px; }
+}
+.mobile-top, .request-settings-toggle, .mobile-prompt, .mobile-clear-chat { display: none; }
+.request-settings-body { display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 840px) {
+  #story-workshop { inset: auto 0 auto; top: var(--workshop-vtop, 0px); height: var(--workshop-vheight, 100dvh); grid-template-rows: auto minmax(0, 1fr); }
+  .topbar, .toolbar, .chathead { display: none; }
+  .mobile-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 10px; background: var(--paper); border-bottom: 1px solid var(--line); }
+  .mobile-top .document-name { flex: 1; font-size: 13px; }
+  .mobile-top button { min-height: 40px; padding: 6px 9px; font-size: 12px; flex-shrink: 0; }
+  .mobile-top button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
+  .workspace { grid-row: 2; }
+  .messages { padding: 14px 12px; gap: 14px; }
+  .composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: 'previews previews previews' 'input input input' 'attach options send' 'clear clear clear' 'status status status'; gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); flex: 0 0 auto; max-height: 48%; }
+  .composer > textarea { grid-area: input; width: 100%; min-height: 52px; max-height: 122px; height: 52px; font-size: 16px; line-height: 22px; padding: 4px 9px; resize: none; }
+  .mobile-prompt { display: block; }
+  .request-settings { grid-area: options; min-width: 0; }
+  .request-settings-toggle { display: block; width: 100%; min-height: 40px; padding: 6px; font-size: 12px; }
+  .request-settings-body { display: none; }
+  .request-settings[data-open=true] .request-settings-body { display: flex; position: fixed; z-index: 12; bottom: calc(100% - var(--workshop-vheight, 100dvh) - var(--workshop-vtop, 0px) + 150px); left: 10px; right: 10px; max-height: 40dvh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 5px 30px #0005; }
+  .request-options { grid-template-columns: minmax(0,1fr); }
+  .request-options select { min-height: 40px; font-size: 16px; }
+  .request-images { display: contents; }
+  .request-images > button { grid-area: attach; min-height: 40px; padding: 6px 10px; font-size: 12px; }
+  .request-images > .muted { display: none; }
+  .request-previews { grid-area: previews; flex-wrap: nowrap !important; overflow-x: auto; max-height: 120px; }
+  .request-previews:empty { display: none !important; }
+  .request-previews .card { width: 90px !important; flex-shrink: 0; padding: 4px; }
+  .request-previews img { height: 48px !important; }
+  .request-previews span { display: none; }
+  .request-previews button { min-height: 32px; padding: 2px 6px; font-size: 11px; }
+  .composer-actions { display: contents; }
+  .composer-actions > button { display: none; }
+  .composer-actions > [data-action=send-request] { display: block; grid-area: send; min-height: 40px; padding: 6px 14px; }
+  .mobile-clear-chat { display: block; grid-area: clear; justify-self: end; min-height: 36px; padding: 4px 8px; font-size: 12px; }
+  .composer > .muted { display: none; }
+  .composer .jobbar { grid-area: status; min-height: 0; font-size: 11px; }
+  #story-workshop[aria-busy=false] .composer .jobbar { display: none; }
+  .mobile-menu-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mobile-menu-list button { min-height: 46px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2s; }
+  * { scroll-behavior: auto !important; transition: none !important; }
+}
+`;
 
   // node_modules/fflate/esm/browser.js
   var u8 = Uint8Array;
@@ -12367,10 +12504,9 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     character.additionalAssets = [];
     for (const asset of card.data.assets ?? []) {
       assert(typeof asset.uri === "string", "\uC5D0\uC14B URI\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
-      if (!asset.uri.startsWith("embeded://")) {
-        if (asset.uri === "ccdefault:") continue;
-        throw new Error("\uC678\uBD80 \uC5D0\uC14B\uC740 \uC790\uB3D9 \uB2E4\uC6B4\uB85C\uB4DC\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: " + asset.uri);
-      }
+      if (/^(?:https?:\/\/|ccdefault:)/.test(asset.uri)) continue;
+      if (asset.uri.startsWith("embeded://") && !files[asset.uri.slice("embeded://".length)]) continue;
+      assert(asset.uri.startsWith("embeded://"), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC5D0\uC14B URI \uD615\uC2DD\uC785\uB2C8\uB2E4.");
       const path = await save(asset.uri);
       if (asset.type === "icon" && asset.name === "main") character.image = path;
       else if (asset.type === "emotion") character.emotionImages.push([asset.name, path]);
@@ -12393,7 +12529,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     if (typeof value === "string" && value.startsWith("data:") && value.includes(";base64,")) return Uint8Array.from(atob(value.split(",")[1]), (x) => x.charCodeAt(0));
     throw new Error("\uC5D0\uC14B\uC744 \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4: " + path);
   }
-  async function exportCharx(api2, character, cardMeta) {
+  async function exportCharx(api2, character, cardMeta, notices = []) {
     const card = characterToCard(character, cardMeta?.card), files = {}, assets = [], refs = /* @__PURE__ */ new Map();
     const names = (character.additionalAssets ?? []).map((a) => a[0]);
     assert(names.every((n) => typeof n === "string" && n.trim()) && new Set(names).size === names.length, "\uC5D0\uC14B \uC774\uB984\uC774 \uBE44\uC5B4 \uC788\uAC70\uB098 \uC911\uBCF5\uB429\uB2C8\uB2E4. \uBAA9\uB85D\uC5D0\uC11C \uC218\uC815\uD574 \uC8FC\uC138\uC694.");
@@ -12413,15 +12549,25 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     if (character.image) await add("icon", "main", character.image, "png");
     for (const a of character.emotionImages ?? []) await add("emotion", a[0], a[1], "png");
     for (const a of character.additionalAssets ?? []) {
-      const original = cardMeta?.card?.data?.assets?.find((asset) => asset.name === a[0]);
+      const original = cardMeta?.card?.data?.assets?.find((asset) => asset.name === a[0]) ?? character.ccAssets?.find((asset) => asset.name === a[0]);
       await add(original?.type ?? "x-risu-asset", a[0], a[1], a[2]);
     }
     for (const asset of character.ccAssets ?? []) {
-      if (assets.some((a) => a.name === asset.name)) continue;
-      if (asset.uri === "ccdefault:") continue;
+      if (assets.some((a) => a.name === asset.name && a.type === asset.type)) continue;
       const tuple = character.additionalAssets?.find((a) => a[0] === asset.name);
       if (tuple) await add(asset.type, asset.name, tuple[1], asset.ext);
-      else throw new Error("\uBCF4\uC874\uD560 \uC218 \uC5C6\uB294 CCv3 \uC5D0\uC14B \uCC38\uC870\uC785\uB2C8\uB2E4: " + asset.name + ". \uBCF8\uCCB4 \uB0B4\uBCF4\uB0B4\uAE30\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.");
+      else if (typeof asset.uri === "string" && /^(?:https?:\/\/|ccdefault:|embeded:\/\/)/.test(asset.uri)) {
+        assets.push(clone(asset));
+        notices.push({
+          type: asset.type,
+          name: asset.name,
+          kind: asset.uri.startsWith("embeded://") ? "unresolved-embedded" : "reference"
+        });
+      } else if (typeof asset.uri === "string" && asset.uri) {
+        await add(asset.type, asset.name, asset.uri, asset.ext);
+      } else {
+        throw new Error("CCv3 \uC5D0\uC14B URI\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4: " + asset.name);
+      }
     }
     card.data.assets = assets;
     delete card.data.extensions.risuai.additionalAssets;
@@ -14591,6 +14737,111 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
   var fieldNames = { name: "\uC774\uB984", image: "\uBD07 \uC544\uC774\uCF58", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
   var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system" };
   var Workshop = class {
+    fitRequestInput() {
+      const input = this.requestInput;
+      if (!input || !this.doc.defaultView?.matchMedia("(max-width: 840px)").matches) return;
+      input.style.height = "52px";
+      input.style.height = Math.min(122, Math.max(52, input.scrollHeight + 2)) + "px";
+    }
+    async showMobileMenu(header, tools, chat) {
+      const buttons = [...tools.querySelectorAll(".toolbar-files button, .toolbar-saves button"), ...header.querySelectorAll(".header-actions button")];
+      const chosen = await this.dialog("\uC791\uC5C5 \uBA54\uB274", (body) => {
+        body.append(this.h("p", { class: "muted" }, this.statusEl.textContent));
+        const list = this.h("div", { class: "mobile-menu-list" });
+        for (const button of buttons) list.append(this.b(button.textContent, () => this.activeModal.close(button), "", { disabled: button.disabled }));
+        body.append(list, this.h("details", {}, this.h("summary", {}, "\uC774\uBBF8\uC9C0 \uCCA8\uBD80 \uB3C4\uC6C0\uB9D0"), this.h("p", { class: "muted" }, "\uCEA1\uCC98 \uD30C\uC77C\uC744 \uCCA8\uBD80\uD558\uAC70\uB098 \uC694\uCCAD\uCC3D\uC5D0 \uC774\uBBF8\uC9C0\uB97C \uBD99\uC5EC\uB123\uC73C\uC138\uC694. PNG\xB7JPG\xB7WEBP \uCD5C\uB300 4\uC7A5, \uC7A5\uB2F9 5MiB, \uD569\uACC4 12MiB\uC785\uB2C8\uB2E4. \uC774\uBBF8\uC9C0 \uC785\uB825\uC744 \uC9C0\uC6D0\uD558\uB294 \uBAA8\uB378\uC744 \uC0AC\uC6A9\uD558\uC138\uC694.")));
+      });
+      if (chosen && !this.job) chosen.click();
+    }
+    async addRequestImages(files) {
+      assert(!this.job && !this.imageLoading, "\uC694\uCCAD \uB610\uB294 \uC774\uBBF8\uC9C0 \uCC98\uB9AC\uAC00 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4. \uC7A0\uC2DC \uAE30\uB2E4\uB824 \uC8FC\uC138\uC694.");
+      const session = this.s, task = this.task;
+      const previous = requestImages(session, task);
+      assert(previous.length + files.length <= REQUEST_IMAGE_MAX, "\uC774\uBBF8\uC9C0\uB294 \uC694\uCCAD\uB2F9 \uCD5C\uB300 4\uC7A5\uAE4C\uC9C0 \uCCA8\uBD80\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+      if (!files.length) return;
+      this.imageLoading = true;
+      this.render();
+      try {
+        const added = [];
+        for (const file of files) added.push(await readRequestImage(file, this.doc));
+        const next = validateRequestImages([...previous, ...added]);
+        assert(this.s === session && !this.job, "\uC791\uC5C5\uC774 \uBCC0\uACBD\uB418\uC5B4 \uC774\uBBF8\uC9C0 \uCCA8\uBD80\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+        session.requestImages ??= {};
+        session.requestImages[task] = next;
+        this.touch(false);
+      } finally {
+        this.imageLoading = false;
+        this.render();
+      }
+    }
+    pasteRequestImages(event) {
+      const clipboard = event.clipboardData;
+      const items = [...clipboard?.items ?? []];
+      const files = items.filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
+      if (!files.length) files.push(...[...clipboard?.files ?? []].filter((file) => file.type.startsWith("image/")));
+      if (!files.length) return;
+      event.preventDefault();
+      if (this.job || this.imageLoading) {
+        this.toast("\uC774\uBBF8\uC9C0 \uB610\uB294 \uC694\uCCAD \uCC98\uB9AC \uC911\uC785\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBD99\uC5EC\uB123\uC73C\uC138\uC694.", true);
+        return;
+      }
+      const text = clipboard.getData("text/plain");
+      if (text) {
+        this.requestInput.setRangeText(text, this.requestInput.selectionStart, this.requestInput.selectionEnd, "end");
+        this.s.requests[this.task] = this.requestInput.value;
+        this.touch(false);
+      }
+      this.addRequestImages(files).catch((error) => this.toast(error.message, true));
+    }
+    requestImageComposer() {
+      const h = this.h.bind(this), session = this.s, task = this.task;
+      const host = h("div", { class: "stack request-images", style: "gap:8px" });
+      const input = h("input", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: "", style: "display:none", "aria-label": "\uC694\uCCAD\uC5D0 \uC774\uBBF8\uC9C0 \uCCA8\uBD80" });
+      input.addEventListener("change", () => {
+        const files = [...input.files];
+        input.value = "";
+        this.addRequestImages(files).catch((error) => this.toast(error.message, true));
+      });
+      host.append(input, this.b(this.imageLoading ? "\uC77D\uB294 \uC911\u2026" : this.doc.defaultView?.matchMedia("(max-width: 840px)").matches ? "\uFF0B \uC774\uBBF8\uC9C0" : "\uFF0B \uC774\uBBF8\uC9C0 \uCCA8\uBD80", () => input.click(), "small", { disabled: !!this.job || !!this.imageLoading }), h("p", { class: "muted" }, "\uCEA1\uCC98 \uC774\uBBF8\uC9C0\uB97C \uCCA8\uBD80\uD558\uAC70\uB098 \uC785\uB825\uCC3D\uC5D0 \uBD99\uC5EC\uB123\uC73C\uC138\uC694. PNG\xB7JPG\xB7WEBP, \uCD5C\uB300 4\uC7A5 / \uC7A5\uB2F9 5MiB / \uD569\uACC4 12MiB. \uC774\uBBF8\uC9C0 \uC9C0\uC6D0 \uBAA8\uB378\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."));
+      const previews = h("div", { class: "request-previews", style: "display:flex;gap:8px;flex-wrap:wrap;min-width:0" });
+      for (const image of requestImages(session, task)) previews.append(h("div", { class: "card stack", style: "width:150px;max-width:100%;gap:6px" }, h("img", { src: image.data, alt: image.name, style: "width:100%;height:110px;object-fit:contain" }), h("span", { style: "overflow-wrap:anywhere" }, image.name), this.b("\uCCA8\uBD80 \uC0AD\uC81C", () => {
+        if (this.job || this.imageLoading) return;
+        session.requestImages[task] = requestImages(session, task).filter((item) => item.id !== image.id);
+        this.touch(false);
+        this.render();
+      }, "small", { disabled: !!this.imageLoading })));
+      host.append(previews);
+      return host;
+    }
+    async reviewSaveConflicts(session, result) {
+      const h = this.h.bind(this), fields = conflictFields(result), choices = {};
+      return this.dialog("\uC800\uC7A5\uD560 \uB0B4\uC6A9 \uBE44\uAD50", (body) => {
+        body.append(h("p", { class: "warn" }, "\uD56D\uBAA9\uC744 \uC790\uB3D9\uC73C\uB85C \uAD6C\uBD84\uD560 \uC218 \uC5C6\uAC70\uB098 \uB9AC\uC2A4\uC758 \uD604\uC7AC \uB0B4\uC6A9\uACFC \uCDA9\uB3CC\uD569\uB2C8\uB2E4. \uAC01 \uC601\uC5ED\uC5D0\uC11C \uC800\uC7A5\uD560 \uCABD\uC744 \uC120\uD0DD\uD558\uC138\uC694. \uB85C\uC5B4\uBD81\uC5D0\uC11C \uBD07\uBE4C\uB354 \uC6D0\uACE0\uB97C \uC120\uD0DD\uD558\uBA74 \uD574\uB2F9 \uB85C\uC5B4\uBD81 \uBAA9\uB85D \uC804\uCCB4\uB97C \uC6D0\uACE0 \uB0B4\uC6A9\uC73C\uB85C \uAD50\uCCB4\uD569\uB2C8\uB2E4. \uB9AC\uC2A4\uC5D0\uB9CC \uC788\uB358 \uBCC0\uACBD\uC740 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4."), h("p", { class: "muted" }, "\uC120\uD0DD\uD558\uC9C0 \uC54A\uC740 \uC0C1\uD0DC\uC5D0\uC11C\uB294 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uCDA9\uB3CC\uD558\uC9C0 \uC54A\uB294 \uC218\uC815\uC740 \uAE30\uC874 \uBC29\uC2DD\uC73C\uB85C \uBC18\uC601\uD558\uBA70, \uCC44\uD305 \uAE30\uB85D\uC740 \uC720\uC9C0\uD569\uB2C8\uB2E4."));
+        const display = (value) => value === void 0 ? "(\uC5C6\uC74C)" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        for (const field of fields) {
+          const label = fieldNames[field] ?? field;
+          const count = (value) => Array.isArray(value) ? " \xB7 " + value.length + "\uAC1C" : "";
+          body.append(h(
+            "section",
+            { class: "card stack" },
+            h("h3", {}, label),
+            h("details", {}, h("summary", {}, "\uCC98\uC74C \uBD88\uB7EC\uC654\uB358 \uB0B4\uC6A9" + count(session.base[field])), h("pre", { class: "diff" }, display(session.base[field]))),
+            h("details", { open: "" }, h("summary", {}, "\uB9AC\uC2A4\uC758 \uD604\uC7AC \uB0B4\uC6A9" + count(result.current[field])), h("pre", { class: "diff" }, display(result.current[field]))),
+            h("details", { open: "" }, h("summary", {}, "\uBD07\uBE4C\uB354 \uC6D0\uACE0" + count(session.draft[field])), h("pre", { class: "diff" }, display(session.draft[field]))),
+            this.select("", [["", "\uC800\uC7A5\uD560 \uCABD\uC744 \uC120\uD0DD\uD558\uC138\uC694"], ["draft", "\uBD07\uBE4C\uB354 \uC6D0\uACE0\uB85C \uC774 \uC601\uC5ED \uC804\uCCB4 \uAD50\uCCB4"], ["current", "\uB9AC\uC2A4\uC758 \uD604\uC7AC \uB0B4\uC6A9 \uC720\uC9C0"]], (value) => {
+              choices[field] = value;
+            }, label + " \uC800\uC7A5 \uBC29\uC2DD")
+          ));
+        }
+        body.append(this.b("\uC120\uD0DD\uD55C \uB0B4\uC6A9\uC73C\uB85C \uC800\uC7A5", () => {
+          if (!fields.length || !fields.every((field) => ["draft", "current"].includes(choices[field]))) {
+            this.toast("\uBAA8\uB4E0 \uCDA9\uB3CC \uC601\uC5ED\uC5D0\uC11C \uC800\uC7A5\uD560 \uCABD\uC744 \uC120\uD0DD\uD558\uC138\uC694.", true);
+            return;
+          }
+          this.activeModal.close({ ...choices });
+        }, "primary"));
+      }, [{ label: "\uCDE8\uC18C \xB7 \uC6D0\uACE0 \uC720\uC9C0", value: null }]);
+    }
     constructor(api2, doc) {
       this.api = api2;
       this.doc = doc;
@@ -14694,6 +14945,15 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         event.stopImmediatePropagation();
       }, true);
       this.doc.body.append(this.root);
+      const viewport = this.doc.defaultView?.visualViewport;
+      this.updateViewport = () => {
+        if (!viewport) return;
+        this.root.style.setProperty("--workshop-vheight", viewport.height + "px");
+        this.root.style.setProperty("--workshop-vtop", viewport.offsetTop + "px");
+      };
+      viewport?.addEventListener("resize", this.updateViewport);
+      viewport?.addEventListener("scroll", this.updateViewport);
+      this.updateViewport();
       const setting = await this.api.pluginStorage.getItem(PREFIX + "settings");
       try {
         if (setting) {
@@ -14747,6 +15007,8 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       await this.api.onUnload(() => this.destroy());
     }
     destroy() {
+      this.doc.defaultView?.visualViewport?.removeEventListener("resize", this.updateViewport);
+      this.doc.defaultView?.visualViewport?.removeEventListener("scroll", this.updateViewport);
       clearInterval(this.autoTimer);
       clearInterval(this.elapsedTimer);
       clearTimeout(this.toastTimer);
@@ -14858,7 +15120,11 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       const chat = this.renderChat();
       this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
       if (this.job) header.append(h("span", { class: "warn", role: "status" }, "\uC751\uB2F5 \uCC98\uB9AC \uC911 \xB7 \uD3B8\uC9D1 \uC7A0\uAE08"), this.b("\uC694\uCCAD \uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
-      this.root.replaceChildren(header, tools, this.workspace);
+      const mobileTop = h("header", { class: "mobile-top" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "\uBD07\uBE4C\uB354"), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "\uC6D0\uACE0" : "\uB300\uD654", () => {
+        this.view = view;
+        this.render();
+      }, "", { "aria-pressed": this.view === view })), this.job ? this.b("\uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request", "aria-label": "\uC694\uCCAD \uCDE8\uC18C" }) : this.b("\u2630", () => this.showMobileMenu(header, tools, chat), "", { "aria-label": "\uC791\uC5C5 \uBA54\uB274" }));
+      this.root.replaceChildren(header, tools, mobileTop, this.workspace);
       this.renderEditor();
       this.status();
       this.jobStatus();
@@ -15226,6 +15492,18 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       if (!s.thread.length) messages.append(h("div", { class: "chatempty" }, h("span", { class: "eyebrow" }, "LET\u2019S MAKE SOMETHING"), h("h3", { style: "margin-top:10px" }, "\uD55C \uAC00\uC9C0 \uC544\uC774\uB514\uC5B4\uBD80\uD130 \uC2DC\uC791\uD558\uC138\uC694."), h("p", {}, "\u201C\uC774 \uC138\uACC4\uAD00\uC5D0 \uC5B4\uC6B8\uB9AC\uB294 \uC778\uBB3C\uBD80\uD130 \uAC19\uC774 \uC815\uD574\uBCF4\uC790.\u201D\n\u201C\uC774 \uC124\uC815\uC758 \uBAA8\uC21C\uC744 \uCC3E\uC544\uC918.\u201D\n\u201C\uC9C0\uAE08 \uC815\uD55C \uB0B4\uC6A9\uC744 \uC124\uBA85\uACFC \uB85C\uC5B4\uBD81\uC73C\uB85C \uC81C\uC548\uD574\uC918.\u201D"), h("p", { style: "margin-top:14px" }, "\uB300\uD654\uC640 \uC218\uC815\uC548\uC740 \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD574 \uBCF4\uAD00\uD569\uB2C8\uB2E4.")));
       for (const message of s.thread) {
         const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "YOU" : "WRITING PARTNER"), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
+        if (message.images?.length) {
+          const gallery = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
+          for (const image of message.images) gallery.append(h("img", { src: image.data, alt: image.name, loading: "lazy", style: "width:140px;max-width:100%;height:110px;object-fit:contain" }));
+          row.append(gallery, h("span", { class: "muted" }, "\uC774 \uC694\uCCAD\uC5D0 \uCCA8\uBD80\uD55C \uC774\uBBF8\uC9C0 \xB7 \uC774\uD6C4 \uC694\uCCAD\uC5D0\uB294 \uC790\uB3D9 \uC7AC\uC804\uC1A1\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."), this.b("\uC774\uBBF8\uC9C0 \uB2E4\uC2DC \uCCA8\uBD80", () => {
+            if (this.job || this.imageLoading) return;
+            const combined = validateRequestImages([...requestImages(this.s, this.task), ...clone(message.images).map((image) => ({ ...image, id: uid() }))]);
+            this.s.requestImages ??= {};
+            this.s.requestImages[this.task] = combined;
+            this.touch(false);
+            this.render();
+          }, "small"));
+        }
         if (message.raw) row.append(h("details", {}, h("summary", {}, "\uC751\uB2F5 \uC6D0\uBB38"), h("pre", { class: "diff" }, message.raw)));
         messages.append(row);
       }
@@ -15248,8 +15526,10 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       }
       this.jobEl = h("div", { class: "jobbar", role: "status", "aria-live": "polite" });
       this.requestInput = h("textarea", { "aria-label": "LLM\uC5D0\uAC8C \uBCF4\uB0BC \uC694\uCCAD", placeholder: this.task === "workshop" ? "\uC544\uC774\uB514\uC5B4\uB97C \uC774\uC57C\uAE30\uD558\uAC70\uB098, \uD604\uC7AC \uC6D0\uACE0\uC5D0\uC11C \uB2E4\uB4EC\uC744 \uBD80\uBD84\uC744 \uBB3C\uC5B4\uBCF4\uC138\uC694." : TASKS[this.task].label + " \uC791\uC131\xB7\uC218\uC815 \uC694\uCCAD\uC744 \uC801\uC73C\uC138\uC694.", value: s.requests[this.task] ?? "" });
+      this.requestInput.addEventListener("paste", (event) => this.pasteRequestImages(event));
       this.requestInput.addEventListener("input", () => {
         s.requests[this.task] = this.requestInput.value;
+        this.fitRequestInput();
         this.touch(false);
       });
       this.requestInput.addEventListener("keydown", (event) => {
@@ -15267,8 +15547,9 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         this.touch(false);
         await this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
       }, "LLM \uBAA8\uB378");
-      const sendLabel = this.job ? [h("span", { class: "spinner", "aria-hidden": "true" }), "\uC791\uC5C5 \uC911"] : this.task === "workshop" ? "\uD568\uAED8 \uAD6C\uC0C1\uD558\uAE30 \u2197" : "\uC218\uC815\uC548 \uC694\uCCAD \u2197";
-      const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job, "data-action": "send-request" });
+      const mobile = this.doc.defaultView?.matchMedia("(max-width: 840px)").matches;
+      const sendLabel = mobile ? this.job ? "\uB300\uAE30 \uC911" : "\uC804\uC1A1 \u2191" : this.job ? [h("span", { class: "spinner", "aria-hidden": "true" }), "\uC791\uC5C5 \uC911"] : this.task === "workshop" ? "\uD568\uAED8 \uAD6C\uC0C1\uD558\uAE30 \u2197" : "\uC218\uC815\uC548 \uC694\uCCAD \u2197";
+      const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job || !!this.imageLoading, "data-action": "send-request" });
       this.sendButton = send;
       const scope = ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? this.check("\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815", this.scopeOnly, (v) => {
         this.scopeOnly = v;
@@ -15282,17 +15563,27 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
         }
         this.render();
       }, "\uC694\uCCAD \uAD6C\uC131");
+      const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
+      const settingsToggle = this.b("\uC694\uCCAD \uC124\uC815 \u25BE", () => {
+        const open = requestSettings.dataset.open !== "true";
+        requestSettings.dataset.open = String(open);
+        settingsToggle.setAttribute("aria-expanded", String(open));
+        settingsToggle.textContent = open ? "\uC124\uC815 \uB2EB\uAE30 \u25B4" : "\uC694\uCCAD \uC124\uC815 \u25BE";
+      }, "request-settings-toggle", { "aria-expanded": "false" });
+      requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1", () => this.showPrompt(this.task), "small mobile-prompt")));
       panel.append(messages, h(
         "div",
         { class: "composer" },
-        h("div", { class: "request-options" }, taskSelect, model, composition),
-        scope,
+        requestSettings,
         this.requestInput,
-        h("div", { class: "row" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
+        this.requestImageComposer(),
+        h("div", { class: "row composer-actions" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
+        this.b("\uB300\uD654 \uBE44\uC6B0\uAE30", () => panel.querySelector(".chathead button").click(), "ghost small mobile-clear-chat", { "aria-label": "\uB300\uD654 \uBE44\uC6B0\uAE30" }),
         this.jobEl,
         h("p", { class: "muted" }, "Ctrl + Enter \uC804\uC1A1 \xB7 \uC0DD\uC131 \uACB0\uACFC\uB294 \uAC80\uD1A0 \uD6C4 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uB429\uB2C8\uB2E4.")
       ));
       queueMicrotask(() => {
+        this.fitRequestInput();
         messages.scrollTop = messages.scrollHeight;
       });
       return panel;
@@ -15338,7 +15629,7 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       this.toast("\uC218\uC815\uC548\uC744 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4. \uC2E4\uC81C \uCE90\uB9AD\uD130 \uC800\uC7A5\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4.");
     }
     requestWithScope(task) {
-      const s = this.s, request = (s.requests[task] ?? "").trim();
+      const s = this.s, request = (s.requests[task] ?? "").trim() || (requestImages(s, task).length ? "\uCCA8\uBD80\uD55C \uD654\uBA74\uC744 \uD655\uC778\uD558\uACE0 \uD604\uC7AC \uC694\uCCAD \uC791\uC5C5\uC5D0 \uB9DE\uAC8C \uBD84\uC11D\uD574 \uC8FC\uC138\uC694." : "");
       const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
       if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "\uD604\uC7AC \uD3B8\uC9D1 \uD56D\uBAA9\uC774 \uC694\uCCAD\uC5D0\uC11C \uC81C\uC678\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uD0ED\uC5D0\uC11C \u2018\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\u2019\uC744 \uCCB4\uD06C\uD558\uAC70\uB098 \u2018\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\u2019\uC744 \uD574\uC81C\uD558\uC138\uC694.");
       return { request, scope, text: request + (scope ? "\n[\uD5C8\uC6A9 \uD3B8\uC9D1 \uBC94\uC704] \uAE30\uC874 \uD56D\uBAA9 " + scope + "\uB9CC \uC218\uC815\xB7\uC0AD\uC81C\uD560 \uC218 \uC788\uB2E4. \uC0C8 \uD56D\uBAA9 \uCD94\uAC00\uC640 \uB2E4\uB978 \uD56D\uBAA9 \uBCC0\uACBD\uC740 \uAE08\uC9C0\uD55C\uB2E4." : "") };
@@ -15346,10 +15637,11 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
     previewRequest(task = this.task, forcePreset = false) {
       const usePreset = forcePreset || this.s.preset.mode === "preset";
       const direct = composeMessages(usePreset ? { ...this.s, thread: [] } : this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task));
-      if (usePreset) return assemblePreset(this.s.preset, this.s, task, direct);
-      return { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+      const report = usePreset ? assemblePreset(this.s.preset, this.s, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+      return { ...report, messages: withRequestImages(report.messages, requestImages(this.s, task)) };
     }
     async sendRequest() {
+      assert(!this.imageLoading, "\uC774\uBBF8\uC9C0\uB97C \uC77D\uB294 \uC911\uC785\uB2C8\uB2E4. \uC644\uB8CC \uD6C4 \uC804\uC1A1\uD574 \uC8FC\uC138\uC694.");
       assert(!this.job, "\uB2E4\uB978 LLM \uC694\uCCAD\uC774 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4.");
       const task = this.task, s = this.s, { request, scope } = this.requestWithScope(task);
       assert(request, "LLM\uC5D0\uAC8C \uC804\uB2EC\uD560 \uC694\uCCAD\uC744 \uC801\uC5B4 \uC8FC\uC138\uC694.");
@@ -15360,7 +15652,10 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
       const before = clone(s.draft), job = { ...meta, id: uid(), start: Date.now(), label: TASKS[task].label + " \xB7 \uC751\uB2F5 \uB300\uAE30", cancelled: false };
       this.job = job;
-      s.thread.push({ id: uid(), role: "user", content: request, task });
+      const images = requestImages(s, task);
+      s.thread.push({ id: uid(), role: "user", content: request, task, ...images.length ? { images: clone(images) } : {} });
+      s.requests[task] = "";
+      if (s.requestImages) s.requestImages[task] = [];
       this.touch(false);
       this.render();
       let raw;
@@ -15567,10 +15862,12 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       try {
         let saved;
         if (captured.targetId) {
-          const result = await saveExisting(this.api, captured);
+          let result = await saveExisting(this.api, captured);
           if (result.conflicts.length) {
-            await this.dialog("\uB2E4\uB978 \uACF3\uC5D0\uC11C \uC218\uC815\uD55C \uB0B4\uC6A9\uACFC \uCDA9\uB3CC\uD569\uB2C8\uB2E4", (body) => body.append(this.h("p", { class: "warn" }, result.conflicts.join(", ")), this.h("p", { class: "muted" }, "\uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uCD5C\uC2E0 \uCE90\uB9AD\uD130\uB97C \uC0C8\uB85C \uBD88\uB7EC\uC624\uAC70\uB098, \uD604\uC7AC\uC548\uC744 charx\uB85C \uB0B4\uBCF4\uB0B4 \uBE44\uAD50\uD574 \uC8FC\uC138\uC694.")));
-            return;
+            const choices = await this.reviewSaveConflicts(captured, result);
+            if (!choices) return;
+            assert(this.s.sessionId === captured.sessionId && this.s.revision === revision, "\uAC80\uD1A0 \uC911 \uBD07\uBE4C\uB354 \uC6D0\uACE0\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
+            result = await saveExisting(this.api, captured, { current: result.current, choices });
           }
           saved = result.saved;
         } else saved = await saveNew(this.api, captured);
@@ -15632,12 +15929,22 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
       this.ioBusy = true;
       const char = clone(this.s.draft), meta = clone(this.s.cardMeta);
       try {
-        const data = await exportCharx(this.api, char, meta), url = URL.createObjectURL(new Blob([data], { type: "application/zip" }));
+        const notices = [];
+        const data = await exportCharx(this.api, char, meta, notices), url = URL.createObjectURL(new Blob([data], { type: "application/zip" }));
         const a = this.h("a", { href: url, download: (char.name || "character").replace(/[<>:"/\\|?*]/g, "_") + ".charx" });
         this.doc.body.append(a);
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 6e4);
+        if (notices.length) {
+          await this.dialog("CHARX \uB2E4\uC6B4\uB85C\uB4DC \xB7 \uC5D0\uC14B \uCC38\uC870 \uC548\uB0B4", (body) => body.append(this.h(
+            "p",
+            { style: "white-space:pre-wrap;line-height:1.8" },
+            `\uB9AC\uC2A4 \uBCF8\uCCB4\uC640 \uAC19\uC740 \uBC29\uC2DD\uC73C\uB85C ${notices.length}\uAC1C \uC5D0\uC14B\uC758 URI\uB97C \uADF8\uB300\uB85C \uBCF4\uC874\uD588\uC2B5\uB2C8\uB2E4. \uC774 \uD56D\uBAA9\uC758 \uD30C\uC77C\uC744 \uC0C8\uB85C \uD3EC\uD568\uD558\uAC70\uB098 \uC678\uBD80\uC5D0\uC11C \uB2E4\uC6B4\uB85C\uB4DC\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.
+
+` + notices.map((n) => `${n.name} (${n.type}): ${n.kind === "unresolved-embedded" ? "\uC6D0\uBCF8 \uB0B4\uC7A5 \uD30C\uC77C\uC744 \uD655\uBCF4\uD558\uC9C0 \uBABB\uD568 \xB7 \uC774\uBBF8\uC9C0 \uD45C\uC2DC \uBCF4\uC7A5 \uBD88\uAC00" : "\uC6D0\uB798 \uCC38\uC870 \uC720\uC9C0"}`).join("\n")
+          )));
+        }
         this.toast("charx \uB2E4\uC6B4\uB85C\uB4DC\uB97C \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
       } finally {
         this.ioBusy = false;

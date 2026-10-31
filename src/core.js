@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '0.4.6';
+export const VERSION = '0.4.15';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -53,18 +53,21 @@ export function removeAdditionalAssets(character, selected) {
   return result;
 }
 export function blankCharacter() {
-  return { type: 'character', chaId: uid(), name: '이름 없는 이야기', desc: '', firstMessage: '', notes: '', chats: [{ id: uid(), name: 'Chat 1', message: [], note: '', localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: 'none', bias: [], emotionImages: [], globalLore: [], sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '', alternateGreetings: [], tags: [], creator: '', characterVersion: '1.0', personality: '', scenario: '', firstMsgIndex: -1, additionalText: '', defaultVariables: '', additionalAssets: [] };
+  return { type: "character", chaId: uid(), name: "이름 없는 이야기", desc: "", firstMessage: "", notes: "", chats: [{ id: uid(), name: "Chat 1", message: [], note: "", localLore: [] }], chatFolders: [], chatPage: 0, viewScreen: "none", bias: [], emotionImages: [], globalLore: [], loreSettings: { scanDepth: 5, tokenBudget: 99999, recursiveScanning: false, fullWordMatching: false }, sdData: [], utilityBot: false, customscript: [], triggerscript: [], exampleMessage: "", creatorNotes: "", systemPrompt: "", postHistoryInstructions: "", alternateGreetings: [], tags: [], creator: "", characterVersion: "1.0", personality: "", scenario: "", firstMsgIndex: -1, additionalText: "", defaultVariables: "", additionalAssets: [] };
 }
 export function newSession() {
   return { schemaVersion: 1, sessionId: uid(), targetId: null, revision: 0, promptRevision: 0, base: null, draft: blankCharacter(), source: null, thread: [], brief: "", kind: "character", requests: {}, selected: {}, loreIncluded: [], candidates: [], regexInput: "", tab: "overview", promptDrafts: {}, cardMeta: null };
 }
 export function sessionFromCharacter(raw) {
-  assert(raw && raw.chaId && (!raw.type || raw.type === 'character'), '일반 캐릭터만 불러올 수 있습니다.');
+  assert(raw && raw.chaId && (!raw.type || raw.type === "character"), "일반 캐릭터만 불러올 수 있습니다.");
   const s = newSession();
   s.targetId = raw.chaId;
   s.source = clone(raw);
-  delete s.source.chats; delete s.source.chatFolders; delete s.source.chatPage;
+  delete s.source.chats;
+  delete s.source.chatFolders;
+  delete s.source.chatPage;
   s.draft = { ...blankCharacter(), ...s.source };
+  if (!Object.hasOwn(s.source, "loreSettings")) delete s.draft.loreSettings;
   s.base = editable(raw);
   return s;
 }
@@ -88,7 +91,9 @@ export function restoreSnapshot(value) {
   for (const t of s.draft.triggerscript ?? []) assert(t && Array.isArray(t.effect) && Array.isArray(t.conditions) && t.effect.every((e) => e && typeof e.type === "string"), "저장본 트리거 형식이 올바르지 않습니다.");
   for (const a of s.draft.additionalAssets ?? []) assert(Array.isArray(a) && a.length >= 2 && typeof a[0] === "string" && typeof a[1] === "string", "저장본 에셋 형식이 올바르지 않습니다.");
   assert(s.requests && s.selected && s.promptDrafts, "저장본 작업 정보가 없습니다.");
-  if (s.loreIncluded !== void 0) assert(Array.isArray(s.loreIncluded) && s.loreIncluded.every((value) => typeof value === "boolean"), "저장본 로어북 포함 설정이 올바르지 않습니다.");
+  if (s.loreIncluded !== void 0) assert(Array.isArray(s.loreIncluded) && s.loreIncluded.every((value2) => typeof value2 === "boolean"), "저장본 로어북 포함 설정이 올바르지 않습니다.");
+  for (const images of Object.values(s.requestImages ?? {})) validateRequestImages(images);
+  for (const message of s.thread) if (message.images) validateRequestImages(message.images);
   s.loreIncluded = loreSelection(s);
   for (const c of s.candidates) if (!c.status) {
     assert(c.before && c.packet, "저장본 제안 형식이 올바르지 않습니다.");
@@ -516,18 +521,28 @@ export async function readTarget(api, targetId) {
   assert(fresh?.chaId === targetId && (!fresh.type || fresh.type === 'character'), '캐릭터 위치가 바뀌었습니다. 다시 저장해 주세요.');
   return { index, fresh };
 }
-export async function saveExisting(api, session) {
+export async function saveExisting(api, session, resolution = null) {
   const { index, fresh } = await readTarget(api, session.targetId);
+  if (resolution) assert(resolution.current?.chaId === fresh.chaId && equal(editable(resolution.current), editable(fresh)), "비교 이후 리스 원본이 다시 바뀌었습니다. 저장하지 않았습니다. 다시 저장을 눌러 최신 내용을 비교하세요.");
   const result = mergeCharacter(session.base, session.draft, fresh);
-  if (result.conflicts.length) return result;
+  if (result.conflicts.length) {
+    if (!resolution) return { ...result, current: fresh };
+    const fields = conflictFields(result);
+    assert(fields.length && result.conflicts.every((item) => fields.some((field) => item === field || item.startsWith(field + "[") || item.startsWith(field + ":"))), "알 수 없는 충돌 유형입니다. 저장을 중단했습니다.");
+    for (const field of fields) {
+      const choice = resolution.choices?.[field];
+      assert(choice === "draft" || choice === "current", "충돌한 모든 영역에서 저장할 내용을 선택하세요.");
+      result.merged[field] = clone(choice === "draft" ? session.draft[field] : fresh[field]);
+    }
+    result.conflicts = [];
+  }
   const last = await api.getCharacterFromIndex(index);
-  assert(last?.chaId === session.targetId && equal(editable(last), editable(fresh)), '저장 직전에 원본이 바뀌었습니다. 다시 저장해 주세요.');
-  // Use the very latest object so newly arrived chats and unedited fields survive.
+  assert(last?.chaId === session.targetId && equal(editable(last), editable(fresh)), "저장 직전에 원본이 바뀌었습니다. 다시 저장해 주세요.");
   for (const field of result.changed) last[field] = result.merged[field];
   await api.setCharacterToIndex(index, last);
-  const check = await readTarget(api, session.targetId);
-  assert(result.changed.every(f => equal(check.fresh[f], last[f])), '호스트 저장 결과가 예상과 다릅니다. 현재안을 유지했습니다.');
-  return { ...result, saved: check.fresh };
+  const check2 = await readTarget(api, session.targetId);
+  assert(result.changed.every((f) => equal(check2.fresh[f], last[f])), "호스트 저장 결과가 예상과 다릅니다. 현재안을 유지했습니다.");
+  return { ...result, saved: check2.fresh };
 }
 export async function saveNew(api, session) {
   const db = await api.getDatabase(['characters', 'characterOrder']); assert(db?.characters, '캐릭터 데이터 접근 권한이 필요합니다.');
@@ -634,6 +649,7 @@ export function inputSize(messages, limit) {
   for (const message of messages) {
     chars += message.content.length;
     size += bytes(message.content);
+    for (const image of message.multimodals ?? []) size += bytes(image.base64 ?? "");
   }
   assert(chars <= limit, `전송 내용 ${chars.toLocaleString()}자가 설정한 ${limit.toLocaleString()}자 안전 한도를 초과했습니다. 작업 설정에서 한도를 조정하세요. 자동으로 자르지 않습니다.`);
   assert(size <= PROMPT_BYTES_LIMIT, "전체 전송 내용이 32MiB 안전 한도를 초과했습니다. 자료를 줄여 주세요.");
@@ -699,7 +715,14 @@ JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설
 workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
 workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
 아래 예시는 구조와 이스케이프 참고용이다. 예시 내용 자체를 복사하지 말고 사용자 요청에 맞는 실제 완성 데이터로 교체하라.
-전송 전에 JSON 문법, task 값, 필수 필드와 값의 자료형을 확인하라.
+[출력 직전 필수 점검 — 점검 과정은 출력하지 않음]
+1. JSON.parse로 읽을 수 있는 표준 JSON 하나를 완성한다. 문법과 구조를 모두 맞춘 뒤 응답한다.
+2. reply/content/before/after/code/in/out의 대사, HTML 속성, 코드 안 큰따옴표도 모두 \"로 쓴다. 문자열 안 실제 줄바꿈은 금지하고 \n으로 쓴다. 정규식의 역슬래시도 한 번 더 이스케이프한다. 데이터의 따옴표나 공백을 삭제해서 문법을 맞추지 마라.
+3. 괄호는 연 순서의 역순으로 닫는다. edits는 배열이고 각 원소는 before/after 객체다. 마지막 after 문자열 뒤에는 edit 객체 }, edits 배열 ], in 객체 }, rule 객체 }, upsert 항목 객체 } 순으로 닫는다. 배열을 닫기 전에 불필요한 }를 추가하지 마라.
+4. 항목 사이에만 쉼표를 넣고 마지막 항목 뒤에는 넣지 마라. 중복 키, 주석, 생략 기호, NaN, Infinity는 쓰지 마라.
+5. schemaVersion/task/data와 작업별 필수 키·자료형·ref를 다시 확인한다. before의 정확성은 JSON 디코딩 후 원문 기준이다. 원문의 역슬래시·따옴표·줄바꿈은 JSON에서 이스케이프하여 같은 문자열로 복원되게 한다.
+6. reply는 짧은 요약으로 쓰고 실제 수정 데이터는 changes에 한 번만 넣는다. 검토 전 제안이므로 이미 적용·저장했다고 말하지 마라. 요청량이 너무 크면 완결된 항목 단위의 수정안을 제안하고 미완료 범위를 reply에 명시한다. 내용·문자열·배열·객체를 중간에 끊거나 나머지를 생략 기호로 대체하지 마라.
+${jsonSyntaxExamples(task)}
 [공통 텍스트 부분편집]
 기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":"원문에서 정확히 복사한 구간","after":"교체할 새 구간"}]}를 넣어라. 한 필드당 1~100개다. 줄 번호를 출력하거나 적용 위치로 사용하지 마라.
 적용 필드: description/greeting/choiceGreeting의 text; lorebook entry의 comment/key/secondkey/content; regex rule의 comment/in/out; Lua scripts의 comment/code; 기존 variables의 각 값. workshop 내부의 각 작업에도 같은 형식을 쓴다. reply와 choices의 안내 정보는 일반 문자열이다. type/mode/flag/불리언/숫자 등 설정은 기존 값 형식을 따른다.
@@ -799,4 +822,83 @@ export function proposalDiff(draft, packet) {
   if (packet.task === 'workshop') packet.data.changes.forEach((change, i) => visit(change.task, change.data, resolved.changes[i].data));
   else visit(packet.task, packet.data, resolved);
   return rows;
+}
+
+
+// Request attachments stay separate from character assets.
+export const REQUEST_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+export const REQUEST_IMAGE_MAX = 4, REQUEST_IMAGE_BYTES = 5 * 1024 * 1024, REQUEST_IMAGE_TOTAL = 12 * 1024 * 1024;
+
+export function conflictFields(result) {
+  return FIELDS.filter((field) => result.conflicts.some((item) => item === field || item.startsWith(field + "[") || item.startsWith(field + ":")));
+}
+
+export function requestImages(session, task) {
+  return session.requestImages?.[task] ?? [];
+}
+
+export function validateRequestImages(images) {
+  assert(Array.isArray(images) && images.length <= REQUEST_IMAGE_MAX, "이미지는 요청당 최대 4장까지 첨부할 수 있습니다.");
+  let total = 0;
+  for (const image of images) {
+    assert(image && REQUEST_IMAGE_TYPES.includes(image.mime) && typeof image.data === "string", "이미지 첨부 형식이 올바르지 않습니다.");
+    const prefix = "data:" + image.mime + ";base64,";
+    assert(image.data.startsWith(prefix), "이미지 데이터 형식이 올바르지 않습니다.");
+    const encoded = image.data.slice(prefix.length);
+    assert(encoded.length > 0 && encoded.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(encoded), "이미지 데이터가 손상되었습니다.");
+    const size = encoded.length / 4 * 3 - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
+    assert(size <= REQUEST_IMAGE_BYTES, "이미지 한 장은 5MiB 이하여야 합니다.");
+    total += size;
+  }
+  assert(total <= REQUEST_IMAGE_TOTAL, "첨부 이미지 합계는 12MiB 이하여야 합니다.");
+  return images;
+}
+
+export function withRequestImages(messages, images) {
+  validateRequestImages(images);
+  if (!images.length) return messages;
+  const result = messages.map((m) => ({ ...m }));
+  let index = result.length - 1;
+  while (index >= 0 && result[index].role !== "user") index--;
+  assert(index >= 0, "이미지를 첨부할 사용자 메시지가 없습니다. 프리셋 구성을 확인하세요.");
+  result[index].multimodals = [...result[index].multimodals ?? [], ...images.map((image) => ({ type: "image", base64: image.data, width: image.width, height: image.height }))];
+  return result;
+}
+
+export async function readRequestImage(file, doc) {
+  assert(file && file.size > 0 && file.size <= REQUEST_IMAGE_BYTES, "이미지 한 장은 5MiB 이하여야 합니다.");
+  const data = new Uint8Array(await file.arrayBuffer());
+  let mime;
+  if (data[0] === 137 && data[1] === 80 && data[2] === 78 && data[3] === 71 && data[4] === 13 && data[5] === 10 && data[6] === 26 && data[7] === 10) mime = "image/png";
+  else if (data[0] === 255 && data[1] === 216 && data[2] === 255) mime = "image/jpeg";
+  else if (String.fromCharCode(...data.slice(0, 4)) === "RIFF" && String.fromCharCode(...data.slice(8, 12)) === "WEBP") mime = "image/webp";
+  assert(mime, "PNG, JPG, WEBP 이미지 파일만 첨부할 수 있습니다.");
+  let binary = "";
+  for (let i = 0; i < data.length; i += 32768) binary += String.fromCharCode(...data.subarray(i, i + 32768));
+  const url = "data:" + mime + ";base64," + btoa(binary);
+  const dimensions = await new Promise((resolve, reject) => {
+    const img = doc.createElement("img");
+    const timer = setTimeout(() => {
+      img.src = "";
+      reject(new Error("이미지를 읽는 시간이 초과되었습니다."));
+    }, 15e3);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("이미지를 읽을 수 없습니다. 다른 파일로 다시 첨부하세요."));
+    };
+    img.src = url;
+  });
+  assert(dimensions.width > 0 && dimensions.height > 0 && dimensions.width * dimensions.height <= 4e7, "이미지 해상도가 너무 크거나 올바르지 않습니다. 4천만 픽셀 이하로 줄여 주세요.");
+  return { id: uid(), name: file.name || "클립보드 이미지", mime, data: url, size: data.length, ...dimensions };
+}
+
+export function jsonSyntaxExamples(task) {
+  const scalar = { content: '그는 "출발하자"라고 말했다.\n다음 줄', pattern: String.raw`\d+\s*`, html: '<div class="panel">안내</div>' };
+  const regexData = { upsert: [{ ref: "r0", rule: { in: { edits: [{ before: "(기존|항목)", after: "(기존|항목|추가)" }] } } }], remove: [] };
+  const packet = task === "workshop" ? { schemaVersion: 2, task, data: { reply: "정규식 수정안을 제안합니다.", changes: [{ task: "regex", data: regexData }] } } : { schemaVersion: 2, task: "regex", data: regexData };
+  return "[문자열 이스케이프 예시 — 구조 설명용이며 응답 스키마가 아님]\n" + JSON.stringify(scalar, null, 2) + (["workshop", "regex"].includes(task) ? "\n[정규식 부분 수정의 완전한 JSON 예시 — r0가 실제 존재하고 원문이 일치할 때만 사용]\n" + JSON.stringify(packet, null, 2) : "");
 }

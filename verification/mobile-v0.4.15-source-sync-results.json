@@ -1,0 +1,53 @@
+{
+  "scope": "Compiler-normalized comparison of all changed mobile functions, UI methods, CSS and constants. Regression/browser tests run separately; not live RisuBard validation.",
+  "files": [
+    {
+      "path": "artifacts/mobile-v0.4.15-original.js",
+      "bytes": 801842,
+      "sha256": "5c20727facdb745bccc2d5eda2481a9088e85077171e61c9becc08ecdecbf4d2"
+    },
+    {
+      "path": "dist/risu_story_workshop.js",
+      "bytes": 805559,
+      "sha256": "f0a10664416b213709461a0dbd56042f228ceb5160b0638c2a2178e1832055f6"
+    }
+  ],
+  "passed": 35,
+  "checks": [
+    "VERSION",
+    "CSS",
+    "REQUEST_IMAGE_TYPES",
+    "REQUEST_IMAGE_MAX",
+    "REQUEST_IMAGE_BYTES",
+    "REQUEST_IMAGE_TOTAL",
+    "blankCharacter",
+    "sessionFromCharacter",
+    "restoreSnapshot",
+    "conflictFields",
+    "saveExisting",
+    "requestImages",
+    "validateRequestImages",
+    "withRequestImages",
+    "readRequestImage",
+    "inputSize",
+    "jsonSyntaxExamples",
+    "jsonContract",
+    "importCharx",
+    "exportCharx",
+    "Workshop.init",
+    "Workshop.destroy",
+    "Workshop.render",
+    "Workshop.renderChat",
+    "Workshop.requestWithScope",
+    "Workshop.previewRequest",
+    "Workshop.sendRequest",
+    "Workshop.saveHost",
+    "Workshop.downloadCharx",
+    "Workshop.fitRequestInput",
+    "Workshop.showMobileMenu",
+    "Workshop.addRequestImages",
+    "Workshop.pasteRequestImages",
+    "Workshop.requestImageComposer",
+    "Workshop.reviewSaveConflicts"
+  ]
+}

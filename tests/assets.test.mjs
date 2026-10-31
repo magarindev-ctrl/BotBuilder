@@ -105,7 +105,10 @@ test('import, delete and export removes original card metadata references and ne
   assert.ok(!reads.includes(c.additionalAssets[1][1])); assert.equal(reads.length, 3);
   assert.deepEqual(imported.cardMeta, cardMeta);
   result.ccAssets.push({ type: 'other', name: 'unknown', uri: 'external' });
-  await assert.rejects(exportCharx(api, result, imported.cardMeta), /보존할 수 없는/);
+  const localReads=[];
+  const localOutput=await exportCharx({readImage:async path=>{localReads.push(path);return portraitPng;}}, result, imported.cardMeta);
+  assert.ok(localReads.includes('external'));
+  assert.ok(unpack(localOutput).card.data.assets.find(a=>a.name==='unknown').uri.startsWith('embeded://'));
 });
 test('deletion survives recovery and host save while concurrent additions and chats survive', async () => {
   const original = fixture(), session = sessionFromCharacter(original);

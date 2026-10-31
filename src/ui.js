@@ -1,3 +1,4 @@
+import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX } from './core.js';
 import { CSS } from './style.js';
 import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
@@ -10,6 +11,111 @@ const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 �
 const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
 
 export class Workshop {
+  fitRequestInput() {
+    const input = this.requestInput;
+    if (!input || !this.doc.defaultView?.matchMedia("(max-width: 840px)").matches) return;
+    input.style.height = "52px";
+    input.style.height = Math.min(122, Math.max(52, input.scrollHeight + 2)) + "px";
+  }
+  async showMobileMenu(header, tools, chat) {
+    const buttons = [...tools.querySelectorAll(".toolbar-files button, .toolbar-saves button"), ...header.querySelectorAll(".header-actions button")];
+    const chosen = await this.dialog("작업 메뉴", (body) => {
+      body.append(this.h("p", { class: "muted" }, this.statusEl.textContent));
+      const list = this.h("div", { class: "mobile-menu-list" });
+      for (const button of buttons) list.append(this.b(button.textContent, () => this.activeModal.close(button), "", { disabled: button.disabled }));
+      body.append(list, this.h("details", {}, this.h("summary", {}, "이미지 첨부 도움말"), this.h("p", { class: "muted" }, "캡처 파일을 첨부하거나 요청창에 이미지를 붙여넣으세요. PNG·JPG·WEBP 최대 4장, 장당 5MiB, 합계 12MiB입니다. 이미지 입력을 지원하는 모델을 사용하세요.")));
+    });
+    if (chosen && !this.job) chosen.click();
+  }
+  async addRequestImages(files) {
+    assert(!this.job && !this.imageLoading, "요청 또는 이미지 처리가 진행 중입니다. 잠시 기다려 주세요.");
+    const session = this.s, task = this.task;
+    const previous = requestImages(session, task);
+    assert(previous.length + files.length <= REQUEST_IMAGE_MAX, "이미지는 요청당 최대 4장까지 첨부할 수 있습니다.");
+    if (!files.length) return;
+    this.imageLoading = true;
+    this.render();
+    try {
+      const added = [];
+      for (const file of files) added.push(await readRequestImage(file, this.doc));
+      const next = validateRequestImages([...previous, ...added]);
+      assert(this.s === session && !this.job, "작업이 변경되어 이미지 첨부를 중단했습니다.");
+      session.requestImages ??= {};
+      session.requestImages[task] = next;
+      this.touch(false);
+    } finally {
+      this.imageLoading = false;
+      this.render();
+    }
+  }
+  pasteRequestImages(event) {
+    const clipboard = event.clipboardData;
+    const items = [...clipboard?.items ?? []];
+    const files = items.filter((item) => item.kind === "file" && item.type.startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
+    if (!files.length) files.push(...[...clipboard?.files ?? []].filter((file) => file.type.startsWith("image/")));
+    if (!files.length) return;
+    event.preventDefault();
+    if (this.job || this.imageLoading) {
+      this.toast("이미지 또는 요청 처리 중입니다. 잠시 후 다시 붙여넣으세요.", true);
+      return;
+    }
+    const text = clipboard.getData("text/plain");
+    if (text) {
+      this.requestInput.setRangeText(text, this.requestInput.selectionStart, this.requestInput.selectionEnd, "end");
+      this.s.requests[this.task] = this.requestInput.value;
+      this.touch(false);
+    }
+    this.addRequestImages(files).catch((error) => this.toast(error.message, true));
+  }
+  requestImageComposer() {
+    const h = this.h.bind(this), session = this.s, task = this.task;
+    const host = h("div", { class: "stack request-images", style: "gap:8px" });
+    const input = h("input", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: "", style: "display:none", "aria-label": "요청에 이미지 첨부" });
+    input.addEventListener("change", () => {
+      const files = [...input.files];
+      input.value = "";
+      this.addRequestImages(files).catch((error) => this.toast(error.message, true));
+    });
+    host.append(input, this.b(this.imageLoading ? "읽는 중…" : this.doc.defaultView?.matchMedia("(max-width: 840px)").matches ? "＋ 이미지" : "＋ 이미지 첨부", () => input.click(), "small", { disabled: !!this.job || !!this.imageLoading }), h("p", { class: "muted" }, "캡처 이미지를 첨부하거나 입력창에 붙여넣으세요. PNG·JPG·WEBP, 최대 4장 / 장당 5MiB / 합계 12MiB. 이미지 지원 모델이 필요합니다."));
+    const previews = h("div", { class: "request-previews", style: "display:flex;gap:8px;flex-wrap:wrap;min-width:0" });
+    for (const image of requestImages(session, task)) previews.append(h("div", { class: "card stack", style: "width:150px;max-width:100%;gap:6px" }, h("img", { src: image.data, alt: image.name, style: "width:100%;height:110px;object-fit:contain" }), h("span", { style: "overflow-wrap:anywhere" }, image.name), this.b("첨부 삭제", () => {
+      if (this.job || this.imageLoading) return;
+      session.requestImages[task] = requestImages(session, task).filter((item) => item.id !== image.id);
+      this.touch(false);
+      this.render();
+    }, "small", { disabled: !!this.imageLoading })));
+    host.append(previews);
+    return host;
+  }
+  async reviewSaveConflicts(session, result) {
+    const h = this.h.bind(this), fields = conflictFields(result), choices = {};
+    return this.dialog("저장할 내용 비교", (body) => {
+      body.append(h("p", { class: "warn" }, "항목을 자동으로 구분할 수 없거나 리스의 현재 내용과 충돌합니다. 각 영역에서 저장할 쪽을 선택하세요. 로어북에서 봇빌더 원고를 선택하면 해당 로어북 목록 전체를 원고 내용으로 교체합니다. 리스에만 있던 변경은 포함되지 않을 수 있습니다."), h("p", { class: "muted" }, "선택하지 않은 상태에서는 저장하지 않습니다. 충돌하지 않는 수정은 기존 방식으로 반영하며, 채팅 기록은 유지합니다."));
+      const display = (value) => value === void 0 ? "(없음)" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      for (const field of fields) {
+        const label = fieldNames[field] ?? field;
+        const count = (value) => Array.isArray(value) ? " · " + value.length + "개" : "";
+        body.append(h(
+          "section",
+          { class: "card stack" },
+          h("h3", {}, label),
+          h("details", {}, h("summary", {}, "처음 불러왔던 내용" + count(session.base[field])), h("pre", { class: "diff" }, display(session.base[field]))),
+          h("details", { open: "" }, h("summary", {}, "리스의 현재 내용" + count(result.current[field])), h("pre", { class: "diff" }, display(result.current[field]))),
+          h("details", { open: "" }, h("summary", {}, "봇빌더 원고" + count(session.draft[field])), h("pre", { class: "diff" }, display(session.draft[field]))),
+          this.select("", [["", "저장할 쪽을 선택하세요"], ["draft", "봇빌더 원고로 이 영역 전체 교체"], ["current", "리스의 현재 내용 유지"]], (value) => {
+            choices[field] = value;
+          }, label + " 저장 방식")
+        ));
+      }
+      body.append(this.b("선택한 내용으로 저장", () => {
+        if (!fields.length || !fields.every((field) => ["draft", "current"].includes(choices[field]))) {
+          this.toast("모든 충돌 영역에서 저장할 쪽을 선택하세요.", true);
+          return;
+        }
+        this.activeModal.close({ ...choices });
+      }, "primary"));
+    }, [{ label: "취소 · 원고 유지", value: null }]);
+  }
   constructor(api, doc) {
     this.api = api; this.doc = doc; this.s = newSession(); this.prompts = {}; this.settings = { ...SETTINGS };
     this.s.preset = newPresetState(); this.savedPreset = null;
@@ -71,13 +177,22 @@ export class Workshop {
     this.doc.head.append(style);
     this.doc.documentElement.lang = "ko";
     this.root = this.h("main", { id: "story-workshop" });
-    for (const type of ['click', 'beforeinput', 'input', 'change', 'keydown', 'drop']) this.root.addEventListener(type, (event) => {
+    for (const type of ["click", "beforeinput", "input", "change", "keydown", "drop"]) this.root.addEventListener(type, (event) => {
       if (!this.job || event.target.closest?.('[data-action="cancel-request"]')) return;
-      if (type === 'keydown' && !['Enter', ' ', 'Backspace', 'Delete'].includes(event.key)) return;
+      if (type === "keydown" && !["Enter", " ", "Backspace", "Delete"].includes(event.key)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }, true);
     this.doc.body.append(this.root);
+    const viewport = this.doc.defaultView?.visualViewport;
+    this.updateViewport = () => {
+      if (!viewport) return;
+      this.root.style.setProperty("--workshop-vheight", viewport.height + "px");
+      this.root.style.setProperty("--workshop-vtop", viewport.offsetTop + "px");
+    };
+    viewport?.addEventListener("resize", this.updateViewport);
+    viewport?.addEventListener("scroll", this.updateViewport);
+    this.updateViewport();
     const setting = await this.api.pluginStorage.getItem(PREFIX + "settings");
     try {
       if (setting) {
@@ -130,7 +245,16 @@ export class Workshop {
     this.elapsedTimer = setInterval(() => this.jobStatus(), 1e3);
     await this.api.onUnload(() => this.destroy());
   }
-  destroy() { clearInterval(this.autoTimer); clearInterval(this.elapsedTimer); clearTimeout(this.toastTimer); this.themeMedia?.removeEventListener('change', this.themeListener); this.job?.stop?.(); this.activeModal?.close(null); }
+  destroy() {
+    this.doc.defaultView?.visualViewport?.removeEventListener("resize", this.updateViewport);
+    this.doc.defaultView?.visualViewport?.removeEventListener("scroll", this.updateViewport);
+    clearInterval(this.autoTimer);
+    clearInterval(this.elapsedTimer);
+    clearTimeout(this.toastTimer);
+    this.themeMedia?.removeEventListener("change", this.themeListener);
+    this.job?.stop?.();
+    this.activeModal?.close(null);
+  }
   applyTheme() { this.doc.documentElement.dataset.theme = this.settings.theme === 'system' ? this.themeMedia?.matches ? 'dark' : 'light' : this.settings.theme; }
   async readSlots() {
     for (const name of ['autosave', 'manual']) {
@@ -186,18 +310,45 @@ export class Workshop {
   }
   render() {
     const h = this.h.bind(this), s = this.s;
-    this.statusEl = h('span', { class: 'status-text', 'aria-live': 'polite' }); this.titleEl = h('strong', { class: 'document-name', title: s.draft.name }, s.draft.name);
-    const header = h('header', { class: 'topbar' }, h('div', { class: 'brand' }, h('div', { class: 'brandmark', 'aria-hidden': 'true' }, 'BB'), h('div', { class: 'stack', style: 'gap:4px' }, h('span', { class: 'eyebrow' }, 'BOT BUILDER'), h('h1', {}, '봇빌더'))),
-      h('div', { class: 'row document-title' }, this.titleEl, h('span', { class: 'pill' }, s.targetId ? '기존 캐릭터' : '새 제작 원고')),
-      h('div', { class: 'row header-actions' }, this.statusEl, this.b('설정', () => this.showSettings(), 'ghost small'), this.b('닫기', () => this.api.hideContainer(), 'ghost small')));
-    const tools = h('div', { class: 'toolbar' }, h('div', { class: 'toolbar-files' }, this.b('＋ 새 작업', () => this.newWork()), this.b('캐릭터 불러오기', () => this.loadCharacters()), this.b('charx 열기', () => this.chooseCharx())), h('div', { class: 'toolbar-saves' }, this.b('임시 저장', async () => { await this.saveSlot('manual'); this.toast('수동 임시 저장본을 갱신했습니다.'); }), this.b('저장본 불러오기', () => this.showRecovery()), this.b('charx 내보내기', () => this.downloadCharx()), this.b(s.targetId ? '캐릭터에 저장' : '새 캐릭터로 저장', () => this.saveHost(), 'primary')), h('div', { class: 'mobile-switch' }, this.b('원고', () => { this.view = 'editor'; this.render(); }, 'small', { 'aria-pressed': this.view === 'editor' }), this.b('대화', () => { this.view = 'chat'; this.render(); }, 'small', { 'aria-pressed': this.view === 'chat' })));
-    this.editor = h('section', { class: 'editor', 'aria-label': '제작 원고' });
-    const sidebar = h('nav', { class: 'sidebar', 'aria-label': '원고 구성' }, h('span', { class: 'eyebrow' }, 'MANUSCRIPT'), TABS.map(([id, name], i) => this.b([h('span', { class: 'navnum' }, String(i + 1).padStart(2, '0')), name, h('span', { class: 'navcount' }, id === 'lorebook' ? s.draft.globalLore?.length ?? 0 : id === 'regex' ? s.draft.customscript?.length ?? 0 : '')], () => { s.tab = id; if (Object.hasOwn(TASKS,id)) this.task = id; this.view = 'editor'; this.touch(false); this.render(); }, 'navitem', { 'aria-current': s.tab === id ? 'page' : null })), h('div', { class: 'sidefoot muted' }, '대화로 구상하고,\n원고로 구체화하세요.', h('p', { style: 'margin-top:12px' }, `v${VERSION} · 3분 자동 저장`)));
+    this.statusEl = h("span", { class: "status-text", "aria-live": "polite" });
+    this.titleEl = h("strong", { class: "document-name", title: s.draft.name }, s.draft.name);
+    const header = h(
+      "header",
+      { class: "topbar" },
+      h("div", { class: "brand" }, h("div", { class: "brandmark", "aria-hidden": "true" }, "BB"), h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "BOT BUILDER"), h("h1", {}, "봇빌더"))),
+      h("div", { class: "row document-title" }, this.titleEl, h("span", { class: "pill" }, s.targetId ? "기존 캐릭터" : "새 제작 원고")),
+      h("div", { class: "row header-actions" }, this.statusEl, this.b("설정", () => this.showSettings(), "ghost small"), this.b("닫기", () => this.api.hideContainer(), "ghost small"))
+    );
+    const tools = h("div", { class: "toolbar" }, h("div", { class: "toolbar-files" }, this.b("＋ 새 작업", () => this.newWork()), this.b("캐릭터 불러오기", () => this.loadCharacters()), this.b("charx 열기", () => this.chooseCharx())), h("div", { class: "toolbar-saves" }, this.b("임시 저장", async () => {
+      await this.saveSlot("manual");
+      this.toast("수동 임시 저장본을 갱신했습니다.");
+    }), this.b("저장본 불러오기", () => this.showRecovery()), this.b("charx 내보내기", () => this.downloadCharx()), this.b(s.targetId ? "캐릭터에 저장" : "새 캐릭터로 저장", () => this.saveHost(), "primary")), h("div", { class: "mobile-switch" }, this.b("원고", () => {
+      this.view = "editor";
+      this.render();
+    }, "small", { "aria-pressed": this.view === "editor" }), this.b("대화", () => {
+      this.view = "chat";
+      this.render();
+    }, "small", { "aria-pressed": this.view === "chat" })));
+    this.editor = h("section", { class: "editor", "aria-label": "제작 원고" });
+    const sidebar = h("nav", { class: "sidebar", "aria-label": "원고 구성" }, h("span", { class: "eyebrow" }, "MANUSCRIPT"), TABS.map(([id, name], i) => this.b([h("span", { class: "navnum" }, String(i + 1).padStart(2, "0")), name, h("span", { class: "navcount" }, id === "lorebook" ? s.draft.globalLore?.length ?? 0 : id === "regex" ? s.draft.customscript?.length ?? 0 : "")], () => {
+      s.tab = id;
+      if (Object.hasOwn(TASKS, id)) this.task = id;
+      this.view = "editor";
+      this.touch(false);
+      this.render();
+    }, "navitem", { "aria-current": s.tab === id ? "page" : null })), h("div", { class: "sidefoot muted" }, "대화로 구상하고,\n원고로 구체화하세요.", h("p", { style: "margin-top:12px" }, `v${VERSION} · 3분 자동 저장`)));
     const chat = this.renderChat();
-    this.workspace = h('div', { class: 'workspace', 'data-view': this.view }, sidebar, this.editor, chat);
-    if (this.job) header.append(h('span', { class: 'warn', role: 'status' }, '응답 처리 중 · 편집 잠금'), this.b('요청 취소', () => this.cancelRequest(), 'danger small', { 'data-action': 'cancel-request' }));
-    this.root.replaceChildren(header, tools, this.workspace);
-    this.renderEditor(); this.status(); this.jobStatus(); this.lockRequestEditors();
+    this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
+    if (this.job) header.append(h("span", { class: "warn", role: "status" }, "응답 처리 중 · 편집 잠금"), this.b("요청 취소", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
+    const mobileTop = h("header", { class: "mobile-top" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "봇빌더"), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "원고" : "대화", () => {
+      this.view = view;
+      this.render();
+    }, "", { "aria-pressed": this.view === view })), this.job ? this.b("취소", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request", "aria-label": "요청 취소" }) : this.b("☰", () => this.showMobileMenu(header, tools, chat), "", { "aria-label": "작업 메뉴" }));
+    this.root.replaceChildren(header, tools, mobileTop, this.workspace);
+    this.renderEditor();
+    this.status();
+    this.jobStatus();
+    this.lockRequestEditors();
   }
   renderEditor() {
     const h = this.h.bind(this), s = this.s;
@@ -436,36 +587,113 @@ export class Workshop {
   }
   renderChat() {
     const h = this.h.bind(this), s = this.s;
-    const panel = h('aside', { class: 'conversation', 'aria-label': 'LLM 제작 대화' });
-    panel.append(h('div', { class: 'chathead row between' }, h('div', {}, h('span', { class: 'eyebrow' }, 'CO-WRITING'), h('h3', { style: 'margin-top:6px' }, '함께 만드는 대화')), this.b('대화 비우기', async () => { if (await this.confirm('제작 대화를 비울까요?', '원고와 수정안은 유지됩니다. 대화 기록만 삭제됩니다.')) { this.s.thread = []; this.touch(false); this.render(); } }, 'ghost small')));
-    const messages = h('div', { class: 'messages', role: 'log', 'aria-label': '제작 대화 기록' }); this.messagesEl = messages;
-    if (!s.thread.length) messages.append(h('div', { class: 'chatempty' }, h('span', { class: 'eyebrow' }, 'LET’S MAKE SOMETHING'), h('h3', { style: 'margin-top:10px' }, '한 가지 아이디어부터 시작하세요.'), h('p', {}, '“이 세계관에 어울리는 인물부터 같이 정해보자.”\n“이 설정의 모순을 찾아줘.”\n“지금 정한 내용을 설명과 로어북으로 제안해줘.”'), h('p', { style: 'margin-top:14px' }, '대화와 수정안은 원고와 구분해 보관합니다.')));
+    const panel = h("aside", { class: "conversation", "aria-label": "LLM 제작 대화" });
+    panel.append(h("div", { class: "chathead row between" }, h("div", {}, h("span", { class: "eyebrow" }, "CO-WRITING"), h("h3", { style: "margin-top:6px" }, "함께 만드는 대화")), this.b("대화 비우기", async () => {
+      if (await this.confirm("제작 대화를 비울까요?", "원고와 수정안은 유지됩니다. 대화 기록만 삭제됩니다.")) {
+        this.s.thread = [];
+        this.touch(false);
+        this.render();
+      }
+    }, "ghost small")));
+    const messages = h("div", { class: "messages", role: "log", "aria-label": "제작 대화 기록" });
+    this.messagesEl = messages;
+    if (!s.thread.length) messages.append(h("div", { class: "chatempty" }, h("span", { class: "eyebrow" }, "LET’S MAKE SOMETHING"), h("h3", { style: "margin-top:10px" }, "한 가지 아이디어부터 시작하세요."), h("p", {}, "“이 세계관에 어울리는 인물부터 같이 정해보자.”\n“이 설정의 모순을 찾아줘.”\n“지금 정한 내용을 설명과 로어북으로 제안해줘.”"), h("p", { style: "margin-top:14px" }, "대화와 수정안은 원고와 구분해 보관합니다.")));
     for (const message of s.thread) {
-      const row = h('article', { class: 'message ' + message.role }, h('span', { class: 'msglabel' }, message.role === 'user' ? 'YOU' : 'WRITING PARTNER'), h('div', { class: 'bubble' + (message.error ? ' error' : '') }, message.content));
-      if (message.raw) row.append(h('details', {}, h('summary', {}, '응답 원문'), h('pre', { class: 'diff' }, message.raw)));
+      const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "YOU" : "WRITING PARTNER"), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
+      if (message.images?.length) {
+        const gallery = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
+        for (const image of message.images) gallery.append(h("img", { src: image.data, alt: image.name, loading: "lazy", style: "width:140px;max-width:100%;height:110px;object-fit:contain" }));
+        row.append(gallery, h("span", { class: "muted" }, "이 요청에 첨부한 이미지 · 이후 요청에는 자동 재전송하지 않습니다."), this.b("이미지 다시 첨부", () => {
+          if (this.job || this.imageLoading) return;
+          const combined = validateRequestImages([...requestImages(this.s, this.task), ...clone(message.images).map((image) => ({ ...image, id: uid() }))]);
+          this.s.requestImages ??= {};
+          this.s.requestImages[this.task] = combined;
+          this.touch(false);
+          this.render();
+        }, "small"));
+      }
+      if (message.raw) row.append(h("details", {}, h("summary", {}, "응답 원문"), h("pre", { class: "diff" }, message.raw)));
       messages.append(row);
     }
-    for (const candidate of s.candidates.filter(c => !c.status)) {
+    for (const candidate of s.candidates.filter((c) => !c.status)) {
       const stale = !this.candidateValid(candidate);
-      const card = h('article', { class: 'candidate' }, h('div', { class: 'row between' }, h('strong', {}, '원고 수정안'), h('span', { class: 'pill' }, stale ? '원고가 변경됨' : '검토 대기')),
-        h('p', { class: 'muted' }, candidate.label), this.diffView(candidate),
-        h('div', { class: 'row' }, this.b('원고에 적용', () => this.applyCandidate(candidate), 'primary small', { disabled: stale, 'data-action': 'apply-candidate' }), this.b('폐기', () => { candidate.status = 'discarded'; this.touch(false); this.render(); }, 'small')),
-        stale ? h('p', { class: 'warn' }, '요청 이후 원고·프롬프트가 바뀌었습니다. 이 제안은 적용할 수 없습니다. 현재 원고로 다시 요청하세요.') : null);
+      const card = h(
+        "article",
+        { class: "candidate" },
+        h("div", { class: "row between" }, h("strong", {}, "원고 수정안"), h("span", { class: "pill" }, stale ? "원고가 변경됨" : "검토 대기")),
+        h("p", { class: "muted" }, candidate.label),
+        this.diffView(candidate),
+        h("div", { class: "row" }, this.b("원고에 적용", () => this.applyCandidate(candidate), "primary small", { disabled: stale, "data-action": "apply-candidate" }), this.b("폐기", () => {
+          candidate.status = "discarded";
+          this.touch(false);
+          this.render();
+        }, "small")),
+        stale ? h("p", { class: "warn" }, "요청 이후 원고·프롬프트가 바뀌었습니다. 이 제안은 적용할 수 없습니다. 현재 원고로 다시 요청하세요.") : null
+      );
       messages.append(card);
     }
-    this.jobEl = h('div', { class: 'jobbar', role: 'status', 'aria-live': 'polite' });
-    this.requestInput = h('textarea', { 'aria-label': 'LLM에게 보낼 요청', placeholder: this.task === 'workshop' ? '아이디어를 이야기하거나, 현재 원고에서 다듬을 부분을 물어보세요.' : TASKS[this.task].label + ' 작성·수정 요청을 적으세요.', value: s.requests[this.task] ?? '' });
-    this.requestInput.addEventListener('input', () => { s.requests[this.task] = this.requestInput.value; this.touch(false); });
-    this.requestInput.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); if (!this.job) this.sendButton.click(); } });
-    const taskSelect = this.select(this.task, Object.entries(TASKS).map(([k, v]) => [k, v.label]), v => { this.task = v; this.render(); }, 'LLM 요청 종류');
-    const model = this.select(this.settings.model, [['submodel', '보조 모델'], ['model', '메인 모델']], async v => { this.settings.model = v; this.touch(false); await this.store('settings', this.settings).catch(error => this.toast(error.message, true)); }, 'LLM 모델');
-    const sendLabel = this.job ? [h('span', { class: 'spinner', 'aria-hidden': 'true' }), '작업 중'] : this.task === 'workshop' ? '함께 구상하기 ↗' : '수정안 요청 ↗';
-    const send = this.b(sendLabel, () => this.sendRequest(), 'primary fill', { disabled: !!this.job, 'data-action': 'send-request' }); this.sendButton = send;
-    const scope = ['lorebook', 'regex'].includes(this.task) && (s.draft[this.task === 'lorebook' ? 'globalLore' : 'customscript'] ?? []).length ? this.check('현재 선택한 항목만 수정', this.scopeOnly, v => { this.scopeOnly = v; }) : null;
-    const composition = this.select(s.preset.mode,[['direct','직접 요청'],['preset','프리셋 요청']],v=>{s.preset.mode=v;this.presetChanged();if(v==='preset'&&!s.preset.preset){s.tab='preset';this.view='editor';}this.render();},'요청 구성');
-    panel.append(messages, h('div', { class: 'composer' }, h('div', { class: 'request-options' }, taskSelect, model, composition), scope, this.requestInput,
-      h('div', { class: 'row' }, send, this.b('프롬프트', () => this.showPrompt(this.task), '', { 'data-action': 'prompt' }), this.job ? this.b('대기 중단', () => this.cancelRequest(), 'danger small', { 'data-action': 'cancel-request' }) : null), this.jobEl, h('p', { class: 'muted' }, 'Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다.')));
-    queueMicrotask(() => { messages.scrollTop = messages.scrollHeight; });
+    this.jobEl = h("div", { class: "jobbar", role: "status", "aria-live": "polite" });
+    this.requestInput = h("textarea", { "aria-label": "LLM에게 보낼 요청", placeholder: this.task === "workshop" ? "아이디어를 이야기하거나, 현재 원고에서 다듬을 부분을 물어보세요." : TASKS[this.task].label + " 작성·수정 요청을 적으세요.", value: s.requests[this.task] ?? "" });
+    this.requestInput.addEventListener("paste", (event) => this.pasteRequestImages(event));
+    this.requestInput.addEventListener("input", () => {
+      s.requests[this.task] = this.requestInput.value;
+      this.fitRequestInput();
+      this.touch(false);
+    });
+    this.requestInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) {
+        event.preventDefault();
+        if (!this.job) this.sendButton.click();
+      }
+    });
+    const taskSelect = this.select(this.task, Object.entries(TASKS).map(([k, v]) => [k, v.label]), (v) => {
+      this.task = v;
+      this.render();
+    }, "LLM 요청 종류");
+    const model = this.select(this.settings.model, [["submodel", "보조 모델"], ["model", "메인 모델"]], async (v) => {
+      this.settings.model = v;
+      this.touch(false);
+      await this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
+    }, "LLM 모델");
+    const mobile = this.doc.defaultView?.matchMedia("(max-width: 840px)").matches;
+    const sendLabel = mobile ? this.job ? "대기 중" : "전송 ↑" : this.job ? [h("span", { class: "spinner", "aria-hidden": "true" }), "작업 중"] : this.task === "workshop" ? "함께 구상하기 ↗" : "수정안 요청 ↗";
+    const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job || !!this.imageLoading, "data-action": "send-request" });
+    this.sendButton = send;
+    const scope = ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? this.check("현재 선택한 항목만 수정", this.scopeOnly, (v) => {
+      this.scopeOnly = v;
+    }) : null;
+    const composition = this.select(s.preset.mode, [["direct", "직접 요청"], ["preset", "프리셋 요청"]], (v) => {
+      s.preset.mode = v;
+      this.presetChanged();
+      if (v === "preset" && !s.preset.preset) {
+        s.tab = "preset";
+        this.view = "editor";
+      }
+      this.render();
+    }, "요청 구성");
+    const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
+    const settingsToggle = this.b("요청 설정 ▾", () => {
+      const open = requestSettings.dataset.open !== "true";
+      requestSettings.dataset.open = String(open);
+      settingsToggle.setAttribute("aria-expanded", String(open));
+      settingsToggle.textContent = open ? "설정 닫기 ▴" : "요청 설정 ▾";
+    }, "request-settings-toggle", { "aria-expanded": "false" });
+    requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
+    panel.append(messages, h(
+      "div",
+      { class: "composer" },
+      requestSettings,
+      this.requestInput,
+      this.requestImageComposer(),
+      h("div", { class: "row composer-actions" }, send, this.b("프롬프트", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("대기 중단", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
+      this.b("대화 비우기", () => panel.querySelector(".chathead button").click(), "ghost small mobile-clear-chat", { "aria-label": "대화 비우기" }),
+      this.jobEl,
+      h("p", { class: "muted" }, "Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다.")
+    ));
+    queueMicrotask(() => {
+      this.fitRequestInput();
+      messages.scrollTop = messages.scrollHeight;
+    });
     return panel;
   }
   candidateValid(c) { return c.sessionId === this.s.sessionId && c.targetId === this.s.targetId && c.revision === this.s.revision && c.promptRevision === this.s.promptRevision; }
@@ -499,18 +727,19 @@ export class Workshop {
     this.toast("수정안을 원고에 적용했습니다. 실제 캐릭터 저장은 별도입니다.");
   }
   requestWithScope(task) {
-    const s = this.s, request = (s.requests[task] ?? "").trim();
+    const s = this.s, request = (s.requests[task] ?? "").trim() || (requestImages(s, task).length ? "첨부한 화면을 확인하고 현재 요청 작업에 맞게 분석해 주세요." : "");
     const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
     if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "현재 편집 항목이 요청에서 제외되어 있습니다. 로어북 탭에서 ‘이번 요청에 포함’을 체크하거나 ‘현재 선택한 항목만 수정’을 해제하세요.");
     return { request, scope, text: request + (scope ? "\n[허용 편집 범위] 기존 항목 " + scope + "만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다." : "") };
   }
-  previewRequest(task=this.task,forcePreset=false) {
-    const usePreset=forcePreset||this.s.preset.mode==='preset';
-    const direct=composeMessages(usePreset?{...this.s,thread:[]}:this.s,task,this.requestWithScope(task).text,this.prompts[task]??defaultPrompt(task));
-    if(usePreset)return assemblePreset(this.s.preset,this.s,task,direct);
-    return {messages:direct,trace:[],issues:[],notes:[],globals:{}};
+  previewRequest(task = this.task, forcePreset = false) {
+    const usePreset = forcePreset || this.s.preset.mode === "preset";
+    const direct = composeMessages(usePreset ? { ...this.s, thread: [] } : this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task));
+    const report = usePreset ? assemblePreset(this.s.preset, this.s, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+    return { ...report, messages: withRequestImages(report.messages, requestImages(this.s, task)) };
   }
   async sendRequest() {
+    assert(!this.imageLoading, "이미지를 읽는 중입니다. 완료 후 전송해 주세요.");
     assert(!this.job, "다른 LLM 요청이 진행 중입니다.");
     const task = this.task, s = this.s, { request, scope } = this.requestWithScope(task);
     assert(request, "LLM에게 전달할 요청을 적어 주세요.");
@@ -521,7 +750,10 @@ export class Workshop {
     const meta = { sessionId: s.sessionId, targetId: s.targetId, revision: s.revision, promptRevision: s.promptRevision };
     const before = clone(s.draft), job = { ...meta, id: uid(), start: Date.now(), label: TASKS[task].label + " · 응답 대기", cancelled: false };
     this.job = job;
-    s.thread.push({ id: uid(), role: "user", content: request, task });
+    const images = requestImages(s, task);
+    s.thread.push({ id: uid(), role: "user", content: request, task, ...images.length ? { images: clone(images) } : {} });
+    s.requests[task] = "";
+    if (s.requestImages) s.requestImages[task] = [];
     this.touch(false);
     this.render();
     let raw;
@@ -529,7 +761,7 @@ export class Workshop {
       raw = await callModel(this.api, messages, this.settings.model, this.settings.timeout, job);
       assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
       const packet = await reviewPacket(parseResponse(raw, task, before, true), before, (item) => {
-        assert(!job.cancelled, '요청을 취소했습니다.');
+        assert(!job.cancelled, "요청을 취소했습니다.");
         return this.chooseTextRange(item);
       });
       assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "검토 중 원고가 변경되었습니다. 최신 원고로 다시 요청하세요.");
@@ -688,10 +920,12 @@ export class Workshop {
     try {
       let saved;
       if (captured.targetId) {
-        const result = await saveExisting(this.api, captured);
+        let result = await saveExisting(this.api, captured);
         if (result.conflicts.length) {
-          await this.dialog("다른 곳에서 수정한 내용과 충돌합니다", (body) => body.append(this.h("p", { class: "warn" }, result.conflicts.join(", ")), this.h("p", { class: "muted" }, "저장하지 않았습니다. 최신 캐릭터를 새로 불러오거나, 현재안을 charx로 내보내 비교해 주세요.")));
-          return;
+          const choices = await this.reviewSaveConflicts(captured, result);
+          if (!choices) return;
+          assert(this.s.sessionId === captured.sessionId && this.s.revision === revision, "검토 중 봇빌더 원고가 바뀌었습니다. 다시 저장해 주세요.");
+          result = await saveExisting(this.api, captured, { current: result.current, choices });
         }
         saved = result.saved;
       } else saved = await saveNew(this.api, captured);
@@ -735,13 +969,30 @@ export class Workshop {
     } finally { this.ioBusy = false; }
   }
   async downloadCharx() {
-    assert(!this.ioBusy, '다른 파일·저장 작업이 진행 중입니다.'); this.ioBusy = true;
+    assert(!this.ioBusy, "다른 파일·저장 작업이 진행 중입니다.");
+    this.ioBusy = true;
     const char = clone(this.s.draft), meta = clone(this.s.cardMeta);
     try {
-      const data = await exportCharx(this.api, char, meta), url = URL.createObjectURL(new Blob([data], { type: 'application/zip' }));
-      const a = this.h('a', { href: url, download: (char.name || 'character').replace(/[<>:"/\\|?*]/g, '_') + '.charx' });
-      this.doc.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); this.toast('charx 다운로드를 요청했습니다.');
-    } finally { this.ioBusy = false; }
+      const notices = [];
+      const data = await exportCharx(this.api, char, meta, notices), url = URL.createObjectURL(new Blob([data], { type: "application/zip" }));
+      const a = this.h("a", { href: url, download: (char.name || "character").replace(/[<>:"/\\|?*]/g, "_") + ".charx" });
+      this.doc.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 6e4);
+      if (notices.length) {
+        await this.dialog("CHARX 다운로드 · 에셋 참조 안내", (body) => body.append(this.h(
+          "p",
+          { style: "white-space:pre-wrap;line-height:1.8" },
+          `리스 본체와 같은 방식으로 ${notices.length}개 에셋의 URI를 그대로 보존했습니다. 이 항목의 파일을 새로 포함하거나 외부에서 다운로드하지 않았습니다.
+
+` + notices.map((n) => `${n.name} (${n.type}): ${n.kind === "unresolved-embedded" ? "원본 내장 파일을 확보하지 못함 · 이미지 표시 보장 불가" : "원래 참조 유지"}`).join("\n")
+        )));
+      }
+      this.toast("charx 다운로드를 요청했습니다.");
+    } finally {
+      this.ioBusy = false;
+    }
   }
   confirm(title, text) { return this.dialog(title, body => body.append(this.h('p', { style: 'white-space:pre-wrap;line-height:1.8' }, text)), [{ label: '취소', value: false }, { label: '확인', value: true, kind: 'primary' }]); }
   dialog(title, populate, actions = [{ label: '닫기', value: null }]) {

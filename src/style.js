@@ -263,6 +263,46 @@ details[open] > summary { margin-bottom: 9px; }
   .composer > .muted:last-child { display: none; }
   .jobbar { min-height: 20px; }
 }
+.mobile-top, .request-settings-toggle, .mobile-prompt, .mobile-clear-chat { display: none; }
+.request-settings-body { display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 840px) {
+  #story-workshop { inset: auto 0 auto; top: var(--workshop-vtop, 0px); height: var(--workshop-vheight, 100dvh); grid-template-rows: auto minmax(0, 1fr); }
+  .topbar, .toolbar, .chathead { display: none; }
+  .mobile-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 10px; background: var(--paper); border-bottom: 1px solid var(--line); }
+  .mobile-top .document-name { flex: 1; font-size: 13px; }
+  .mobile-top button { min-height: 40px; padding: 6px 9px; font-size: 12px; flex-shrink: 0; }
+  .mobile-top button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
+  .workspace { grid-row: 2; }
+  .messages { padding: 14px 12px; gap: 14px; }
+  .composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: 'previews previews previews' 'input input input' 'attach options send' 'clear clear clear' 'status status status'; gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); flex: 0 0 auto; max-height: 48%; }
+  .composer > textarea { grid-area: input; width: 100%; min-height: 52px; max-height: 122px; height: 52px; font-size: 16px; line-height: 22px; padding: 4px 9px; resize: none; }
+  .mobile-prompt { display: block; }
+  .request-settings { grid-area: options; min-width: 0; }
+  .request-settings-toggle { display: block; width: 100%; min-height: 40px; padding: 6px; font-size: 12px; }
+  .request-settings-body { display: none; }
+  .request-settings[data-open=true] .request-settings-body { display: flex; position: fixed; z-index: 12; bottom: calc(100% - var(--workshop-vheight, 100dvh) - var(--workshop-vtop, 0px) + 150px); left: 10px; right: 10px; max-height: 40dvh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 5px 30px #0005; }
+  .request-options { grid-template-columns: minmax(0,1fr); }
+  .request-options select { min-height: 40px; font-size: 16px; }
+  .request-images { display: contents; }
+  .request-images > button { grid-area: attach; min-height: 40px; padding: 6px 10px; font-size: 12px; }
+  .request-images > .muted { display: none; }
+  .request-previews { grid-area: previews; flex-wrap: nowrap !important; overflow-x: auto; max-height: 120px; }
+  .request-previews:empty { display: none !important; }
+  .request-previews .card { width: 90px !important; flex-shrink: 0; padding: 4px; }
+  .request-previews img { height: 48px !important; }
+  .request-previews span { display: none; }
+  .request-previews button { min-height: 32px; padding: 2px 6px; font-size: 11px; }
+  .composer-actions { display: contents; }
+  .composer-actions > button { display: none; }
+  .composer-actions > [data-action=send-request] { display: block; grid-area: send; min-height: 40px; padding: 6px 14px; }
+  .mobile-clear-chat { display: block; grid-area: clear; justify-self: end; min-height: 36px; padding: 4px 8px; font-size: 12px; }
+  .composer > .muted { display: none; }
+  .composer .jobbar { grid-area: status; min-height: 0; font-size: 11px; }
+  #story-workshop[aria-busy=false] .composer .jobbar { display: none; }
+  .mobile-menu-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mobile-menu-list button { min-height: 46px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation-duration: 2s; }
   * { scroll-behavior: auto !important; transition: none !important; }
