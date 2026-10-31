@@ -76,7 +76,7 @@ export class Workshop {
       input.value = "";
       this.addRequestImages(files).catch((error) => this.toast(error.message, true));
     });
-    host.append(input, this.b(this.imageLoading ? "읽는 중…" : this.doc.defaultView?.matchMedia("(max-width: 840px)").matches ? "＋ 이미지" : "＋ 이미지 첨부", () => input.click(), "small", { disabled: !!this.job || !!this.imageLoading }), h("p", { class: "muted" }, "캡처 이미지를 첨부하거나 입력창에 붙여넣으세요. PNG·JPG·WEBP, 최대 4장 / 장당 5MiB / 합계 12MiB. 이미지 지원 모델이 필요합니다."));
+    host.append(input, this.b(this.imageLoading ? "읽는 중…" : this.doc.defaultView?.matchMedia("(max-width: 840px)").matches ? "＋ 이미지" : "＋ 이미지 첨부", () => input.click(), "small", { disabled: !!this.job || !!this.imageLoading, title: "캡처 이미지를 첨부하거나 입력창에 붙여넣으세요. PNG·JPG·WEBP, 최대 4장 / 장당 5MiB / 합계 12MiB. 이미지 지원 모델이 필요합니다." }));
     const previews = h("div", { class: "request-previews", style: "display:flex;gap:8px;flex-wrap:wrap;min-width:0" });
     for (const image of requestImages(session, task)) previews.append(h("div", { class: "card stack", style: "width:150px;max-width:100%;gap:6px" }, h("img", { src: image.data, alt: image.name, style: "width:100%;height:110px;object-fit:contain" }), h("span", { style: "overflow-wrap:anywhere" }, image.name), this.b("첨부 삭제", () => {
       if (this.job || this.imageLoading) return;
@@ -657,7 +657,7 @@ export class Workshop {
     }, "LLM 모델");
     const mobile = this.doc.defaultView?.matchMedia("(max-width: 840px)").matches;
     const sendLabel = mobile ? this.job ? "대기 중" : "전송 ↑" : this.job ? [h("span", { class: "spinner", "aria-hidden": "true" }), "작업 중"] : this.task === "workshop" ? "함께 구상하기 ↗" : "수정안 요청 ↗";
-    const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job || !!this.imageLoading, "data-action": "send-request" });
+    const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job || !!this.imageLoading, "data-action": "send-request", title: "Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다." });
     this.sendButton = send;
     const scope = ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? this.check("현재 선택한 항목만 수정", this.scopeOnly, (v) => {
       this.scopeOnly = v;
@@ -687,8 +687,7 @@ export class Workshop {
       this.requestImageComposer(),
       h("div", { class: "row composer-actions" }, send, this.b("프롬프트", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("대기 중단", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
       this.b("대화 비우기", () => panel.querySelector(".chathead button").click(), "ghost small mobile-clear-chat", { "aria-label": "대화 비우기" }),
-      this.jobEl,
-      h("p", { class: "muted" }, "Ctrl + Enter 전송 · 생성 결과는 검토 후 원고에 적용됩니다.")
+      this.jobEl
     ));
     queueMicrotask(() => {
       this.fitRequestInput();

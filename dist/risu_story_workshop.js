@@ -1,9 +1,10 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 0.4.15
+//@version 0.4.16
 
 /*
+Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
 Modified 2026-10-31: v0.4.15 synchronizes the mobile build to source, including request images, mobile layout, save-conflict review, JSON guidance, lore defaults and CHARX asset URI retention.
 Modified 2026-10-30: v0.4.9 adds compact mobile navigation, task menu, collapsible request settings and keyboard-aware conversation sizing.
 Modified 2026-10-30: v0.4.8 adds request image attachments, clipboard image paste, previews and native RisuAI multimodal transport.
@@ -9907,7 +9908,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "0.4.15";
+  var VERSION = "0.4.16";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -14802,7 +14803,7 @@ details[open] > summary { margin-bottom: 9px; }
         input.value = "";
         this.addRequestImages(files).catch((error) => this.toast(error.message, true));
       });
-      host.append(input, this.b(this.imageLoading ? "\uC77D\uB294 \uC911\u2026" : this.doc.defaultView?.matchMedia("(max-width: 840px)").matches ? "\uFF0B \uC774\uBBF8\uC9C0" : "\uFF0B \uC774\uBBF8\uC9C0 \uCCA8\uBD80", () => input.click(), "small", { disabled: !!this.job || !!this.imageLoading }), h("p", { class: "muted" }, "\uCEA1\uCC98 \uC774\uBBF8\uC9C0\uB97C \uCCA8\uBD80\uD558\uAC70\uB098 \uC785\uB825\uCC3D\uC5D0 \uBD99\uC5EC\uB123\uC73C\uC138\uC694. PNG\xB7JPG\xB7WEBP, \uCD5C\uB300 4\uC7A5 / \uC7A5\uB2F9 5MiB / \uD569\uACC4 12MiB. \uC774\uBBF8\uC9C0 \uC9C0\uC6D0 \uBAA8\uB378\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."));
+      host.append(input, this.b(this.imageLoading ? "\uC77D\uB294 \uC911\u2026" : this.doc.defaultView?.matchMedia("(max-width: 840px)").matches ? "\uFF0B \uC774\uBBF8\uC9C0" : "\uFF0B \uC774\uBBF8\uC9C0 \uCCA8\uBD80", () => input.click(), "small", { disabled: !!this.job || !!this.imageLoading, title: "\uCEA1\uCC98 \uC774\uBBF8\uC9C0\uB97C \uCCA8\uBD80\uD558\uAC70\uB098 \uC785\uB825\uCC3D\uC5D0 \uBD99\uC5EC\uB123\uC73C\uC138\uC694. PNG\xB7JPG\xB7WEBP, \uCD5C\uB300 4\uC7A5 / \uC7A5\uB2F9 5MiB / \uD569\uACC4 12MiB. \uC774\uBBF8\uC9C0 \uC9C0\uC6D0 \uBAA8\uB378\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." }));
       const previews = h("div", { class: "request-previews", style: "display:flex;gap:8px;flex-wrap:wrap;min-width:0" });
       for (const image of requestImages(session, task)) previews.append(h("div", { class: "card stack", style: "width:150px;max-width:100%;gap:6px" }, h("img", { src: image.data, alt: image.name, style: "width:100%;height:110px;object-fit:contain" }), h("span", { style: "overflow-wrap:anywhere" }, image.name), this.b("\uCCA8\uBD80 \uC0AD\uC81C", () => {
         if (this.job || this.imageLoading) return;
@@ -15549,7 +15550,7 @@ details[open] > summary { margin-bottom: 9px; }
       }, "LLM \uBAA8\uB378");
       const mobile = this.doc.defaultView?.matchMedia("(max-width: 840px)").matches;
       const sendLabel = mobile ? this.job ? "\uB300\uAE30 \uC911" : "\uC804\uC1A1 \u2191" : this.job ? [h("span", { class: "spinner", "aria-hidden": "true" }), "\uC791\uC5C5 \uC911"] : this.task === "workshop" ? "\uD568\uAED8 \uAD6C\uC0C1\uD558\uAE30 \u2197" : "\uC218\uC815\uC548 \uC694\uCCAD \u2197";
-      const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job || !!this.imageLoading, "data-action": "send-request" });
+      const send = this.b(sendLabel, () => this.sendRequest(), "primary fill", { disabled: !!this.job || !!this.imageLoading, "data-action": "send-request", title: "Ctrl + Enter \uC804\uC1A1 \xB7 \uC0DD\uC131 \uACB0\uACFC\uB294 \uAC80\uD1A0 \uD6C4 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uB429\uB2C8\uB2E4." });
       this.sendButton = send;
       const scope = ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? this.check("\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815", this.scopeOnly, (v) => {
         this.scopeOnly = v;
@@ -15579,8 +15580,7 @@ details[open] > summary { margin-bottom: 9px; }
         this.requestImageComposer(),
         h("div", { class: "row composer-actions" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
         this.b("\uB300\uD654 \uBE44\uC6B0\uAE30", () => panel.querySelector(".chathead button").click(), "ghost small mobile-clear-chat", { "aria-label": "\uB300\uD654 \uBE44\uC6B0\uAE30" }),
-        this.jobEl,
-        h("p", { class: "muted" }, "Ctrl + Enter \uC804\uC1A1 \xB7 \uC0DD\uC131 \uACB0\uACFC\uB294 \uAC80\uD1A0 \uD6C4 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uB429\uB2C8\uB2E4.")
+        this.jobEl
       ));
       queueMicrotask(() => {
         this.fitRequestInput();

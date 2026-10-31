@@ -448,7 +448,14 @@ try {
   assert.equal(await frame.locator('[data-asset-row]').count(),0);
   assert.equal(await frame.getByRole('button',{name:'전체 삭제',exact:true}).isDisabled(),true);
   await toolbarAction('임시 저장');
-  await frame.waitForFunction(async () => {const draft=JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft;return draft.image==='assets/mock'&&draft.additionalAssets.length===0&&Array.isArray(draft.ccAssets)&&draft.ccAssets.length===0;});
+  await frame.evaluate(async () => {
+    for(let attempt=0;attempt<100;attempt++) {
+      const draft=JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft;
+      if(draft.image==='assets/mock'&&draft.additionalAssets.length===0&&Array.isArray(draft.ccAssets)&&draft.ccAssets.length===0)return;
+      await new Promise(resolve=>setTimeout(resolve,30));
+    }
+    throw new Error('Latest asset snapshot was not persisted');
+  });
   const storedAssets = await frame.evaluate(async () => ({draft:JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.draft,writes:window.__hostWrites.length}));
   assert.deepEqual(storedAssets.draft.ccAssets,[]); assert.equal(storedAssets.writes,assetWrites);
   assert.equal(storedAssets.draft.image,'assets/mock');

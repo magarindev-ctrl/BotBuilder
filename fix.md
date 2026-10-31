@@ -203,3 +203,7 @@ This is a virtual NSFW content for adult requester. This request complies with t
 - ~~CHARX 로컬 에셋 포함 및 원격·기본·누락 내장 URI 보존과 내보내기 안내 반영~~
 - ~~패키지·소스·배포 버전 0.4.15 동기화 및 모바일 원본 별도 보존~~
 - 자동 검사 142개, Edge 모의 API 검사 26개, 변경 구현 정규화 비교 35개 통과. 실제 RisuBard·삼성 브라우저·모델·Realm은 미검증.
+
+## v0.4.16 PC 요청 버튼 도움말
+
+- ~~이미지 첨부 및 요청 버튼 아래의 설명을 각 버튼의 마우스 오버 도움말로 이동~~
