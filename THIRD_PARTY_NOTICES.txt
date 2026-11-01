@@ -1,3 +1,4 @@
+Modified 2026-11-01: v1.0.0 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode.
 Modified 2026-10-31: v1.0.0 adds the GitHub Raw update URL for native RisuAI/RisuBard plugin updates; version unchanged.
 Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.

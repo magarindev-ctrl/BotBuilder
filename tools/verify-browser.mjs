@@ -163,7 +163,7 @@ try {
   await frame.getByText('2개 매칭', { exact: false }).waitFor(); assert.equal(await frame.locator('.testresult b').count(), 0);
   results.push({ name: 'RE2JS executes under CSP and displays HTML as text', passed: true });
   await page.locator('#plugin').screenshot({ path: 'artifacts/workshop-regex.png', animations: 'disabled' });
-  await frame.locator('.navitem').filter({hasText:'프롬프트 프리셋'}).click();
+  await frame.locator('.navitem[data-tab="preset"]').click();
   console.log('Checking binary preset import');
   const chooserPromise=page.waitForEvent('filechooser');
   await frame.locator('[data-action="import-preset"]').click();
@@ -228,6 +228,8 @@ try {
   await frame.waitForFunction(()=>window.__calls.length===4&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.role==='user'&&m.cachePoint===true)));
   assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.content.includes('(What Cattleya have to respond!)'))));
+  // Error toasts persist until closed; the harness dismisses it like a user would.
+  if (await frame.locator('.toast.bad').count()) await frame.locator('.toast.bad .toast-close').click();
   await frame.locator('.toast.bad').waitFor({state:'hidden'});
   await page.locator('#plugin').screenshot({path:'artifacts/workshop-cbs-compat.png',animations:'disabled'});
   await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
