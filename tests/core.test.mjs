@@ -80,7 +80,7 @@ test('task-specific output examples validate and distinguish dialogue from expli
   for(const task of Object.keys(TASKS)) {
     const examples=responseExamples(task);for(const example of examples)assert.deepEqual(parseResponse(JSON.stringify(example),task,blankCharacter()),example);
     const messages=composeMessages(newSession(),task,'이번 요청',defaultPrompt(task));
-    assert.match(messages[1].content,/올바른 출력 예시/);assert.match(messages[1].content,/잘못된 출력 예시/);assert.match(messages[1].content,/## OOC Response/);
+    assert.match(messages[1].content,/올바른 출력 예시/);assert.match(messages[1].content,/잘못된 출력 예시/);assert.doesNotMatch(messages[1].content,/## OOC Response/);
   }
   assert.deepEqual(responseExamples('workshop')[0].data.changes,[]);assert.equal(responseExamples('workshop')[1].data.changes[0].task,'description');
 });
@@ -226,4 +226,27 @@ test('default prompts carry the output-length rules', () => {
   assert.match(prompt.system, /edits 부분편집으로만/);
   assert.match(prompt.system, /긴 본문이 필요한 작업은 한 응답의 changes에 하나만/);
   assert.match(defaultPrompt('greeting').system, /출력 길이 규칙/);
+});
+
+test('a nested object or a number as a Lua variable value is rejected with a one-line-string message, alone and inside workshop', () => {
+  const c = blankCharacter();
+  const lua = value => JSON.stringify({ schemaVersion: 2, task: 'lua', data: { scripts: [], removeScripts: [], variables: { partners: value }, removeVariables: [] } });
+  assert.throws(() => parseResponse(lua({ slot1: [{ name: '윤서아', status: '| 가치:4900G | 배치:휴식' }] }), 'lua', c), /변수 partners: 값은 한 줄 문자열이어야 합니다/);
+  assert.throws(() => parseResponse(lua(['윤서아']), 'lua', c), /변수 partners: 값은 한 줄 문자열이어야 합니다/);
+  assert.throws(() => parseResponse(lua(4900), 'lua', c), /변수 partners: 값은 한 줄 문자열이어야 합니다/);
+  const workshop = JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '파트너 설정', changes: [{ task: 'lua', data: { scripts: [{ ref: null, comment: '파트너', code: 'function onStart(accessKey) end' }], removeScripts: [], variables: { partners: { slot1: [{ status: '배치:휴식' }] } }, removeVariables: [] } }] } });
+  assert.throws(() => parseResponse('## OOC Response\n' + workshop, 'workshop', c), /변수 partners: 값은 한 줄 문자열이어야 합니다/);
+  assert.equal(parseResponse(lua('윤서아 | 가치:4900G | 배치:휴식'), 'lua', c).data.variables.partners, '윤서아 | 가치:4900G | 배치:휴식');
+  c.defaultVariables = 'partners=윤서아';
+  const edited = parseResponse(lua({ edits: [{ before: '윤서아', after: '윤서아 | 배치:휴식' }] }), 'lua', c);
+  assert.equal(applyPacket(c, edited).defaultVariables, 'partners=윤서아 | 배치:휴식');
+});
+
+test('the prompt forbids structured variable values and no longer quotes an OOC heading literally', () => {
+  for (const task of ['lua', 'choiceGreeting', 'workshop']) {
+    const text = composeMessages(newSession(), task, '요청', defaultPrompt(task)).map(m => m.content).join('\n');
+    assert.match(text, /변수 값에 객체·배열을 넣지 마라/);
+    assert.doesNotMatch(text, /OOC Response/);
+    assert.match(text, /잘못된 출력 예시/);
+  }
 });

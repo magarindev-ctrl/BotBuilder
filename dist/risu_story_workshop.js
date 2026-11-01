@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.0
+//@version 1.1.1
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.1 rejects an object, array or number as a Lua variable value with a clear one-line-string message (previously misreported as a text-edit shape), adds the rule to the prompt, and stops quoting the forbidden "## OOC Response" heading literally in the invalid-output example.
 Modified 2026-11-02: v1.1.0 adds chunked work: responses may carry a top-level "plan" of remaining parts, 봇빌더 continues the chain automatically on a staged copy of the draft (default budget about 5,000 output tokens per response, at most 8 parts), retries a truncated answer once with a smaller first part, and presents the parts as one multi-part proposal reviewed and applied once. Settings: 긴 응답 나눠 받기, 응답당 출력 예산, 최대 구간 수.
 Modified 2026-11-02: v1.0.4 adds DA Interop v1 (src/interop.js) so Dusk Atelier can open 봇빌더 and read the current draft through pluginStorage; read-only toward the draft, no existing behavior changed. The bundle must contain the marker /*__DA_WORKSHOP_INTEROP__* /.
 Modified 2026-11-01: v1.0.3 reports a response cut off mid-stream (unclosed JSON) with the received length and likely causes, adds output-length rules to the default prompts (partial edits for long existing text, one long body per response), and asks mobile users to keep the screen on while a request runs.
@@ -9917,7 +9918,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.0";
+  var VERSION = "1.1.1";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10068,9 +10069,9 @@ Public License instead of this License.  But first, please read
     description: { label: "\uCE90\uB9AD\uD130 \uC124\uBA85", format: { text: "\uC644\uC131\uB41C \uC124\uBA85 \uBCF8\uBB38" }, instruction: "\uC694\uCCAD\uD55C \uC131\uACA9\xB7\uBC30\uACBD\xB7\uB9D0\uD22C\xB7\uAD00\uACC4\xB7\uD589\uB3D9 \uD2B9\uC131\uC744 \uCE90\uB9AD\uD130 \uC124\uBA85\uC73C\uB85C \uC791\uC131\uD558\uAC70\uB098 \uC218\uC815\uD558\uB77C. \uC2DC\uBBAC\uB808\uC774\uC158\uC758 \uC124\uBA85\uC5D0\uB294 \uC138\uACC4 \uADDC\uCE59\uACFC \uC9C4\uD589 \uBC29\uC2DD\uB3C4 \uD3EC\uD568\uD558\uB77C. \uC0C8 \uC791\uC131\xB7\uBA85\uC2DC\uC801 \uC804\uCCB4 \uC7AC\uC791\uC131\uC740 data.text \uBB38\uC790\uC5F4, \uAE30\uC874 \uAD6C\uAC04 \uC218\uC815\uC740 data.text.edits\uC758 before/after\uB85C \uBC18\uD658\uD558\uB77C." },
     lorebook: { label: "\uB85C\uC5B4\uBD81", format: { upsert: [{ ref: null, entry: { comment: "\uC81C\uBAA9", key: "\uD0A4\uC6CC\uB4DC", content: "\uB0B4\uC6A9" } }], remove: [] }, instruction: "\uD0A4\uC6CC\uB4DC\xB7\uBCF8\uBB38\xB7\uD65C\uC131\uD654 \uC870\uAC74\uC774 \uC77C\uCE58\uD558\uB294 \uB85C\uC5B4\uBD81\uC744 \uC791\uC131\uD558\uB77C. \uAE30\uC874 \uD56D\uBAA9\uC740 \uC81C\uACF5\uB41C ref\uB85C \uC2DD\uBCC4\uD558\uACE0 \uC218\uC815\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9\uACFC \uC124\uC815\uC744 \uC720\uC9C0\uD558\uB77C." },
     regex: { label: "\uC815\uADDC\uC2DD \xB7 HTML/CSS", format: { upsert: [{ ref: null, rule: { comment: "\uC774\uB984", in: "\uD328\uD134", out: "\uCE58\uD658\uBB38", type: "editdisplay", flag: "g", ableFlag: true } }], remove: [] }, instruction: "IN \uD328\uD134\uACFC OUT\uC758 \uCEA1\uCC98 \uCC38\uC870\xB7HTML/CSS\uB97C \uC77C\uCE58\uC2DC\uCF1C\uB77C. RisuAI \uC801\uC6A9 \uC720\uD615\uC740 editinput/editoutput/editprocess/editdisplay\uB2E4. \uC0DD\uC131 HTML\uC740 \uD14D\uC2A4\uD2B8 \uC6D0\uACE0\uB85C\uB9CC \uAC80\uD1A0\uB41C\uB2E4. \uAE30\uC874 \uADDC\uCE59\uC758 ref\xB7\uD50C\uB798\uADF8\xB7\uC720\uD615\uC740 \uC694\uCCAD\uC5D0 \uB9DE\uCDB0 \uBCF4\uC874\uD558\uB77C." },
-    lua: { label: "Lua \xB7 \uBCC0\uC218", format: { scripts: [{ ref: null, comment: "\uC124\uBA85", code: "-- Lua" }], removeScripts: [], variables: {}, removeVariables: [] }, instruction: "RisuAI Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\uD558\uB77C. \uD655\uC778\uB41C onInput/onOutput/onStart/onButtonClick(accessKey, buttonKey), getChatVar(accessKey,key), setChatVar(accessKey,key,value)\uB97C \uC0AC\uC6A9\uD558\uB77C. \uCD08\uAE30 \uBCC0\uC218\uB294 key=value \uBB38\uC790\uC5F4\uC774\uBA70 \uAC12\uC5D0 \uB4F1\uD638\xB7\uC904\uBC14\uAFC8\uC744 \uB123\uC9C0 \uB9C8\uB77C. \uAE30\uC874 \uC774\uBCA4\uD2B8\xB7\uB2E4\uB978 \uD6A8\uACFC\uB97C \uC720\uC9C0\uD558\uB77C." },
+    lua: { label: "Lua \xB7 \uBCC0\uC218", format: { scripts: [{ ref: null, comment: "\uC124\uBA85", code: "-- Lua" }], removeScripts: [], variables: {}, removeVariables: [] }, instruction: "RisuAI Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\uD558\uB77C. \uD655\uC778\uB41C onInput/onOutput/onStart/onButtonClick(accessKey, buttonKey), getChatVar(accessKey,key), setChatVar(accessKey,key,value)\uB97C \uC0AC\uC6A9\uD558\uB77C. \uCD08\uAE30 \uBCC0\uC218\uB294 key=value \uBB38\uC790\uC5F4\uC774\uBA70 \uAC12\uC5D0 \uB4F1\uD638\xB7\uC904\uBC14\uAFC8\uC744 \uB123\uC9C0 \uB9C8\uB77C. \uBCC0\uC218 \uAC12\uC5D0 \uAC1D\uCCB4\xB7\uBC30\uC5F4\uC744 \uB123\uC9C0 \uB9C8\uB77C. \uC2AC\uB86F\xB7\uBAA9\uB85D\uCC98\uB7FC \uC5EC\uB7EC \uAC12\uC774 \uD544\uC694\uD558\uBA74 partner1_name, partner1_state\uCC98\uB7FC \uBCC0\uC218\uB97C \uB098\uB220\uB77C. \uAE30\uC874 \uC774\uBCA4\uD2B8\xB7\uB2E4\uB978 \uD6A8\uACFC\uB97C \uC720\uC9C0\uD558\uB77C." },
     greeting: { label: "\uCCAB \uBA54\uC2DC\uC9C0", format: { text: "\uC2DC\uC791 \uC7A5\uBA74" }, instruction: "\uC81C\uACF5\uB41C \uC124\uBA85\uACFC \uB85C\uC5B4\uBD81\uC744 \uCC38\uACE0\uD574 \uCE90\uB9AD\uD130\xB7\uC138\uACC4\uAD00\uACFC \uC77C\uAD00\uB41C \uC2DC\uC791 \uC7A5\uBA74\uC744 \uC791\uC131\uD558\uB77C. \uC0C8 \uC791\uC131\uC740 data.text \uBB38\uC790\uC5F4, \uAE30\uC874 \uAD6C\uAC04 \uC218\uC815\uC740 data.text.edits\uC758 before/after\uB85C \uBC18\uD658\uD558\uB77C." },
-    choiceGreeting: { label: "\uC2DC\uC791 \uC0C1\uD669 \uC120\uD0DD", format: { text: '<button risu-btn="scene_a">\uC2DC\uC791</button>\n{{#if {{equal::{{getvar::scene}}::a}}}}\uC120\uD0DD\uD55C \uC7A5\uBA74{{/if}}', choices: [{ id: "scene_a", label: "\uC2DC\uC791", content: "\uC120\uD0DD\uD55C \uC7A5\uBA74" }], scripts: [{ ref: null, comment: "\uC2DC\uC791 \uC0C1\uD669", code: 'function onButtonClick(accessKey, buttonKey)\n  if buttonKey == "scene_a" then\n    setChatVar(accessKey, "scene", "a")\n  end\nend' }], variables: { scene: "none" }, regex: [] }, instruction: "\uD37C\uC2A4\uD2B8 \uBA54\uC2DC\uC9C0, \uC0C1\uD669 \uBAA9\uB85D, \uBCC0\uC218, Lua, \uD544\uC694\uD55C \uC815\uADDC\uC2DD\uC744 \uD558\uB098\uC758 \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD558\uB77C. HTML button\uC758 risu-btn \uAC12\uACFC onButtonClick\uC758 buttonKey \uBD84\uAE30\uB97C \uC77C\uCE58\uC2DC\uCF1C\uB77C. \uC0C1\uD669 \uBCF8\uBB38\uC774 \uC120\uD0DD \uD6C4 \uBCF4\uC774\uB3C4\uB85D \uCCAB \uBA54\uC2DC\uC9C0\uC5D0\uC11C {{#if {{equal::{{getvar::scene}}::a}}}}...{{/if}} \uAC19\uC740 CBS \uB610\uB294 \uC81C\uACF5\uB41C \uCF54\uB4DC \uACBD\uB85C\uB85C \uC5F0\uACB0\uD558\uB77C. choices\uC758 content\uB97C \uBAA9\uB85D\uC5D0\uB9CC \uC801\uACE0 \uC2E4\uC81C \uD45C\uC2DC\uC5D0\uC11C \uB204\uB77D\uD558\uC9C0 \uB9C8\uB77C. risu-trigger\uC640 \uD63C\uC6A9\uD558\uC9C0 \uB9C8\uB77C." }
+    choiceGreeting: { label: "\uC2DC\uC791 \uC0C1\uD669 \uC120\uD0DD", format: { text: '<button risu-btn="scene_a">\uC2DC\uC791</button>\n{{#if {{equal::{{getvar::scene}}::a}}}}\uC120\uD0DD\uD55C \uC7A5\uBA74{{/if}}', choices: [{ id: "scene_a", label: "\uC2DC\uC791", content: "\uC120\uD0DD\uD55C \uC7A5\uBA74" }], scripts: [{ ref: null, comment: "\uC2DC\uC791 \uC0C1\uD669", code: 'function onButtonClick(accessKey, buttonKey)\n  if buttonKey == "scene_a" then\n    setChatVar(accessKey, "scene", "a")\n  end\nend' }], variables: { scene: "none" }, regex: [] }, instruction: "\uD37C\uC2A4\uD2B8 \uBA54\uC2DC\uC9C0, \uC0C1\uD669 \uBAA9\uB85D, \uBCC0\uC218, Lua, \uD544\uC694\uD55C \uC815\uADDC\uC2DD\uC744 \uD558\uB098\uC758 \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD558\uB77C. HTML button\uC758 risu-btn \uAC12\uACFC onButtonClick\uC758 buttonKey \uBD84\uAE30\uB97C \uC77C\uCE58\uC2DC\uCF1C\uB77C. \uC0C1\uD669 \uBCF8\uBB38\uC774 \uC120\uD0DD \uD6C4 \uBCF4\uC774\uB3C4\uB85D \uCCAB \uBA54\uC2DC\uC9C0\uC5D0\uC11C {{#if {{equal::{{getvar::scene}}::a}}}}...{{/if}} \uAC19\uC740 CBS \uB610\uB294 \uC81C\uACF5\uB41C \uCF54\uB4DC \uACBD\uB85C\uB85C \uC5F0\uACB0\uD558\uB77C. choices\uC758 content\uB97C \uBAA9\uB85D\uC5D0\uB9CC \uC801\uACE0 \uC2E4\uC81C \uD45C\uC2DC\uC5D0\uC11C \uB204\uB77D\uD558\uC9C0 \uB9C8\uB77C. risu-trigger\uC640 \uD63C\uC6A9\uD558\uC9C0 \uB9C8\uB77C. \uBCC0\uC218 \uAC12\uC740 \uAC1D\uCCB4\xB7\uBC30\uC5F4\uC774 \uC544\uB2CC \uD55C \uC904 \uBB38\uC790\uC5F4\uC774\uB2E4." }
   };
   var COMMON = `\uB108\uB294 RisuAI\xB7RisuBard\uC758 \uCE90\uB9AD\uD130\uC640 \uC2DC\uBBAC\uB808\uC774\uC158 \uC81C\uC791\uC744 \uB3D5\uB294 \uACF5\uB3D9 \uC791\uC131\uC790\uB2E4.
 \uC774 \uC791\uC5C5\uC740 \uD5C8\uAD6C\uC758 \uC138\uACC4\uC640 \uC778\uBB3C\uC744 \uB9CC\uB4DC\uB294 \uCC3D\uC791 \uD504\uB85C\uC81D\uD2B8\uB2E4. \uC791\uD488 \uC18D \uC0AC\uAC74\uACFC \uD604\uC2E4\uC758 \uC0AC\uC2E4\uC744 \uAD6C\uBD84\uD558\uB77C.
@@ -10128,7 +10129,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
     const format = { schemaVersion: 2, task, data: TASKS[task].format };
     const examples = responseExamples(task);
     const guide = examples.map((example, i) => "[\uC62C\uBC14\uB978 \uCD9C\uB825 \uC608\uC2DC " + (i + 1) + " \u2014 \uC0C8 \uC791\uC131\xB7\uBA85\uC2DC\uC801 \uC804\uCCB4 \uC7AC\uC791\uC131 \uB610\uB294 \uB300\uD654]\n" + JSON.stringify(example, null, 2)).join("\n\n");
-    const invalid = "\n\n[\uC798\uBABB\uB41C \uCD9C\uB825 \uC608\uC2DC \u2014 JSON \uBC16 \uC81C\uBAA9\xB7\uC124\uBA85\uC744 \uBD99\uC774\uC9C0 \uB9C8\uB77C]\n## OOC Response\n" + JSON.stringify(examples[0]);
+    const invalid = "\n\n[\uC798\uBABB\uB41C \uCD9C\uB825 \uC608\uC2DC \u2014 \uC751\uB2F5 \uAC1D\uCCB4 \uC55E\uC774\uB098 \uB4A4\uC5D0 Markdown \uC81C\uBAA9, \uC778\uC0AC\uB9D0, \uD574\uC124, \uCF54\uB4DC \uD39C\uC2A4 \uC911 \uD558\uB098\uB77C\uB3C4 \uBD99\uC740 \uC751\uB2F5. \uC62C\uBC14\uB978 \uCD9C\uB825 \uC608\uC2DC 1\uC744 \uC544\uBB34 \uC7A5\uC2DD \uC5C6\uC774 \uADF8\uB300\uB85C \uBCF4\uB0B8\uB2E4]";
     const patchExample = textEditExample(task);
     const patchGuide = "\n\n[\uAE30\uC874 \uC6D0\uBB38 \uBD80\uBD84\uD3B8\uC9D1 \uC608\uC2DC \u2014 \uC608\uC2DC \uC804\uC6A9 \uC6D0\uBB38\uACFC ref\uC774\uBA70 \uC2E4\uC81C \uD604\uC7AC\uC548\uC73C\uB85C \uAD50\uCCB4\uD560 \uAC83]\n\uC6D0\uBB38: " + JSON.stringify(patchExample.source) + "\n\uC751\uB2F5: " + JSON.stringify(patchExample.packet, null, 2);
     return jsonContract(task, options) + patchGuide + "\n\n[\uC0C8\uB85C \uC791\uC131\uD560 \uB54C\uC758 \uB370\uC774\uD130 \uAD6C\uC870 \u2014 \uAE30\uC874 \uD14D\uC2A4\uD2B8 \uC218\uC815\uC740 \uACF5\uD1B5 edits \uD615\uC2DD \uC0AC\uC6A9]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n\uD5C8\uC6A9 \uD544\uB4DC: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. \uC0AD\uC81C \uBAA9\uB85D\uC5D0\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD560 \uAC83.";
@@ -10191,13 +10192,16 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
       used.add(ref);
     }
   }
+  function variableString(key2, value) {
+    assert(typeof value === "string", "\uBCC0\uC218 " + key2 + ": \uAC12\uC740 \uD55C \uC904 \uBB38\uC790\uC5F4\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4. \uAC1D\uCCB4\xB7\uBC30\uC5F4\xB7\uC22B\uC790\uB294 \uB123\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uAD6C\uC870\uD654\uB41C \uAC12\uC740 partner1_name, partner1_state\uCC98\uB7FC \uBCC0\uC218\uB97C \uB098\uB204\uC138\uC694.");
+  }
   function variables(data, draft) {
     object(data.variables, "\uBCC0\uC218");
     array(data.removeVariables, "\uC0AD\uC81C\uD560 \uBCC0\uC218");
     const old = parseVariables(draft.defaultVariables ?? "");
     for (const [key2, val] of Object.entries(data.variables)) {
       assert(/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key2) && !dangerous.has(key2), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uBCC0\uC218\uBA85: " + key2);
-      str(val, "\uBCC0\uC218 \uAC12");
+      variableString(key2, val);
       assert(val.length > 0 && !/[=\r\n]/.test(val), "\uCD08\uAE30 \uBCC0\uC218 \uAC12\uC5D0\uB294 \uB4F1\uD638\xB7\uC904\uBC14\uAFC8\xB7\uBE48 \uAC12\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
     }
     const seen = /* @__PURE__ */ new Set();
@@ -10267,7 +10271,10 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
   function materializeVariables(values, draft) {
     object(values, "\uBCC0\uC218");
     const prior = parseVariables(draft.defaultVariables ?? "");
-    return Object.fromEntries(Object.entries(values).map(([key2, value]) => [key2, resolveTextValue(prior[key2], value, "\uBCC0\uC218 " + key2, Object.hasOwn(prior, key2))]));
+    return Object.fromEntries(Object.entries(values).map(([key2, value]) => {
+      if (typeof value !== "string" && !(isTextEdit(value) && Object.hasOwn(value, "edits"))) variableString(key2, value);
+      return [key2, resolveTextValue(prior[key2], value, "\uBCC0\uC218 " + key2, Object.hasOwn(prior, key2))];
+    }));
   }
   function materializeData(task, data, draft) {
     object(data, "\uC751\uB2F5");
@@ -10919,7 +10926,7 @@ workshop \uC678 \uC791\uC5C5\uC758 data\uC5D0\uB294 \uCD9C\uB825 \uD615\uC2DD\uC
 JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
 모든 키와 문자열은 큰따옴표를 사용한다. 문자열 내부의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다. Lua/HTML/정규식도 반드시 JSON 문자열 값 안에 넣는다.
 주석, 후행 쉼표, 작은따옴표 문자열, undefined, 생략 기호는 금지한다. null/true/false는 문자열이 아니다.
-출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다.
+출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다. 변수 값에 객체·배열을 넣지 마라. 여러 값은 변수를 나눠라.
 새 항목의 ref는 null, 기존 항목 수정·삭제의 ref는 현재안에 실제로 있는 값만 사용한다.
 workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
 workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
