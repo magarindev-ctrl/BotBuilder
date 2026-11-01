@@ -171,14 +171,6 @@
           "minTouch": 44
         },
         {
-          "width": 320,
-          "count": 75,
-          "overlap": false,
-          "overflow": false,
-          "scroll": true,
-          "minTouch": 44
-        },
-        {
           "width": 360,
           "count": 75,
           "overlap": false,
@@ -187,7 +179,7 @@
           "minTouch": 44
         },
         {
-          "width": 360,
+          "width": 390,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -195,7 +187,15 @@
           "minTouch": 44
         },
         {
-          "width": 768,
+          "width": 390,
+          "count": 75,
+          "overlap": false,
+          "overflow": false,
+          "scroll": true,
+          "minTouch": 44
+        },
+        {
+          "width": 412,
           "count": 75,
           "overlap": false,
           "overflow": false,

@@ -865,14 +865,16 @@ export class Workshop {
       if (parsed.data === null) return parsed;
       return reviewPacket(parsed, draft, (item) => { assert(!job.cancelled, "요청을 취소했습니다."); return this.chooseTextRange(item); });
     };
-    // One request; a truncated answer is retried once with an instruction to take a smaller first part.
+    // One request; a truncated answer (chunking on) or a broken-JSON answer is retried once with a pointed instruction.
     const ask = async (stepMessages, stepText) => {
       raw = await callModel(this.api, stepMessages, this.settings.model, this.settings.timeout, job);
       guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
       try { return await receive(raw, staged); } catch (error) {
-        if (!error.truncated || !options.chunking) throw error;
-        notes.push("응답이 끊겨 더 작은 구간으로 다시 요청했습니다.");
-        const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라.", images: [] });
+        let hint;
+        if (error.truncated && options.chunking) { notes.push("응답이 끊겨 더 작은 구간으로 다시 요청했습니다."); hint = "[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라."; }
+        else if (error.syntax) { notes.push("응답의 JSON 문법이 깨져 한 번 다시 요청했습니다."); hint = `[주의] 직전 응답의 JSON 문법이 깨졌다(${error.detail}). 문자열 안의 큰따옴표는 \\", 줄바꿈은 \\n, 역슬래시는 \\\\로 이스케이프하고, 코드·긴 본문은 JSON 뒤의 <<<이름>>> 블록으로 보내라.`; }
+        else throw error;
+        const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint, images: [] });
         assert(!retry.issues.length, "프리셋 조립 오류:\n" + retry.issues.join("\n"));
         inputSize(retry.messages, this.settings.maxInputChars);
         raw = await callModel(this.api, retry.messages, this.settings.model, this.settings.timeout, job);
