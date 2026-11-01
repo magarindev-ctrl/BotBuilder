@@ -209,3 +209,21 @@ test('empty foreign fields such as "choices": [] are dropped instead of rejectin
   assert.throws(() => parseResponse(filled, 'workshop', draft), /허용하지 않는 필드: choices/);
   assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'ok', notes: 'extra' } }), 'description', draft), /허용하지 않는 필드: notes/);
 });
+
+test('a response cut off mid-stream is reported as truncated with the received length', () => {
+  const draft = blankCharacter();
+  const whole = JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: '아주 긴 본문 '.repeat(50) } });
+  const cut = whole.slice(0, Math.floor(whole.length * 0.6));
+  assert.throws(() => parseResponse(cut, 'description', draft), /응답이 중간에 끊겼습니다 · [\d,]+자 수신/);
+  assert.throws(() => parseResponse('설명만 있고 JSON은 없습니다.', 'description', draft), /완성된 JSON 응답 객체를 찾지 못했습니다/);
+  assert.equal(parseResponse('{"schemaVersion":2,"task":"description","data":{"text":"ok"}} 뒤에 {"열린', 'description', draft).data.text, 'ok', 'a complete object before trailing junk still wins');
+  assert.equal(parseResponse(whole, 'description', draft).data.text, '아주 긴 본문 '.repeat(50));
+});
+
+test('default prompts carry the output-length rules', () => {
+  const prompt = defaultPrompt('workshop');
+  assert.match(prompt.system, /출력 길이 규칙/);
+  assert.match(prompt.system, /edits 부분편집으로만/);
+  assert.match(prompt.system, /긴 본문이 필요한 작업은 한 응답의 changes에 하나만/);
+  assert.match(defaultPrompt('greeting').system, /출력 길이 규칙/);
+});

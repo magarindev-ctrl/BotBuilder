@@ -623,3 +623,14 @@ test('the active request task is shown beside the input, on the mobile settings 
     assert.equal(doc.querySelectorAll('.msgtask').length, 2, 'workshop messages carry no task tag');
   } finally { x.close(); }
 });
+
+test('mobile job status asks to keep the screen on while a request is running', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document, media = x.dom.window.matchMedia;
+    x.app.job = { label: '캐릭터 설명 · 응답 대기', start: Date.now() };
+    x.app.jobStatus(); assert.equal(doc.querySelector('.job-hint'), null, 'desktop shows no screen hint');
+    x.dom.window.matchMedia = query => query.includes('max-width') ? { matches: true } : media(query);
+    x.app.jobStatus(); assert.match(doc.querySelector('.job-hint').textContent, /화면을 켜 두세요/);
+    x.app.job = null; x.app.jobStatus(); assert.equal(doc.querySelector('.job-hint'), null);
+  } finally { x.close(); }
+});
