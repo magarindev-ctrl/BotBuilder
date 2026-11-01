@@ -328,7 +328,7 @@ export class Workshop {
     if (this.regexStatusEl?.isConnected) this.regexStatusEl.textContent = this.regexJob ? `텍스트 검사 중 · ${Math.floor((Date.now() - this.regexJob.start) / 1000)}초` : '';
     if (!this.jobEl) return;
     this.jobEl.replaceChildren();
-    if (this.job) this.jobEl.append(this.h('span', { class: 'spinner', 'aria-hidden': 'true' }), this.doc.createTextNode(`${this.job.label} · ${Math.floor((Date.now() - this.job.start) / 1000)}초`));
+    if (this.job) this.jobEl.append(this.h('span', { class: 'spinner', 'aria-hidden': 'true' }), this.doc.createTextNode(`${this.job.label} · ${Math.floor((Date.now() - this.job.start) / 1000)}초`), this.doc.defaultView?.matchMedia?.('(max-width: 840px)').matches ? this.h('span', { class: 'job-hint' }, ' · 화면을 켜 두세요. 꺼지면 응답이 끊길 수 있습니다.') : null);
     else this.jobEl.textContent = '메인·보조 모델은 리스바드 설정을 사용합니다.';
   }
   lockRequestEditors() {

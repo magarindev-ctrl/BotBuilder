@@ -199,6 +199,7 @@ details { min-width: 0; }
 details > summary { cursor: pointer; font-size: 12px; color: var(--accent); padding: 5px 0; }
 details[open] > summary { margin-bottom: 9px; }
 .jobbar { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; min-height: 24px; }
+.job-hint { color: var(--warn-ink); }
 .spinner { display: inline-block; flex-shrink: 0; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--toast-bg); color: #fff; padding: 12px 18px; border-radius: 10px; max-width: min(700px, 90vw); box-shadow: 0 4px 24px #0002; font-size: 13px; line-height: 1.6; pointer-events: none; display: flex; align-items: flex-start; gap: 12px; }
