@@ -73,7 +73,7 @@ test('templates expand only once and include complete working context + conversa
 });
 test('responses retain strict key, task, range and prototype validation after wrapper cleanup', () => {
   const c = blankCharacter();
-  for (const raw of [envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));
+  for (const raw of [envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [{ id: 'c' }] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));
   assert.throws(() => parseResponse(envelope('lorebook', { upsert: [{ ref: null, entry: { key: 'x', content: 'y', activationPercent: 101 } }], remove: [] }), 'lorebook', c));
 });
 test('task-specific output examples validate and distinguish dialogue from explicit manuscript changes',()=>{
@@ -196,4 +196,34 @@ test('charx full roundtrip embeds referenced image bytes and preserves native Lu
   const buffer = await exportCharx({ readImage: async () => Uint8Array.from([1, 2, 3]) }, c); const { card, files } = unpack(buffer); assert.equal(card.data.assets[0].uri, 'embeded://assets/0.png'); assert.deepEqual([...files['assets/0.png']], [1, 2, 3]);
   let saves = 0; const imported = await importCharx({ saveAsset: async value => { saves++; assert.deepEqual([...value], [1, 2, 3]); return 'assets/imported'; } }, buffer);
   assert.equal(saves, 1); assert.equal(imported.character.additionalAssets[0][1], 'assets/imported'); assert.deepEqual(imported.character.triggerscript, c.triggerscript); assert.deepEqual(imported.character.globalLore, c.globalLore);
+});
+
+test('empty foreign fields such as "choices": [] are dropped instead of rejecting the whole proposal', () => {
+  const draft = blankCharacter(); draft.globalLore = [{ key: 'k', content: 'old rule', comment: 'rules' }];
+  const raw = JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '제안', changes: [{ task: 'lorebook', data: { upsert: [{ ref: null, entry: { comment: '새 항목', key: 'a', content: 'b' } }], remove: [], scripts: [] } }], choices: [], text: '', variables: {} } });
+  const packet = parseResponse(raw, 'workshop', draft);
+  assert.deepEqual(Object.keys(packet.data).sort(), ['changes', 'reply']);
+  assert.deepEqual(Object.keys(packet.data.changes[0].data).sort(), ['remove', 'upsert']);
+  assert.equal(applyPacket(draft, packet).globalLore.length, 2);
+  const filled = JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '제안', changes: [], choices: [{ id: 'a', label: 'x', content: 'y' }] } });
+  assert.throws(() => parseResponse(filled, 'workshop', draft), /허용하지 않는 필드: choices/);
+  assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'ok', notes: 'extra' } }), 'description', draft), /허용하지 않는 필드: notes/);
+});
+
+test('a response cut off mid-stream is reported as truncated with the received length', () => {
+  const draft = blankCharacter();
+  const whole = JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: '아주 긴 본문 '.repeat(50) } });
+  const cut = whole.slice(0, Math.floor(whole.length * 0.6));
+  assert.throws(() => parseResponse(cut, 'description', draft), /응답이 중간에 끊겼습니다 · [\d,]+자 수신/);
+  assert.throws(() => parseResponse('설명만 있고 JSON은 없습니다.', 'description', draft), /완성된 JSON 응답 객체를 찾지 못했습니다/);
+  assert.equal(parseResponse('{"schemaVersion":2,"task":"description","data":{"text":"ok"}} 뒤에 {"열린', 'description', draft).data.text, 'ok', 'a complete object before trailing junk still wins');
+  assert.equal(parseResponse(whole, 'description', draft).data.text, '아주 긴 본문 '.repeat(50));
+});
+
+test('default prompts carry the output-length rules', () => {
+  const prompt = defaultPrompt('workshop');
+  assert.match(prompt.system, /출력 길이 규칙/);
+  assert.match(prompt.system, /edits 부분편집으로만/);
+  assert.match(prompt.system, /긴 본문이 필요한 작업은 한 응답의 changes에 하나만/);
+  assert.match(defaultPrompt('greeting').system, /출력 길이 규칙/);
 });

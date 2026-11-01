@@ -6,8 +6,13 @@ import { newPresetState, validatePresetState, assemblePreset } from './preset-en
 import { renderPresetEditor } from './preset-ui.js';
 import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket, withCharacterIcon } from './core.js';
 
-const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋']];
+const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋', '프리셋']];
+const TAB_FIELDS = { overview: ['name'], description: ['desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags'], lorebook: ['globalLore'], regex: ['customscript'], lua: ['triggerscript', 'defaultVariables'], greeting: ['firstMessage', 'alternateGreetings'], assets: ['image', 'additionalAssets', 'ccAssets'] };
+export const AUTOSAVE_KEYS = ['autosave', 'autosave-1', 'autosave-2'];
+const SLOT_NAMES = { autosave: '자동 저장 · 최근', 'autosave-1': '자동 저장 · 1회 전', 'autosave-2': '자동 저장 · 2회 전', manual: '수동 임시 저장' };
 const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
+// What each request task may change; shown beside the input so the active task is never a guess.
+const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명·성격·시나리오 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
 const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
 
 export class Workshop {
@@ -119,7 +124,7 @@ export class Workshop {
   constructor(api, doc) {
     this.api = api; this.doc = doc; this.s = newSession(); this.prompts = {}; this.settings = { ...SETTINGS };
     this.s.preset = newPresetState(); this.savedPreset = null;
-    this.started = false; this.serial = 0; this.autoSerial = 0; this.slots = {}; this.ioBusy = false; this.job = null;
+    this.started = false; this.serial = 0; this.autoSerial = 0; this.slots = {}; this.slotRaw = {}; this.ioBusy = false; this.job = null;
     this.view = 'editor'; this.task = 'workshop'; this.scopeOnly = false; this.storageQueue = Promise.resolve();
   }
   h(tag, props = {}, ...children) {
@@ -164,13 +169,18 @@ export class Workshop {
     if (draft) this.s.revision++;
     this.status();
   }
+  // Navigation-only state (tab, list selection, model choice) never starts a session or marks the draft edited.
+  navigate() { if (this.started) this.serial++; this.status(); }
   setField(key, value) { this.s.draft[key] = value; this.touch(); }
   presetChanged() { this.s.promptRevision++; this.touch(false); }
   dirty() { return this.s.targetId ? !equal(this.s.base, editable(this.s.draft)) : this.started; }
   toast(message, bad = false) {
     this.toastEl?.remove(); clearTimeout(this.toastTimer);
-    this.toastEl = this.h('div', { class: 'toast' + (bad ? ' bad' : ''), role: bad ? 'alert' : 'status' }, message);
-    this.doc.body.append(this.toastEl); this.toastTimer = setTimeout(() => this.toastEl?.remove(), 7000);
+    const toast = this.h('div', { class: 'toast' + (bad ? ' bad' : ''), role: bad ? 'alert' : 'status' }, this.h('span', { class: 'toast-text' }, message));
+    // Error toasts stay until closed so long messages can be read and copied; notices fade on their own.
+    if (bad) toast.append(this.b('닫기', () => toast.remove(), 'small toast-close', { 'aria-label': '오류 안내 닫기' }));
+    else this.toastTimer = setTimeout(() => toast.remove(), 7000);
+    this.toastEl = toast; this.doc.body.append(toast);
   }
   async init() {
     const style = this.h("style", {}, CSS);
@@ -209,6 +219,11 @@ export class Workshop {
     this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
     this.themeListener = () => this.applyTheme();
     this.themeMedia?.addEventListener("change", this.themeListener);
+    // Re-render when crossing the mobile breakpoint (rotation, split screen) so layout-dependent parts update.
+    this.layoutMedia = this.doc.defaultView?.matchMedia?.("(max-width: 840px)");
+    // Skip when a click already re-rendered at the new width, so the DOM is not replaced twice.
+    this.layoutListener = () => { if (!this.job && this.renderedMobile !== !!this.layoutMedia?.matches) this.render(); };
+    this.layoutMedia?.addEventListener?.("change", this.layoutListener);
     this.applyTheme();
     await Promise.all(Object.keys(TASKS).map(async (task) => {
       const raw = await this.api.pluginStorage.getItem(PREFIX + "prompt:" + task);
@@ -236,7 +251,7 @@ export class Workshop {
       this.render();
       if (!this.opened) {
         this.opened = true;
-        if (this.slots.autosave || this.slots.manual) await this.showRecovery(true);
+        if (Object.values(this.slots).some(Boolean)) await this.showRecovery(true);
       }
     };
     await this.api.registerSetting("봇빌더", open, "BB", "html");
@@ -252,28 +267,39 @@ export class Workshop {
     clearInterval(this.elapsedTimer);
     clearTimeout(this.toastTimer);
     this.themeMedia?.removeEventListener("change", this.themeListener);
+    this.layoutMedia?.removeEventListener?.("change", this.layoutListener);
     this.job?.stop?.();
     this.activeModal?.close(null);
   }
   applyTheme() { this.doc.documentElement.dataset.theme = this.settings.theme === 'system' ? this.themeMedia?.matches ? 'dark' : 'light' : this.settings.theme; }
   async readSlots() {
-    for (const name of ['autosave', 'manual']) {
+    for (const name of [...AUTOSAVE_KEYS, 'manual']) {
       const raw = await this.api.pluginStorage.getItem(PREFIX + name);
+      this.slotRaw[name] = raw ? (typeof raw === 'string' ? raw : JSON.stringify(raw)) : null;
       if (!raw) { this.slots[name] = null; continue; }
       try { const s = restoreSnapshot(raw); if(s.preset)s.preset=validatePresetState(s.preset); const v = typeof raw === 'string' ? JSON.parse(raw) : raw; this.slots[name] = { ...v, session: s }; }
       catch (error) { this.slots[name] = { error: error.message, name: '읽을 수 없는 저장본' }; }
     }
   }
-  async store(key, data) {
-    const text = JSON.stringify(data);
-    const work = this.storageQueue.catch(() => {}).then(() => this.api.pluginStorage.setItem(PREFIX + key, text));
+  async store(key, data) { return this.storeRaw(key, JSON.stringify(data)); }
+  async storeRaw(key, text) {
+    const work = this.storageQueue.catch(() => {}).then(() => text === null ? this.api.pluginStorage.removeItem(PREFIX + key) : this.api.pluginStorage.setItem(PREFIX + key, text));
     this.storageQueue = work; await work;
+  }
+  // Keeps the three most recent automatic saves: autosave → autosave-1 → autosave-2.
+  async rotateAutosaves() {
+    for (let i = AUTOSAVE_KEYS.length - 1; i > 0; i--) {
+      const from = AUTOSAVE_KEYS[i - 1], to = AUTOSAVE_KEYS[i], raw = this.slotRaw[from] ?? null;
+      if (raw === (this.slotRaw[to] ?? null)) continue;
+      await this.storeRaw(to, raw); this.slotRaw[to] = raw; this.slots[to] = raw ? this.slots[from] : null;
+    }
   }
   async saveSlot(name) {
     assert(this.started, '새 작업을 시작하거나 원고를 불러온 뒤 저장해 주세요.');
     this.s.requestSettings = { ...this.settings, task: this.task, scopeOnly: this.scopeOnly };
-    const serial = this.serial, value = snapshot(this.s);
-    await this.store(name, value); this.slots[name] = value;
+    const serial = this.serial, value = snapshot(this.s), text = JSON.stringify(value);
+    if (name === 'autosave') await this.rotateAutosaves();
+    await this.storeRaw(name, text); this.slots[name] = value; this.slotRaw[name] = text;
     if (name === 'autosave') this.autoSerial = serial;
     this.status();
   }
@@ -281,16 +307,28 @@ export class Workshop {
   status() {
     if (!this.statusEl) return;
     const date = key => this.slots[key]?.savedAt ? new Date(this.slots[key].savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '없음';
-    this.statusEl.textContent = `${this.dirty() ? '원고 편집 중' : '변경 없음'} · 자동 ${date('autosave')} · 임시 ${date('manual')}`;
+    this.statusEl.textContent = `${this.dirty() ? '원고 편집 중' : '변경 없음'} · 자동 저장 ${date('autosave')} · 임시 저장 ${date('manual')}`;
+    if (this.mobileStatusEl) this.mobileStatusEl.textContent = `${this.dirty() ? '편집 중' : '변경 없음'} · 자동 ${date('autosave')} · 임시 ${date('manual')}`;
     if (this.titleEl) this.titleEl.textContent = this.s.draft.name || '이름 없는 이야기';
-    const counts = this.root?.querySelectorAll('.navcount');
-    if (counts?.length) { counts[2].textContent = this.s.draft.globalLore?.length ?? 0; counts[3].textContent = this.s.draft.customscript?.length ?? 0; }
+    const undoBar = this.root?.querySelector('.undo-bar');
+    if (undoBar) undoBar.hidden = !this.undoAvailable();
+    const changed = this.changedTabs();
+    for (const item of this.root?.querySelectorAll('.navitem[data-tab]') ?? []) {
+      const tab = item.dataset.tab, count = item.querySelector('.navcount');
+      if (count) count.textContent = tab === 'lorebook' ? this.s.draft.globalLore?.length ?? 0 : tab === 'regex' ? this.s.draft.customscript?.length ?? 0 : '';
+      item.dataset.changed = String(changed.has(tab));
+    }
+  }
+  // Tabs whose fields differ from the loaded character, or from a blank draft for new work.
+  changedTabs() {
+    const base = this.s.base ?? editable(blankCharacter()), draft = editable(this.s.draft);
+    return new Set(Object.entries(TAB_FIELDS).filter(([, fields]) => fields.some(f => !equal(base[f], draft[f]))).map(([tab]) => tab));
   }
   jobStatus() {
     if (this.regexStatusEl?.isConnected) this.regexStatusEl.textContent = this.regexJob ? `텍스트 검사 중 · ${Math.floor((Date.now() - this.regexJob.start) / 1000)}초` : '';
     if (!this.jobEl) return;
     this.jobEl.replaceChildren();
-    if (this.job) this.jobEl.append(this.h('span', { class: 'spinner', 'aria-hidden': 'true' }), this.doc.createTextNode(`${this.job.label} · ${Math.floor((Date.now() - this.job.start) / 1000)}초`));
+    if (this.job) this.jobEl.append(this.h('span', { class: 'spinner', 'aria-hidden': 'true' }), this.doc.createTextNode(`${this.job.label} · ${Math.floor((Date.now() - this.job.start) / 1000)}초`), this.doc.defaultView?.matchMedia?.('(max-width: 840px)').matches ? this.h('span', { class: 'job-hint' }, ' · 화면을 켜 두세요. 꺼지면 응답이 끊길 수 있습니다.') : null);
     else this.jobEl.textContent = '메인·보조 모델은 리스바드 설정을 사용합니다.';
   }
   lockRequestEditors() {
@@ -330,17 +368,22 @@ export class Workshop {
       this.render();
     }, "small", { "aria-pressed": this.view === "chat" })));
     this.editor = h("section", { class: "editor", "aria-label": "제작 원고" });
-    const sidebar = h("nav", { class: "sidebar", "aria-label": "원고 구성" }, h("span", { class: "eyebrow" }, "MANUSCRIPT"), TABS.map(([id, name], i) => this.b([h("span", { class: "navnum" }, String(i + 1).padStart(2, "0")), name, h("span", { class: "navcount" }, id === "lorebook" ? s.draft.globalLore?.length ?? 0 : id === "regex" ? s.draft.customscript?.length ?? 0 : "")], () => {
+    const sidebar = h("nav", { class: "sidebar", "aria-label": "원고 구성" }, h("span", { class: "eyebrow" }, "MANUSCRIPT"), TABS.map(([id, name, short], i) => this.b([h("span", { class: "navnum" }, String(i + 1).padStart(2, "0")), h("span", { class: "navlabel" }, short ?? name), h("span", { class: "navmeta" }, h("span", { class: "navdot", title: "원본과 다른 내용이 있습니다", "aria-label": "변경됨" }), h("span", { class: "navcount" }, ""))], () => {
       s.tab = id;
       if (Object.hasOwn(TASKS, id)) this.task = id;
       this.view = "editor";
-      this.touch(false);
+      this.navigate();
       this.render();
-    }, "navitem", { "aria-current": s.tab === id ? "page" : null })), h("div", { class: "sidefoot muted" }, "대화로 구상하고,\n원고로 구체화하세요.", h("p", { style: "margin-top:12px" }, `v${VERSION} · 3분 자동 저장`)));
+    }, "navitem", { "aria-current": s.tab === id ? "page" : null, "data-tab": id })), h("div", { class: "sidefoot muted" }, "대화로 구상하고,\n원고로 구체화하세요.", h("p", { style: "margin-top:12px" }, `v${VERSION} · 3분 자동 저장`)));
     const chat = this.renderChat();
+    // Mobile tab strip: flag when more tabs are hidden to the right so the fade hint shows.
+    const trackOverflow = () => { sidebar.dataset.overflow = String(sidebar.scrollLeft + sidebar.clientWidth < sidebar.scrollWidth - 1); };
+    sidebar.addEventListener("scroll", trackOverflow, { passive: true });
+    this.sidebarOverflow = trackOverflow;
     this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
     if (this.job) header.append(h("span", { class: "warn", role: "status" }, "응답 처리 중 · 편집 잠금"), this.b("요청 취소", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
-    const mobileTop = h("header", { class: "mobile-top" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "봇빌더"), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "원고" : "대화", () => {
+    this.mobileStatusEl = h("span", { class: "mobile-status", "aria-live": "polite" });
+    const mobileTop = h("header", { class: "mobile-top" }, h("div", { class: "mobile-title" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "봇빌더"), this.mobileStatusEl), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "원고" : "대화", () => {
       this.view = view;
       this.render();
     }, "", { "aria-pressed": this.view === view })), this.job ? this.b("취소", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request", "aria-label": "요청 취소" }) : this.b("☰", () => this.showMobileMenu(header, tools, chat), "", { "aria-label": "작업 메뉴" }));
@@ -349,6 +392,9 @@ export class Workshop {
     this.status();
     this.jobStatus();
     this.lockRequestEditors();
+    this.sidebarOverflow();
+    this.doc.defaultView?.requestAnimationFrame?.(() => this.sidebarOverflow?.());
+    this.renderedMobile = !!this.doc.defaultView?.matchMedia?.("(max-width: 840px)").matches;
   }
   renderEditor() {
     const h = this.h.bind(this), s = this.s;
@@ -415,7 +461,7 @@ export class Workshop {
         "aria-current": i === selected ? "true" : null,
         onclick: () => {
           s.selected[task] = i;
-          this.touch(false);
+          this.navigate();
           if (lore) redrawLoreList();
           else this.renderEditor();
         }
@@ -599,7 +645,7 @@ export class Workshop {
     this.messagesEl = messages;
     if (!s.thread.length) messages.append(h("div", { class: "chatempty" }, h("span", { class: "eyebrow" }, "LET’S MAKE SOMETHING"), h("h3", { style: "margin-top:10px" }, "한 가지 아이디어부터 시작하세요."), h("p", {}, "“이 세계관에 어울리는 인물부터 같이 정해보자.”\n“이 설정의 모순을 찾아줘.”\n“지금 정한 내용을 설명과 로어북으로 제안해줘.”"), h("p", { style: "margin-top:14px" }, "대화와 수정안은 원고와 구분해 보관합니다.")));
     for (const message of s.thread) {
-      const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "YOU" : "WRITING PARTNER"), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
+      const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "나" : "작성 파트너", message.task && message.task !== "workshop" && TASKS[message.task] ? h("span", { class: "msgtask" }, TASKS[message.task].label) : null), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
       if (message.images?.length) {
         const gallery = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
         for (const image of message.images) gallery.append(h("img", { src: image.data, alt: image.name, loading: "lazy", style: "width:140px;max-width:100%;height:110px;object-fit:contain" }));
@@ -632,6 +678,7 @@ export class Workshop {
       );
       messages.append(card);
     }
+    if (this.undoAvailable()) messages.append(h("div", { class: "undo-bar row between" }, h("span", { class: "muted" }, "적용함 · " + s.undo.label), this.b("적용 되돌리기", () => this.undoApplied(), "small", { "data-action": "undo-candidate", title: "방금 적용한 수정안을 적용 전 원고로 되돌립니다. 이후 원고를 편집하면 되돌릴 수 없습니다." })));
     this.jobEl = h("div", { class: "jobbar", role: "status", "aria-live": "polite" });
     this.requestInput = h("textarea", { "aria-label": "LLM에게 보낼 요청", placeholder: this.task === "workshop" ? "아이디어를 이야기하거나, 현재 원고에서 다듬을 부분을 물어보세요." : TASKS[this.task].label + " 작성·수정 요청을 적으세요.", value: s.requests[this.task] ?? "" });
     this.requestInput.addEventListener("paste", (event) => this.pasteRequestImages(event));
@@ -652,7 +699,7 @@ export class Workshop {
     }, "LLM 요청 종류");
     const model = this.select(this.settings.model, [["submodel", "보조 모델"], ["model", "메인 모델"]], async (v) => {
       this.settings.model = v;
-      this.touch(false);
+      this.navigate();
       await this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
     }, "LLM 모델");
     const mobile = this.doc.defaultView?.matchMedia("(max-width: 840px)").matches;
@@ -672,17 +719,21 @@ export class Workshop {
       this.render();
     }, "요청 구성");
     const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
-    const settingsToggle = this.b("요청 설정 ▾", () => {
+    const toggleLabel = TASKS[this.task].label + " ▾";
+    const settingsToggle = this.b(toggleLabel, () => {
       const open = requestSettings.dataset.open !== "true";
       requestSettings.dataset.open = String(open);
       settingsToggle.setAttribute("aria-expanded", String(open));
-      settingsToggle.textContent = open ? "설정 닫기 ▴" : "요청 설정 ▾";
-    }, "request-settings-toggle", { "aria-expanded": "false" });
+      settingsToggle.textContent = open ? "설정 닫기 ▴" : toggleLabel;
+    }, "request-settings-toggle", { "aria-expanded": "false", title: "요청 설정 · 종류·모델·구성을 바꿉니다." });
+    const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
+    const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "")));
     requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
     panel.append(messages, h(
       "div",
       { class: "composer" },
       requestSettings,
+      modeStrip,
       this.requestInput,
       this.requestImageComposer(),
       h("div", { class: "row composer-actions" }, send, this.b("프롬프트", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("대기 중단", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
@@ -707,7 +758,8 @@ export class Workshop {
     const display = value => value === undefined ? '(없음)' : value === '' ? '(빈 문자열)' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     const numbered = (value, start) => value === '' ? '(구간 삭제)' : value.split(/\r\n|\r|\n/).map((line, i) => `${start + i} | ${line}`).join('\n');
     const lines = (start, end) => start === end ? `${start}행` : `${start}–${end}행`;
-    return h('details', {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
+    const mobile = this.doc.defaultView?.matchMedia?.('(max-width: 840px)').matches;
+    return h('details', mobile ? { open: '' } : {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
       h('p', { class: 'muted' }, '부분편집의 줄 번호는 검토용입니다. 실제 적용은 요청 당시 원문과 정확히 일치하는 구간을 사용합니다. 코드 실행 결과를 검증한 것은 아닙니다.'),
       rows.map(row => h('section', { class: 'card stack', style: 'margin:12px 0' }, h('strong', {}, row.label),
         h('span', { class: 'muted' }, row.mode === 'patch' ? `부분편집 · 기존 ${lines(row.startLine, row.endLine)} → ${row.after === '' ? '삭제' : '수정 ' + lines(row.afterStartLine, row.afterEndLine)}` : row.mode === 'add' ? '추가' : row.mode === 'remove' ? '삭제' : typeof row.after === 'string' ? '전체 문자열 교체' : '설정값 변경'),
@@ -718,12 +770,31 @@ export class Workshop {
     validateLoreSelection(candidate.packet, this.s);
     const next = applyPacket(this.s.draft, candidate.packet);
     assert(this.candidateValid(candidate), "원고가 바뀌었습니다.");
+    const loreBefore = loreSelection(this.s);
     this.s.loreIncluded = loreSelectionAfterPacket(this.s, candidate.packet);
     this.s.draft = next;
     candidate.status = "applied";
     this.touch();
+    // One-step undo, valid only until the draft changes again.
+    this.s.undo = { candidateId: candidate.id, sessionId: this.s.sessionId, revision: this.s.revision, restoreRevision: candidate.revision, before: candidate.before, loreIncluded: loreBefore, label: candidate.label };
     this.render();
     this.toast("수정안을 원고에 적용했습니다. 실제 캐릭터 저장은 별도입니다.");
+  }
+  undoAvailable() {
+    const undo = this.s.undo;
+    return !!undo && undo.sessionId === this.s.sessionId && undo.revision === this.s.revision && !this.job;
+  }
+  undoApplied() {
+    assert(this.undoAvailable(), "적용 이후 원고가 바뀌어 되돌릴 수 없습니다.");
+    const undo = this.s.undo, candidate = this.s.candidates.find((c) => c.id === undo.candidateId);
+    this.s.draft = clone(undo.before);
+    this.s.loreIncluded = loreSelection({ draft: this.s.draft, loreIncluded: undo.loreIncluded });
+    this.s.revision = undo.restoreRevision;
+    if (candidate) delete candidate.status;
+    delete this.s.undo;
+    this.touch(false);
+    this.render();
+    this.toast("수정안 적용을 되돌렸습니다. 수정안은 다시 검토 대기 상태입니다.");
   }
   requestWithScope(task) {
     const s = this.s, request = (s.requests[task] ?? "").trim() || (requestImages(s, task).length ? "첨부한 화면을 확인하고 현재 요청 작업에 맞게 분석해 주세요." : "");
@@ -769,12 +840,12 @@ export class Workshop {
         assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
       }
       const changes = proposalDiff(before, packet).length;
-      s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "원고에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
+      s.thread.push({ id: uid(), role: "assistant", task, content: task === "workshop" ? packet.data.reply : !changes ? "원고에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
       if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
       this.touch(false);
     } catch (error) {
       if (this.s.sessionId === s.sessionId) {
-        s.thread.push({ id: uid(), role: "assistant", content: error.message, error: true, ...raw ? { raw } : {} });
+        s.thread.push({ id: uid(), role: "assistant", task, content: error.message, error: true, ...raw ? { raw } : {} });
         this.touch(false);
       }
     } finally {
@@ -896,11 +967,12 @@ export class Workshop {
     await this.readSlots();
     let choice = null;
     await this.dialog(initial ? '이어서 작업할 저장본이 있습니다' : '작업 저장본 불러오기', body => {
-      for (const key of ['autosave', 'manual']) {
+      for (const key of [...AUTOSAVE_KEYS, 'manual']) {
         const v = this.slots[key];
-        body.append(this.h('div', { class: 'card stack' }, this.h('h3', {}, key === 'autosave' ? '자동 저장 · 최근 1개' : '수동 임시 저장 · 최근 1개'), this.h('p', { class: 'muted' }, v?.error ?? (v ? `${v.name} · ${new Date(v.savedAt).toLocaleString('ko-KR')}` : '아직 저장본이 없습니다.')), this.b('이 저장본 불러오기', () => { choice = key; this.activeModal.close(true); }, '', { disabled: !v || !!v.error })));
+        if (!v && key !== 'autosave' && key !== 'manual') continue;
+        body.append(this.h('div', { class: 'card stack' }, this.h('h3', {}, SLOT_NAMES[key]), this.h('p', { class: 'muted' }, v?.error ?? (v ? `${v.name} · ${new Date(v.savedAt).toLocaleString('ko-KR')}` : '아직 저장본이 없습니다.')), this.b('이 저장본 불러오기', () => { choice = key; this.activeModal.close(true); }, '', { disabled: !v || !!v.error })));
       }
-      body.append(this.h('p', { class: 'muted' }, '복원하면 원고·대화·미적용 제안·프롬프트 편집 초안을 불러옵니다. 캐릭터 본체나 저장된 프롬프트 설정에는 자동으로 반영하지 않습니다.'));
+      body.append(this.h('p', { class: 'muted' }, '자동 저장은 3분 간격으로 최근 3개, 수동 임시 저장은 최근 1개를 보관합니다. 복원하면 원고·대화·미적용 제안·프롬프트 편집 초안을 불러옵니다. 캐릭터 본체나 저장된 프롬프트 설정에는 자동으로 반영하지 않습니다.'));
     }, [{ label: initial ? '저장본 유지하고 새로 시작' : '닫기', value: false }]);
     if (!choice) return;
     if (!initial && !await this.guardReplace()) return;
