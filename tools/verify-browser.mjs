@@ -487,10 +487,10 @@ try {
   assert.equal(await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).inputValue(),'이 화면을 설명해줘');
   await checkLayout('390x568 chat with two image previews');
   await page.locator('#plugin').screenshot({path:'artifacts/bb-request-images-mobile.png',animations:'disabled'});
-  await frame.getByRole('button',{name:'요청 설정 ▾',exact:true}).click();
+  await frame.getByRole('button',{name:'캐릭터 설명 ▾',exact:true}).click();
   await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('workshop');
   // Attachments are scoped to the request task; switch back to description.
-  await frame.getByRole('button',{name:'요청 설정 ▾',exact:true}).click();
+  await frame.getByRole('button',{name:'설계 대화 ▾',exact:true}).click();
   await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
   assert.equal(await frame.locator('.request-previews img').count(),2);
   await frame.evaluate(()=>{window.__responseOverride=JSON.stringify({schemaVersion:1,task:'description',data:{text:'이미지를 참고한 제안'}});});

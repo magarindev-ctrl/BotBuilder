@@ -11,6 +11,8 @@ const TAB_FIELDS = { overview: ['name'], description: ['desc', 'personality', 's
 export const AUTOSAVE_KEYS = ['autosave', 'autosave-1', 'autosave-2'];
 const SLOT_NAMES = { autosave: '자동 저장 · 최근', 'autosave-1': '자동 저장 · 1회 전', 'autosave-2': '자동 저장 · 2회 전', manual: '수동 임시 저장' };
 const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
+// What each request task may change; shown beside the input so the active task is never a guess.
+const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명·성격·시나리오 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
 const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
 
 export class Workshop {
@@ -641,7 +643,7 @@ export class Workshop {
     this.messagesEl = messages;
     if (!s.thread.length) messages.append(h("div", { class: "chatempty" }, h("span", { class: "eyebrow" }, "LET’S MAKE SOMETHING"), h("h3", { style: "margin-top:10px" }, "한 가지 아이디어부터 시작하세요."), h("p", {}, "“이 세계관에 어울리는 인물부터 같이 정해보자.”\n“이 설정의 모순을 찾아줘.”\n“지금 정한 내용을 설명과 로어북으로 제안해줘.”"), h("p", { style: "margin-top:14px" }, "대화와 수정안은 원고와 구분해 보관합니다.")));
     for (const message of s.thread) {
-      const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "나" : "작성 파트너"), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
+      const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "나" : "작성 파트너", message.task && message.task !== "workshop" && TASKS[message.task] ? h("span", { class: "msgtask" }, TASKS[message.task].label) : null), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
       if (message.images?.length) {
         const gallery = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
         for (const image of message.images) gallery.append(h("img", { src: image.data, alt: image.name, loading: "lazy", style: "width:140px;max-width:100%;height:110px;object-fit:contain" }));
@@ -715,17 +717,21 @@ export class Workshop {
       this.render();
     }, "요청 구성");
     const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
-    const settingsToggle = this.b("요청 설정 ▾", () => {
+    const toggleLabel = TASKS[this.task].label + " ▾";
+    const settingsToggle = this.b(toggleLabel, () => {
       const open = requestSettings.dataset.open !== "true";
       requestSettings.dataset.open = String(open);
       settingsToggle.setAttribute("aria-expanded", String(open));
-      settingsToggle.textContent = open ? "설정 닫기 ▴" : "요청 설정 ▾";
-    }, "request-settings-toggle", { "aria-expanded": "false" });
+      settingsToggle.textContent = open ? "설정 닫기 ▴" : toggleLabel;
+    }, "request-settings-toggle", { "aria-expanded": "false", title: "요청 설정 · 종류·모델·구성을 바꿉니다." });
+    const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
+    const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "")));
     requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
     panel.append(messages, h(
       "div",
       { class: "composer" },
       requestSettings,
+      modeStrip,
       this.requestInput,
       this.requestImageComposer(),
       h("div", { class: "row composer-actions" }, send, this.b("프롬프트", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("대기 중단", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
@@ -832,12 +838,12 @@ export class Workshop {
         assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
       }
       const changes = proposalDiff(before, packet).length;
-      s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "원고에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
+      s.thread.push({ id: uid(), role: "assistant", task, content: task === "workshop" ? packet.data.reply : !changes ? "원고에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
       if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
       this.touch(false);
     } catch (error) {
       if (this.s.sessionId === s.sessionId) {
-        s.thread.push({ id: uid(), role: "assistant", content: error.message, error: true, ...raw ? { raw } : {} });
+        s.thread.push({ id: uid(), role: "assistant", task, content: error.message, error: true, ...raw ? { raw } : {} });
         this.touch(false);
       }
     } finally {

@@ -5,7 +5,7 @@
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
-Modified 2026-11-01: v1.0.0 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode; mobile shows save status under the title, fades the tab strip edge while more tabs are hidden, opens proposal details by default and re-renders when the layout breakpoint changes.
+Modified 2026-11-01: v1.0.0 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode; mobile shows save status under the title, fades the tab strip edge while more tabs are hidden, opens proposal details by default and re-renders when the layout breakpoint changes. The active request task is shown as a strip above the input, on the mobile settings toggle and as a tag on each message.
 Modified 2026-10-31: v1.0.0 adds the GitHub Raw update URL for native RisuAI/RisuBard plugin updates; version unchanged.
 Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
@@ -11168,7 +11168,12 @@ h3 { font-size: 14px; font-weight: 650; }
 }
 .message { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex-shrink: 0; }
 .message.user { align-items: flex-end; }
-.msglabel { font-size: 11px; letter-spacing: .3px; color: var(--subtle); }
+.msglabel { font-size: 11px; letter-spacing: .3px; color: var(--subtle); display: inline-flex; align-items: center; gap: 6px; }
+.msgtask { font-size: 10px; letter-spacing: 0; padding: 1px 7px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); font-weight: 650; }
+.mode-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.mode-pill { background: var(--accent-bg); color: var(--accent); font-weight: 650; padding: 3px 10px; border-radius: 20px; font-size: 12px; white-space: nowrap; }
+.mode-strip[data-task=workshop] .mode-pill { background: var(--selected); color: var(--ink); }
+.mode-scope { flex: 1 1 200px; min-width: 0; }
 .bubble { font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .message.user .bubble { background: var(--bubble-bg); border-radius: 12px 12px 2px 12px; padding: 11px 14px; max-width: 95%; }
 .message.assistant .bubble { padding: 0 3px; }
@@ -11294,6 +11299,7 @@ details[open] > summary { margin-bottom: 9px; }
   .composer > textarea { grid-area: input; width: 100%; min-height: 52px; max-height: 122px; height: 52px; font-size: 16px; line-height: 22px; padding: 4px 9px; resize: none; }
   .mobile-prompt { display: block; }
   .request-settings { grid-area: options; min-width: 0; }
+  .composer > .mode-strip { display: none; }
   .request-settings-toggle { display: block; width: 100%; min-height: 40px; padding: 6px; font-size: 12px; }
   .request-settings-body { display: none; }
   .request-settings[data-open=true] .request-settings-body { display: flex; position: fixed; z-index: 12; bottom: calc(100% - var(--workshop-vheight, 100dvh) - var(--workshop-vtop, 0px) + 150px); left: 10px; right: 10px; max-height: 40dvh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 5px 30px #0005; }
@@ -14761,6 +14767,7 @@ details[open] > summary { margin-bottom: 9px; }
   var AUTOSAVE_KEYS = ["autosave", "autosave-1", "autosave-2"];
   var SLOT_NAMES = { autosave: "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC", "autosave-1": "\uC790\uB3D9 \uC800\uC7A5 \xB7 1\uD68C \uC804", "autosave-2": "\uC790\uB3D9 \uC800\uC7A5 \xB7 2\uD68C \uC804", manual: "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5" };
   var fieldNames = { name: "\uC774\uB984", image: "\uBD07 \uC544\uC774\uCF58", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
+  var TASK_SCOPE = { workshop: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD569\uB2C8\uB2E4. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD560 \uB54C\uB9CC \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 \uBB36\uC5B4 \uC81C\uC548\uD569\uB2C8\uB2E4.", description: "\uCE90\uB9AD\uD130 \uC124\uBA85\xB7\uC131\uACA9\xB7\uC2DC\uB098\uB9AC\uC624 \uBCF8\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lorebook: "\uB85C\uC5B4\uBD81 \uD56D\uBAA9\uC744 \uCD94\uAC00\xB7\uC218\uC815\xB7\uC0AD\uC81C\uD569\uB2C8\uB2E4.", regex: "\uC815\uADDC\uC2DD \uADDC\uCE59\uACFC HTML/CSS \uC6D0\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lua: "Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", greeting: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", choiceGreeting: "\uCCAB \uBA54\uC2DC\uC9C0\xB7\uC0C1\uD669 \uBAA9\uB85D\xB7\uBCC0\uC218\xB7Lua\xB7\uC815\uADDC\uC2DD\uC744 \uD55C \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD569\uB2C8\uB2E4." };
   var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system" };
   var Workshop = class {
     fitRequestInput() {
@@ -15563,7 +15570,7 @@ details[open] > summary { margin-bottom: 9px; }
       this.messagesEl = messages;
       if (!s.thread.length) messages.append(h("div", { class: "chatempty" }, h("span", { class: "eyebrow" }, "LET\u2019S MAKE SOMETHING"), h("h3", { style: "margin-top:10px" }, "\uD55C \uAC00\uC9C0 \uC544\uC774\uB514\uC5B4\uBD80\uD130 \uC2DC\uC791\uD558\uC138\uC694."), h("p", {}, "\u201C\uC774 \uC138\uACC4\uAD00\uC5D0 \uC5B4\uC6B8\uB9AC\uB294 \uC778\uBB3C\uBD80\uD130 \uAC19\uC774 \uC815\uD574\uBCF4\uC790.\u201D\n\u201C\uC774 \uC124\uC815\uC758 \uBAA8\uC21C\uC744 \uCC3E\uC544\uC918.\u201D\n\u201C\uC9C0\uAE08 \uC815\uD55C \uB0B4\uC6A9\uC744 \uC124\uBA85\uACFC \uB85C\uC5B4\uBD81\uC73C\uB85C \uC81C\uC548\uD574\uC918.\u201D"), h("p", { style: "margin-top:14px" }, "\uB300\uD654\uC640 \uC218\uC815\uC548\uC740 \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD574 \uBCF4\uAD00\uD569\uB2C8\uB2E4.")));
       for (const message of s.thread) {
-        const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "\uB098" : "\uC791\uC131 \uD30C\uD2B8\uB108"), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
+        const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "\uB098" : "\uC791\uC131 \uD30C\uD2B8\uB108", message.task && message.task !== "workshop" && TASKS[message.task] ? h("span", { class: "msgtask" }, TASKS[message.task].label) : null), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
         if (message.images?.length) {
           const gallery = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
           for (const image of message.images) gallery.append(h("img", { src: image.data, alt: image.name, loading: "lazy", style: "width:140px;max-width:100%;height:110px;object-fit:contain" }));
@@ -15637,17 +15644,21 @@ details[open] > summary { margin-bottom: 9px; }
         this.render();
       }, "\uC694\uCCAD \uAD6C\uC131");
       const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
-      const settingsToggle = this.b("\uC694\uCCAD \uC124\uC815 \u25BE", () => {
+      const toggleLabel = TASKS[this.task].label + " \u25BE";
+      const settingsToggle = this.b(toggleLabel, () => {
         const open = requestSettings.dataset.open !== "true";
         requestSettings.dataset.open = String(open);
         settingsToggle.setAttribute("aria-expanded", String(open));
-        settingsToggle.textContent = open ? "\uC124\uC815 \uB2EB\uAE30 \u25B4" : "\uC694\uCCAD \uC124\uC815 \u25BE";
-      }, "request-settings-toggle", { "aria-expanded": "false" });
+        settingsToggle.textContent = open ? "\uC124\uC815 \uB2EB\uAE30 \u25B4" : toggleLabel;
+      }, "request-settings-toggle", { "aria-expanded": "false", title: "\uC694\uCCAD \uC124\uC815 \xB7 \uC885\uB958\xB7\uBAA8\uB378\xB7\uAD6C\uC131\uC744 \uBC14\uAFC9\uB2C8\uB2E4." });
+      const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
+      const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " \uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\uD569\uB2C8\uB2E4." : "")));
       requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1", () => this.showPrompt(this.task), "small mobile-prompt")));
       panel.append(messages, h(
         "div",
         { class: "composer" },
         requestSettings,
+        modeStrip,
         this.requestInput,
         this.requestImageComposer(),
         h("div", { class: "row composer-actions" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
@@ -15763,12 +15774,12 @@ details[open] > summary { margin-bottom: 9px; }
           assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "\uC120\uD0DD\uD55C \uD56D\uBAA9 \uBC16\uC758 \uBCC0\uACBD\uC774 \uD3EC\uD568\uB418\uC5B4 \uC81C\uC548\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.");
         }
         const changes = proposalDiff(before, packet).length;
-        s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "\uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD560 \uBCC0\uACBD \uC0AC\uD56D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : TASKS[task].label + " \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0\uC11C \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uAC80\uD1A0\uD558\uC138\uC694." });
+        s.thread.push({ id: uid(), role: "assistant", task, content: task === "workshop" ? packet.data.reply : !changes ? "\uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD560 \uBCC0\uACBD \uC0AC\uD56D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : TASKS[task].label + " \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0\uC11C \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uAC80\uD1A0\uD558\uC138\uC694." });
         if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " \xB7 " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
         this.touch(false);
       } catch (error) {
         if (this.s.sessionId === s.sessionId) {
-          s.thread.push({ id: uid(), role: "assistant", content: error.message, error: true, ...raw ? { raw } : {} });
+          s.thread.push({ id: uid(), role: "assistant", task, content: error.message, error: true, ...raw ? { raw } : {} });
           this.touch(false);
         }
       } finally {

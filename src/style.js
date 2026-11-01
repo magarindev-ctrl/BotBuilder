@@ -168,7 +168,12 @@ h3 { font-size: 14px; font-weight: 650; }
 }
 .message { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex-shrink: 0; }
 .message.user { align-items: flex-end; }
-.msglabel { font-size: 11px; letter-spacing: .3px; color: var(--subtle); }
+.msglabel { font-size: 11px; letter-spacing: .3px; color: var(--subtle); display: inline-flex; align-items: center; gap: 6px; }
+.msgtask { font-size: 10px; letter-spacing: 0; padding: 1px 7px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); font-weight: 650; }
+.mode-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.mode-pill { background: var(--accent-bg); color: var(--accent); font-weight: 650; padding: 3px 10px; border-radius: 20px; font-size: 12px; white-space: nowrap; }
+.mode-strip[data-task=workshop] .mode-pill { background: var(--selected); color: var(--ink); }
+.mode-scope { flex: 1 1 200px; min-width: 0; }
 .bubble { font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .message.user .bubble { background: var(--bubble-bg); border-radius: 12px 12px 2px 12px; padding: 11px 14px; max-width: 95%; }
 .message.assistant .bubble { padding: 0 3px; }
@@ -294,6 +299,7 @@ details[open] > summary { margin-bottom: 9px; }
   .composer > textarea { grid-area: input; width: 100%; min-height: 52px; max-height: 122px; height: 52px; font-size: 16px; line-height: 22px; padding: 4px 9px; resize: none; }
   .mobile-prompt { display: block; }
   .request-settings { grid-area: options; min-width: 0; }
+  .composer > .mode-strip { display: none; }
   .request-settings-toggle { display: block; width: 100%; min-height: 40px; padding: 6px; font-size: 12px; }
   .request-settings-body { display: none; }
   .request-settings[data-open=true] .request-settings-body { display: flex; position: fixed; z-index: 12; bottom: calc(100% - var(--workshop-vheight, 100dvh) - var(--workshop-vtop, 0px) + 150px); left: 10px; right: 10px; max-height: 40dvh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 5px 30px #0005; }

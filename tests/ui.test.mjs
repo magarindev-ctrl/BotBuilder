@@ -602,3 +602,24 @@ test('mobile shows save status under the title, opens proposal details by defaul
     assert.equal(doc.querySelector('.candidate details').open, false, 'desktop proposal details stay collapsed');
   } finally { x.close(); }
 });
+
+test('the active request task is shown beside the input, on the mobile settings toggle and on each message', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document;
+    assert.equal(doc.querySelector('.mode-strip .mode-pill').textContent, '설계 대화');
+    assert.equal(doc.querySelector('.request-settings-toggle').textContent, '설계 대화 ▾');
+    x.app.task = 'lorebook'; x.app.s.draft.globalLore = [{ key: 'k', content: 'c', comment: '' }]; x.app.scopeOnly = true; x.app.render();
+    assert.equal(doc.querySelector('.mode-strip').dataset.task, 'lorebook');
+    assert.equal(doc.querySelector('.mode-strip .mode-pill').textContent, '로어북');
+    assert.match(doc.querySelector('.mode-strip .mode-scope').textContent, /로어북 항목을 추가·수정·삭제합니다\. 현재 선택한 항목만 수정합니다\./);
+    assert.equal(doc.querySelector('.request-settings-toggle').textContent, '로어북 ▾');
+    x.app.task = 'description'; x.app.scopeOnly = false; x.app.s.requests.description = '수정'; x.app.s.draft.desc = 'same'; x.app.touch();
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'rewritten' } }) });
+    await x.app.sendRequest();
+    assert.deepEqual([...doc.querySelectorAll('.msglabel')].map(e => e.textContent), ['나캐릭터 설명', '작성 파트너캐릭터 설명']);
+    assert.equal(x.app.s.thread.at(-1).task, 'description');
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '의논'; x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '네', changes: [] } }) });
+    await x.app.sendRequest();
+    assert.equal(doc.querySelectorAll('.msgtask').length, 2, 'workshop messages carry no task tag');
+  } finally { x.close(); }
+});
