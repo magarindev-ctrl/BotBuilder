@@ -507,6 +507,8 @@ try {
   await frame.waitForFunction(n=>window.__calls.length===n+2&&!document.querySelector('[data-action="send-request"]').disabled,imageCall);
   assert.equal(await frame.evaluate(n=>window.__calls[n+1].messages.flatMap(m=>m.multimodals??[]).length,imageCall),0);
   await frame.getByRole('button',{name:'이미지 다시 첨부',exact:true}).click();
+  // Button actions run after a tick (runButton), so wait for the re-render instead of counting right after the click.
+  await frame.waitForFunction(()=>document.querySelectorAll('.request-previews img').length===2);
   assert.equal(await frame.locator('.request-previews img').count(),2);
   await toolbarAction('임시 저장');
   await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.requestImages?.description?.length===2);
