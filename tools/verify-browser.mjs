@@ -386,6 +386,9 @@ try {
   assert.doesNotMatch(await patchCandidate.innerText(),/유지할 마지막 줄/);
   await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-desktop.png',animations:'disabled'});
   await page.setViewportSize({width:390,height:844});
+  // Let the breakpoint listener re-render before interacting, so later locators are not detached mid-action.
+  await frame.waitForFunction(()=>innerWidth===390&&matchMedia('(max-width: 840px)').matches);
+  await frame.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   await frame.getByRole('button',{name:'대화',exact:true}).click();
   // Proposal details open by default on mobile; only click the summary when it is still collapsed.
   assert.equal(await patchCandidate.locator('details').first().evaluate(d=>d.open),true,'mobile proposal details should start expanded');

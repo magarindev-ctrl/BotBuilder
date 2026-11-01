@@ -221,7 +221,8 @@ export class Workshop {
     this.themeMedia?.addEventListener("change", this.themeListener);
     // Re-render when crossing the mobile breakpoint (rotation, split screen) so layout-dependent parts update.
     this.layoutMedia = this.doc.defaultView?.matchMedia?.("(max-width: 840px)");
-    this.layoutListener = () => { if (!this.job) this.render(); };
+    // Skip when a click already re-rendered at the new width, so the DOM is not replaced twice.
+    this.layoutListener = () => { if (!this.job && this.renderedMobile !== !!this.layoutMedia?.matches) this.render(); };
     this.layoutMedia?.addEventListener?.("change", this.layoutListener);
     this.applyTheme();
     await Promise.all(Object.keys(TASKS).map(async (task) => {
@@ -393,6 +394,7 @@ export class Workshop {
     this.lockRequestEditors();
     this.sidebarOverflow();
     this.doc.defaultView?.requestAnimationFrame?.(() => this.sidebarOverflow?.());
+    this.renderedMobile = !!this.doc.defaultView?.matchMedia?.("(max-width: 840px)").matches;
   }
   renderEditor() {
     const h = this.h.bind(this), s = this.s;

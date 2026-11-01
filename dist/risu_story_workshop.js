@@ -15022,7 +15022,7 @@ details[open] > summary { margin-bottom: 9px; }
       this.themeMedia?.addEventListener("change", this.themeListener);
       this.layoutMedia = this.doc.defaultView?.matchMedia?.("(max-width: 840px)");
       this.layoutListener = () => {
-        if (!this.job) this.render();
+        if (!this.job && this.renderedMobile !== !!this.layoutMedia?.matches) this.render();
       };
       this.layoutMedia?.addEventListener?.("change", this.layoutListener);
       this.applyTheme();
@@ -15217,6 +15217,7 @@ details[open] > summary { margin-bottom: 9px; }
       this.lockRequestEditors();
       this.sidebarOverflow();
       this.doc.defaultView?.requestAnimationFrame?.(() => this.sidebarOverflow?.());
+      this.renderedMobile = !!this.doc.defaultView?.matchMedia?.("(max-width: 840px)").matches;
     }
     renderEditor() {
       const h = this.h.bind(this), s = this.s;
