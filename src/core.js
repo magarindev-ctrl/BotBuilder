@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.0.1';
+export const VERSION = '1.0.2';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -22,10 +22,17 @@ function object(x, label) {
   assert(x && typeof x === 'object' && !Array.isArray(x), label + ': 객체가 필요합니다.');
   for (const key of Object.keys(x)) assert(!dangerous.has(key), '허용하지 않는 키: ' + key);
 }
+const isEmptyValue = (v) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0) || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
 function keys(x, required, optional = []) {
   object(x, '응답');
   for (const k of required) assert(Object.hasOwn(x, k), '필수 필드 누락: ' + k);
-  for (const k of Object.keys(x)) assert([...required, ...optional].includes(k), '허용하지 않는 필드: ' + k);
+  for (const k of Object.keys(x)) {
+    if ([...required, ...optional].includes(k)) continue;
+    // Models sometimes echo another task's field with no content (e.g. "choices": []); dropping it keeps a valid
+    // proposal usable. A foreign field that carries data is still rejected so nothing is silently discarded.
+    assert(isEmptyValue(x[k]), '허용하지 않는 필드: ' + k);
+    delete x[k];
+  }
 }
 function str(x, label) { assert(typeof x === 'string', label + ': 문자열이 필요합니다.'); }
 function array(x, label) { assert(Array.isArray(x) && x.length <= 1000, label + ': 1,000개 이하 배열이 필요합니다.'); }
@@ -122,7 +129,7 @@ export function contextOf(draft) {
     scripts: luaEntries(draft), defaultVariables: draft.defaultVariables ?? '', assets: draft.additionalAssets ?? [] };
 }
 export const TASKS = {
-  workshop: { label: '설계 대화', hint: '방향을 의논하고, 필요한 경우에만 원고 수정안을 제안합니다.', format: { reply: '대화 답변', changes: [] }, instruction: '사용자와 대화하며 캐릭터 또는 시뮬레이션을 설계하라. 질문, 설정 점검, 아이디어 논의에는 data.reply로만 답하고 data.changes는 빈 배열 []로 둬라. 제작·수정을 요청했을 때만 필요한 작업별 수정안을 changes에 담아라. 임의로 범위를 확장하지 마라. 시뮬레이션이면 세계 규칙, 사용자 역할, 시작 상황, 진행 조건의 일관성을 검토하라.' },
+  workshop: { label: '설계 대화', hint: '방향을 의논하고, 필요한 경우에만 원고 수정안을 제안합니다.', format: { reply: '대화 답변', changes: [] }, instruction: '사용자와 대화하며 캐릭터 또는 시뮬레이션을 설계하라. 질문, 설정 점검, 아이디어 논의에는 data.reply로만 답하고 data.changes는 빈 배열 []로 둬라. 제작·수정을 요청했을 때만 필요한 작업별 수정안을 changes에 담아라. data에는 reply와 changes만 넣고, choices·text·upsert 같은 다른 작업의 필드는 changes 안의 해당 작업 data에만 넣어라. 임의로 범위를 확장하지 마라. 시뮬레이션이면 세계 규칙, 사용자 역할, 시작 상황, 진행 조건의 일관성을 검토하라.' },
   description: { label: '캐릭터 설명', format: { text: '완성된 설명 본문' }, instruction: '요청한 성격·배경·말투·관계·행동 특성을 캐릭터 설명으로 작성하거나 수정하라. 시뮬레이션의 설명에는 세계 규칙과 진행 방식도 포함하라. 새 작성·명시적 전체 재작성은 data.text 문자열, 기존 구간 수정은 data.text.edits의 before/after로 반환하라.' },
   lorebook: { label: '로어북', format: { upsert: [{ ref: null, entry: { comment: '제목', key: '키워드', content: '내용' } }], remove: [] }, instruction: '키워드·본문·활성화 조건이 일치하는 로어북을 작성하라. 기존 항목은 제공된 ref로 식별하고 수정하지 않는 항목과 설정을 유지하라.' },
   regex: { label: '정규식 · HTML/CSS', format: { upsert: [{ ref: null, rule: { comment: '이름', in: '패턴', out: '치환문', type: 'editdisplay', flag: 'g', ableFlag: true } }], remove: [] }, instruction: 'IN 패턴과 OUT의 캡처 참조·HTML/CSS를 일치시켜라. RisuAI 적용 유형은 editinput/editoutput/editprocess/editdisplay다. 생성 HTML은 텍스트 원고로만 검토된다. 기존 규칙의 ref·플래그·유형은 요청에 맞춰 보존하라.' },

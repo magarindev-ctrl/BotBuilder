@@ -73,7 +73,7 @@ test('templates expand only once and include complete working context + conversa
 });
 test('responses retain strict key, task, range and prototype validation after wrapper cleanup', () => {
   const c = blankCharacter();
-  for (const raw of [envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));
+  for (const raw of [envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [{ id: 'c' }] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));
   assert.throws(() => parseResponse(envelope('lorebook', { upsert: [{ ref: null, entry: { key: 'x', content: 'y', activationPercent: 101 } }], remove: [] }), 'lorebook', c));
 });
 test('task-specific output examples validate and distinguish dialogue from explicit manuscript changes',()=>{
@@ -196,4 +196,16 @@ test('charx full roundtrip embeds referenced image bytes and preserves native Lu
   const buffer = await exportCharx({ readImage: async () => Uint8Array.from([1, 2, 3]) }, c); const { card, files } = unpack(buffer); assert.equal(card.data.assets[0].uri, 'embeded://assets/0.png'); assert.deepEqual([...files['assets/0.png']], [1, 2, 3]);
   let saves = 0; const imported = await importCharx({ saveAsset: async value => { saves++; assert.deepEqual([...value], [1, 2, 3]); return 'assets/imported'; } }, buffer);
   assert.equal(saves, 1); assert.equal(imported.character.additionalAssets[0][1], 'assets/imported'); assert.deepEqual(imported.character.triggerscript, c.triggerscript); assert.deepEqual(imported.character.globalLore, c.globalLore);
+});
+
+test('empty foreign fields such as "choices": [] are dropped instead of rejecting the whole proposal', () => {
+  const draft = blankCharacter(); draft.globalLore = [{ key: 'k', content: 'old rule', comment: 'rules' }];
+  const raw = JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '제안', changes: [{ task: 'lorebook', data: { upsert: [{ ref: null, entry: { comment: '새 항목', key: 'a', content: 'b' } }], remove: [], scripts: [] } }], choices: [], text: '', variables: {} } });
+  const packet = parseResponse(raw, 'workshop', draft);
+  assert.deepEqual(Object.keys(packet.data).sort(), ['changes', 'reply']);
+  assert.deepEqual(Object.keys(packet.data.changes[0].data).sort(), ['remove', 'upsert']);
+  assert.equal(applyPacket(draft, packet).globalLore.length, 2);
+  const filled = JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '제안', changes: [], choices: [{ id: 'a', label: 'x', content: 'y' }] } });
+  assert.throws(() => parseResponse(filled, 'workshop', draft), /허용하지 않는 필드: choices/);
+  assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'ok', notes: 'extra' } }), 'description', draft), /허용하지 않는 필드: notes/);
 });

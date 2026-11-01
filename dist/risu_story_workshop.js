@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.0.1
+//@version 1.0.2
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-01: v1.0.2 drops empty foreign response fields such as "choices": [] instead of rejecting the whole proposal; foreign fields with content are still rejected. The workshop instruction now says data holds only reply and changes.
 Modified 2026-11-01: v1.0.1 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode; mobile shows save status under the title, fades the tab strip edge while more tabs are hidden, opens proposal details by default and re-renders when the layout breakpoint changes. The active request task is shown as a strip above the input, on the mobile settings toggle and as a tag on each message.
 Modified 2026-10-31: v1.0.0 adds the GitHub Raw update URL for native RisuAI/RisuBard plugin updates; version unchanged.
 Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
@@ -9912,7 +9913,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.0.1";
+  var VERSION = "1.0.2";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -9935,10 +9936,15 @@ Public License instead of this License.  But first, please read
     assert(x && typeof x === "object" && !Array.isArray(x), label + ": \uAC1D\uCCB4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
     for (const key2 of Object.keys(x)) assert(!dangerous.has(key2), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD0A4: " + key2);
   }
+  var isEmptyValue = (v) => v === null || v === void 0 || v === "" || Array.isArray(v) && v.length === 0 || typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0;
   function keys(x, required, optional = []) {
     object(x, "\uC751\uB2F5");
     for (const k of required) assert(Object.hasOwn(x, k), "\uD544\uC218 \uD544\uB4DC \uB204\uB77D: " + k);
-    for (const k of Object.keys(x)) assert([...required, ...optional].includes(k), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD544\uB4DC: " + k);
+    for (const k of Object.keys(x)) {
+      if ([...required, ...optional].includes(k)) continue;
+      assert(isEmptyValue(x[k]), "\uD5C8\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD544\uB4DC: " + k);
+      delete x[k];
+    }
   }
   function str(x, label) {
     assert(typeof x === "string", label + ": \uBB38\uC790\uC5F4\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
@@ -10050,7 +10056,7 @@ Public License instead of this License.  But first, please read
     };
   }
   var TASKS = {
-    workshop: { label: "\uC124\uACC4 \uB300\uD654", hint: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD558\uACE0, \uD544\uC694\uD55C \uACBD\uC6B0\uC5D0\uB9CC \uC6D0\uACE0 \uC218\uC815\uC548\uC744 \uC81C\uC548\uD569\uB2C8\uB2E4.", format: { reply: "\uB300\uD654 \uB2F5\uBCC0", changes: [] }, instruction: "\uC0AC\uC6A9\uC790\uC640 \uB300\uD654\uD558\uBA70 \uCE90\uB9AD\uD130 \uB610\uB294 \uC2DC\uBBAC\uB808\uC774\uC158\uC744 \uC124\uACC4\uD558\uB77C. \uC9C8\uBB38, \uC124\uC815 \uC810\uAC80, \uC544\uC774\uB514\uC5B4 \uB17C\uC758\uC5D0\uB294 data.reply\uB85C\uB9CC \uB2F5\uD558\uACE0 data.changes\uB294 \uBE48 \uBC30\uC5F4 []\uB85C \uB46C\uB77C. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD588\uC744 \uB54C\uB9CC \uD544\uC694\uD55C \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 changes\uC5D0 \uB2F4\uC544\uB77C. \uC784\uC758\uB85C \uBC94\uC704\uB97C \uD655\uC7A5\uD558\uC9C0 \uB9C8\uB77C. \uC2DC\uBBAC\uB808\uC774\uC158\uC774\uBA74 \uC138\uACC4 \uADDC\uCE59, \uC0AC\uC6A9\uC790 \uC5ED\uD560, \uC2DC\uC791 \uC0C1\uD669, \uC9C4\uD589 \uC870\uAC74\uC758 \uC77C\uAD00\uC131\uC744 \uAC80\uD1A0\uD558\uB77C." },
+    workshop: { label: "\uC124\uACC4 \uB300\uD654", hint: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD558\uACE0, \uD544\uC694\uD55C \uACBD\uC6B0\uC5D0\uB9CC \uC6D0\uACE0 \uC218\uC815\uC548\uC744 \uC81C\uC548\uD569\uB2C8\uB2E4.", format: { reply: "\uB300\uD654 \uB2F5\uBCC0", changes: [] }, instruction: "\uC0AC\uC6A9\uC790\uC640 \uB300\uD654\uD558\uBA70 \uCE90\uB9AD\uD130 \uB610\uB294 \uC2DC\uBBAC\uB808\uC774\uC158\uC744 \uC124\uACC4\uD558\uB77C. \uC9C8\uBB38, \uC124\uC815 \uC810\uAC80, \uC544\uC774\uB514\uC5B4 \uB17C\uC758\uC5D0\uB294 data.reply\uB85C\uB9CC \uB2F5\uD558\uACE0 data.changes\uB294 \uBE48 \uBC30\uC5F4 []\uB85C \uB46C\uB77C. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD588\uC744 \uB54C\uB9CC \uD544\uC694\uD55C \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 changes\uC5D0 \uB2F4\uC544\uB77C. data\uC5D0\uB294 reply\uC640 changes\uB9CC \uB123\uACE0, choices\xB7text\xB7upsert \uAC19\uC740 \uB2E4\uB978 \uC791\uC5C5\uC758 \uD544\uB4DC\uB294 changes \uC548\uC758 \uD574\uB2F9 \uC791\uC5C5 data\uC5D0\uB9CC \uB123\uC5B4\uB77C. \uC784\uC758\uB85C \uBC94\uC704\uB97C \uD655\uC7A5\uD558\uC9C0 \uB9C8\uB77C. \uC2DC\uBBAC\uB808\uC774\uC158\uC774\uBA74 \uC138\uACC4 \uADDC\uCE59, \uC0AC\uC6A9\uC790 \uC5ED\uD560, \uC2DC\uC791 \uC0C1\uD669, \uC9C4\uD589 \uC870\uAC74\uC758 \uC77C\uAD00\uC131\uC744 \uAC80\uD1A0\uD558\uB77C." },
     description: { label: "\uCE90\uB9AD\uD130 \uC124\uBA85", format: { text: "\uC644\uC131\uB41C \uC124\uBA85 \uBCF8\uBB38" }, instruction: "\uC694\uCCAD\uD55C \uC131\uACA9\xB7\uBC30\uACBD\xB7\uB9D0\uD22C\xB7\uAD00\uACC4\xB7\uD589\uB3D9 \uD2B9\uC131\uC744 \uCE90\uB9AD\uD130 \uC124\uBA85\uC73C\uB85C \uC791\uC131\uD558\uAC70\uB098 \uC218\uC815\uD558\uB77C. \uC2DC\uBBAC\uB808\uC774\uC158\uC758 \uC124\uBA85\uC5D0\uB294 \uC138\uACC4 \uADDC\uCE59\uACFC \uC9C4\uD589 \uBC29\uC2DD\uB3C4 \uD3EC\uD568\uD558\uB77C. \uC0C8 \uC791\uC131\xB7\uBA85\uC2DC\uC801 \uC804\uCCB4 \uC7AC\uC791\uC131\uC740 data.text \uBB38\uC790\uC5F4, \uAE30\uC874 \uAD6C\uAC04 \uC218\uC815\uC740 data.text.edits\uC758 before/after\uB85C \uBC18\uD658\uD558\uB77C." },
     lorebook: { label: "\uB85C\uC5B4\uBD81", format: { upsert: [{ ref: null, entry: { comment: "\uC81C\uBAA9", key: "\uD0A4\uC6CC\uB4DC", content: "\uB0B4\uC6A9" } }], remove: [] }, instruction: "\uD0A4\uC6CC\uB4DC\xB7\uBCF8\uBB38\xB7\uD65C\uC131\uD654 \uC870\uAC74\uC774 \uC77C\uCE58\uD558\uB294 \uB85C\uC5B4\uBD81\uC744 \uC791\uC131\uD558\uB77C. \uAE30\uC874 \uD56D\uBAA9\uC740 \uC81C\uACF5\uB41C ref\uB85C \uC2DD\uBCC4\uD558\uACE0 \uC218\uC815\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9\uACFC \uC124\uC815\uC744 \uC720\uC9C0\uD558\uB77C." },
     regex: { label: "\uC815\uADDC\uC2DD \xB7 HTML/CSS", format: { upsert: [{ ref: null, rule: { comment: "\uC774\uB984", in: "\uD328\uD134", out: "\uCE58\uD658\uBB38", type: "editdisplay", flag: "g", ableFlag: true } }], remove: [] }, instruction: "IN \uD328\uD134\uACFC OUT\uC758 \uCEA1\uCC98 \uCC38\uC870\xB7HTML/CSS\uB97C \uC77C\uCE58\uC2DC\uCF1C\uB77C. RisuAI \uC801\uC6A9 \uC720\uD615\uC740 editinput/editoutput/editprocess/editdisplay\uB2E4. \uC0DD\uC131 HTML\uC740 \uD14D\uC2A4\uD2B8 \uC6D0\uACE0\uB85C\uB9CC \uAC80\uD1A0\uB41C\uB2E4. \uAE30\uC874 \uADDC\uCE59\uC758 ref\xB7\uD50C\uB798\uADF8\xB7\uC720\uD615\uC740 \uC694\uCCAD\uC5D0 \uB9DE\uCDB0 \uBCF4\uC874\uD558\uB77C." },
