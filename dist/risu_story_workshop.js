@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.0.3
+//@version 1.0.4
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.0.4 adds DA Interop v1 (src/interop.js) so Dusk Atelier can open 봇빌더 and read the current draft through pluginStorage; read-only toward the draft, no existing behavior changed. The bundle must contain the marker /*__DA_WORKSHOP_INTEROP__* /.
 Modified 2026-11-01: v1.0.3 reports a response cut off mid-stream (unclosed JSON) with the received length and likely causes, adds output-length rules to the default prompts (partial edits for long existing text, one long body per response), and asks mobile users to keep the screen on while a request runs.
 Modified 2026-11-01: v1.0.2 drops empty foreign response fields such as "choices": [] instead of rejecting the whole proposal; foreign fields with content are still rejected. The workshop instruction now says data holds only reply and changes.
 Modified 2026-11-01: v1.0.1 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode; mobile shows save status under the title, fades the tab strip edge while more tabs are hidden, opens proposal details by default and re-renders when the layout breakpoint changes. The active request task is shown as a strip above the input, on the mobile settings toggle and as a tag on each message.
@@ -22,6 +23,7 @@ Modified 2026-10-29: v0.4.2 preserves Lua mode in CHARX by placing a Lua trigger
 Modified 2026-10-28: v0.4.1 adds bulk asset unlinking with CCv3 metadata cleanup and removes the 100MiB asset limit from charx export.
 Modified 2026-10-28: v0.4.0 adds exact before/after text edits across authoring tasks, atomic validation, line-based review and response schema v2 with legacy v1 support.
 Modified 2026-10-28: v0.3.3 expands request capacity and adds lorebook selection; v0.3.4 fixes mobile lorebook lists; v0.3.5 adds sparse lorebook responses and diffs. v0.3.6 synchronizes these changes to source, restores the JSON guide and rejects wrapped array responses.
+DA Interop v1 protocol (storage keys da_interop:reg/patch/action, action revisions and 15 s expiry) is specified by Pyser08 at https://github.com/Pyser08/dusk-atelier-interop; 봇빌더 ships its own implementation in src/interop.js under this project's GPL-3.0-only license.
 봇빌더 runtime dependencies: RE2JS 2.9.0, fflate 0.8.2, msgpackr 1.11.9, @noble/ciphers 1.3.0, @noble/hashes 1.8.0 (MIT).
 RPack mapping: RisuAI f50b5942ec6aa59aa3c56049ac687ca09667fec7, SHA256 428e939c41617140ef2fad0420d9163cc80ce7c9b2f5e620223a25acc8afd498. Used only within RisuAI-compatible plugin runtime under the RPack MIT option.
 
@@ -9914,7 +9916,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.0.3";
+  var VERSION = "1.0.4";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -14818,6 +14820,168 @@ details[open] > summary { margin-bottom: 9px; }
     }, "small"))));
   }
 
+  // src/interop.js
+  var DA_WORKSHOP_INTEROP_MARK = "/*__DA_WORKSHOP_INTEROP__*/";
+  var INTEROP_SPEC = 1;
+  var INTEROP_KEYS = { reg: "da_interop:reg:", patch: "da_interop:patch:", action: "da_interop:action:" };
+  var INTEROP_POLL_MS = 3e3;
+  var INTEROP_ACTION_POLL_MS = 1e3;
+  var INTEROP_ACTION_TTL_MS = 15e3;
+  var INTEROP_RESULT_MAX = 1048576;
+  var ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
+  var KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+  var clone2 = (value) => JSON.parse(JSON.stringify(value ?? null));
+  function normalizeInterop(cfg) {
+    if (!cfg || typeof cfg !== "object") throw new Error("[DA Interop] \uC124\uC815 \uAC1D\uCCB4\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4");
+    if (!ID_PATTERN.test(cfg.id ?? "")) throw new Error("[DA Interop] id \uD615\uC2DD \uC624\uB958: " + cfg.id);
+    const actions = (Array.isArray(cfg.actions) ? cfg.actions : []).filter((action) => action && KEY_PATTERN.test(action.key ?? "") && typeof action.run === "function");
+    if (typeof cfg.apply !== "function" && !actions.length) throw new Error("[DA Interop] apply \uD568\uC218\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4");
+    return {
+      id: cfg.id,
+      name: cfg.name ?? cfg.id,
+      version: String(cfg.version ?? ""),
+      pluginName: cfg.pluginName ?? "",
+      description: cfg.description ?? "",
+      fields: Array.isArray(cfg.fields) ? cfg.fields : [],
+      presets: Array.isArray(cfg.presets) ? cfg.presets : [],
+      apply: typeof cfg.apply === "function" ? cfg.apply : async () => {
+      },
+      getValues: typeof cfg.getValues === "function" ? cfg.getValues : null,
+      actions
+    };
+  }
+  async function registerInterop(storage, rawCfg, options = {}) {
+    if (!storage?.getItem || !storage?.setItem) {
+      console.warn("[DA Interop] \uD50C\uB7EC\uADF8\uC778 API\uB97C \uCC3E\uC9C0 \uBABB\uD574 \uB4F1\uB85D\uC744 \uAC74\uB108\uB701\uB2C8\uB2E4");
+      return null;
+    }
+    const cfg = normalizeInterop(rawCfg);
+    const now = options.now ?? (() => Date.now());
+    const visible = options.visible ?? (() => typeof document === "undefined" || document.visibilityState !== "hidden");
+    const timers = options.timers ?? { setInterval: (fn, ms) => setInterval(fn, ms), clearInterval: (id) => clearInterval(id) };
+    let appliedRev = 0, actionRev = 0, busy = false, lastError = null, lastAction = {}, stopped = false;
+    const readKey = async (key2) => {
+      try {
+        const raw = await storage.getItem(key2);
+        return raw == null || raw === "" ? null : typeof raw === "string" ? JSON.parse(raw) : raw;
+      } catch {
+        return null;
+      }
+    };
+    const writeKey = (key2, value) => storage.setItem(key2, JSON.stringify(value));
+    const currentValues = async () => {
+      if (cfg.getValues) {
+        try {
+          return clone2(await cfg.getValues());
+        } catch (error) {
+          console.warn("[DA Interop] getValues \uC2E4\uD328", error);
+        }
+      }
+      return Object.fromEntries(cfg.fields.map((field) => [field.key, field.default ?? null]));
+    };
+    const publish = async (extra = {}) => {
+      const previous = await readKey(INTEROP_KEYS.reg + cfg.id);
+      if (previous?.appliedRev) appliedRev = Math.max(appliedRev, previous.appliedRev);
+      if (previous?.actionRev) actionRev = Math.max(actionRev, previous.actionRev);
+      return writeKey(INTEROP_KEYS.reg + cfg.id, {
+        spec: INTEROP_SPEC,
+        id: cfg.id,
+        name: cfg.name,
+        version: cfg.version,
+        pluginName: cfg.pluginName,
+        description: cfg.description,
+        fields: clone2(cfg.fields),
+        presets: clone2(cfg.presets),
+        actions: cfg.actions.map((action) => ({ key: action.key, label: action.label ?? action.key, description: action.description ?? "" })),
+        values: await currentValues(),
+        appliedRev,
+        actionRev,
+        lastError,
+        ...lastAction,
+        ...extra,
+        updatedAt: now()
+      });
+    };
+    const fresh = (request) => now() - (request.updatedAt ?? 0) <= INTEROP_ACTION_TTL_MS;
+    const check2 = async () => {
+      if (busy || stopped) return;
+      busy = true;
+      try {
+        const patch = await readKey(INTEROP_KEYS.patch + cfg.id);
+        if (!patch || !(patch.rev > appliedRev)) return;
+        lastError = null;
+        try {
+          await cfg.apply(clone2(patch.values ?? {}), { preset: patch.preset ?? null, rev: patch.rev, source: "dusk-atelier" });
+        } catch (error) {
+          lastError = String(error?.message ?? error);
+          console.warn("[DA Interop] apply \uC2E4\uD328", error);
+        }
+        appliedRev = patch.rev;
+        await publish();
+      } finally {
+        busy = false;
+      }
+    };
+    const checkAction = async () => {
+      if (busy || stopped || !cfg.actions.length) return;
+      busy = true;
+      try {
+        const request = await readKey(INTEROP_KEYS.action + cfg.id);
+        if (!request || !(request.rev > actionRev)) return;
+        actionRev = request.rev;
+        const action = cfg.actions.find((candidate) => candidate.key === request.key);
+        let actionResult = null, actionError = null;
+        if (!action) actionError = "unknown action: " + request.key;
+        else if (!fresh(request)) actionError = "expired";
+        else {
+          try {
+            const output = await action.run(clone2(request.args ?? null), { rev: request.rev, source: "dusk-atelier" });
+            actionResult = output === void 0 ? null : clone2(output);
+            if (JSON.stringify(actionResult).length > INTEROP_RESULT_MAX) {
+              actionResult = null;
+              actionError = "result too large";
+            }
+          } catch (error) {
+            actionError = String(error?.message ?? error);
+            console.warn("[DA Interop] action \uC2E4\uD328", error);
+          }
+        }
+        lastAction = { actionKey: request.key, actionResult, actionError };
+        await publish();
+      } finally {
+        busy = false;
+      }
+    };
+    await publish();
+    const stale = await readKey(INTEROP_KEYS.action + cfg.id);
+    if (stale?.rev > actionRev && !fresh(stale)) {
+      actionRev = stale.rev;
+      lastAction = { actionKey: stale.key ?? null, actionResult: null, actionError: "expired" };
+      await publish();
+    }
+    await check2();
+    await checkAction();
+    const handles = [timers.setInterval(() => {
+      if (visible()) check2().catch(() => {
+      });
+    }, INTEROP_POLL_MS)];
+    if (cfg.actions.length) handles.push(timers.setInterval(() => {
+      if (visible()) checkAction().catch(() => {
+      });
+    }, INTEROP_ACTION_POLL_MS));
+    return {
+      refresh: () => publish(),
+      poll: async () => {
+        await check2();
+        await checkAction();
+      },
+      stop: () => {
+        stopped = true;
+        for (const handle of handles) timers.clearInterval(handle);
+      }
+    };
+  }
+
   // src/ui.js
   var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B", "\uD504\uB9AC\uC14B"]];
   var TAB_FIELDS = { overview: ["name"], description: ["desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags"], lorebook: ["globalLore"], regex: ["customscript"], lua: ["triggerscript", "defaultVariables"], greeting: ["firstMessage", "alternateGreetings"], assets: ["image", "additionalAssets", "ccAssets"] };
@@ -15105,11 +15269,39 @@ details[open] > summary { margin-bottom: 9px; }
       };
       await this.api.registerSetting("\uBD07\uBE4C\uB354", open, "BB", "html");
       await this.api.registerButton({ name: "\uBD07\uBE4C\uB354", icon: "BB", iconType: "html", location: "hamburger" }, open);
+      this.interopReady = registerInterop(this.api.pluginStorage, {
+        id: "risu-story-workshop",
+        name: "\uBD07\uBE4C\uB354",
+        version: VERSION,
+        pluginName: "risu_story_workshop",
+        description: "Dusk Atelier\uC5D0\uC11C \uBD07\uBE4C\uB354 \uD654\uBA74\uC744 \uC5F4\uACE0, \uC791\uC5C5 \uC911\uC778 \uC6D0\uACE0\uB97C \uB118\uACA8\uBC1B\uC544\uC694.",
+        actions: [
+          { key: "open", label: "\uBD07\uBE4C\uB354 \uC5F4\uAE30", run: async () => {
+            await open();
+            return { opened: true };
+          } },
+          { key: "draft", label: "\uC791\uC5C5 \uC911\uC778 \uC6D0\uACE0 \uBCF4\uB0B4\uAE30", run: async () => this.draftForInterop() }
+        ]
+      }).then((handle) => {
+        this.interop = handle;
+        if (this.destroyed) handle?.stop();
+        return handle;
+      }).catch((error) => {
+        console.warn("[\uBD07\uBE4C\uB354] DA Interop \uB4F1\uB85D \uC2E4\uD328 " + DA_WORKSHOP_INTEROP_MARK, error);
+        return null;
+      });
       this.autoTimer = setInterval(() => this.autosave().catch((error) => this.toast("\uC790\uB3D9 \uC800\uC7A5 \uC2E4\uD328: " + error.message, true)), 18e4);
       this.elapsedTimer = setInterval(() => this.jobStatus(), 1e3);
       await this.api.onUnload(() => this.destroy());
     }
+    // Snapshot handed to Dusk Atelier: editable fields only, never chats or the host id.
+    draftForInterop() {
+      if (!this.s?.draft) return null;
+      return { name: String(this.s.draft.name ?? ""), targetId: this.s.targetId ?? null, started: !!this.started, dirty: !!this.dirty(), savedAt: this.slots.autosave?.savedAt ?? null, draft: editable(this.s.draft) };
+    }
     destroy() {
+      this.destroyed = true;
+      this.interop?.stop();
       this.doc.defaultView?.visualViewport?.removeEventListener("resize", this.updateViewport);
       this.doc.defaultView?.visualViewport?.removeEventListener("scroll", this.updateViewport);
       clearInterval(this.autoTimer);
