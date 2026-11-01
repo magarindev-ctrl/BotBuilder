@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.1.1';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -133,9 +133,9 @@ export const TASKS = {
   description: { label: '캐릭터 설명', format: { text: '완성된 설명 본문' }, instruction: '요청한 성격·배경·말투·관계·행동 특성을 캐릭터 설명으로 작성하거나 수정하라. 시뮬레이션의 설명에는 세계 규칙과 진행 방식도 포함하라. 새 작성·명시적 전체 재작성은 data.text 문자열, 기존 구간 수정은 data.text.edits의 before/after로 반환하라.' },
   lorebook: { label: '로어북', format: { upsert: [{ ref: null, entry: { comment: '제목', key: '키워드', content: '내용' } }], remove: [] }, instruction: '키워드·본문·활성화 조건이 일치하는 로어북을 작성하라. 기존 항목은 제공된 ref로 식별하고 수정하지 않는 항목과 설정을 유지하라.' },
   regex: { label: '정규식 · HTML/CSS', format: { upsert: [{ ref: null, rule: { comment: '이름', in: '패턴', out: '치환문', type: 'editdisplay', flag: 'g', ableFlag: true } }], remove: [] }, instruction: 'IN 패턴과 OUT의 캡처 참조·HTML/CSS를 일치시켜라. RisuAI 적용 유형은 editinput/editoutput/editprocess/editdisplay다. 생성 HTML은 텍스트 원고로만 검토된다. 기존 규칙의 ref·플래그·유형은 요청에 맞춰 보존하라.' },
-  lua: { label: 'Lua · 변수', format: { scripts: [{ ref: null, comment: '설명', code: '-- Lua' }], removeScripts: [], variables: {}, removeVariables: [] }, instruction: 'RisuAI Lua 코드와 초기 변수를 작성하라. 확인된 onInput/onOutput/onStart/onButtonClick(accessKey, buttonKey), getChatVar(accessKey,key), setChatVar(accessKey,key,value)를 사용하라. 초기 변수는 key=value 문자열이며 값에 등호·줄바꿈을 넣지 마라. 기존 이벤트·다른 효과를 유지하라.' },
+  lua: { label: 'Lua · 변수', format: { scripts: [{ ref: null, comment: '설명', code: '-- Lua' }], removeScripts: [], variables: {}, removeVariables: [] }, instruction: 'RisuAI Lua 코드와 초기 변수를 작성하라. 확인된 onInput/onOutput/onStart/onButtonClick(accessKey, buttonKey), getChatVar(accessKey,key), setChatVar(accessKey,key,value)를 사용하라. 초기 변수는 key=value 문자열이며 값에 등호·줄바꿈을 넣지 마라. 변수 값에 객체·배열을 넣지 마라. 슬롯·목록처럼 여러 값이 필요하면 partner1_name, partner1_state처럼 변수를 나눠라. 기존 이벤트·다른 효과를 유지하라.' },
   greeting: { label: '첫 메시지', format: { text: '시작 장면' }, instruction: '제공된 설명과 로어북을 참고해 캐릭터·세계관과 일관된 시작 장면을 작성하라. 새 작성은 data.text 문자열, 기존 구간 수정은 data.text.edits의 before/after로 반환하라.' },
-  choiceGreeting: { label: '시작 상황 선택', format: { text: '<button risu-btn="scene_a">시작</button>\n{{#if {{equal::{{getvar::scene}}::a}}}}선택한 장면{{/if}}', choices: [{ id: 'scene_a', label: '시작', content: '선택한 장면' }], scripts: [{ ref: null, comment: '시작 상황', code: 'function onButtonClick(accessKey, buttonKey)\n  if buttonKey == "scene_a" then\n    setChatVar(accessKey, "scene", "a")\n  end\nend' }], variables: { scene: 'none' }, regex: [] }, instruction: '퍼스트 메시지, 상황 목록, 변수, Lua, 필요한 정규식을 하나의 묶음으로 작성하라. HTML button의 risu-btn 값과 onButtonClick의 buttonKey 분기를 일치시켜라. 상황 본문이 선택 후 보이도록 첫 메시지에서 {{#if {{equal::{{getvar::scene}}::a}}}}...{{/if}} 같은 CBS 또는 제공된 코드 경로로 연결하라. choices의 content를 목록에만 적고 실제 표시에서 누락하지 마라. risu-trigger와 혼용하지 마라.' },
+  choiceGreeting: { label: '시작 상황 선택', format: { text: '<button risu-btn="scene_a">시작</button>\n{{#if {{equal::{{getvar::scene}}::a}}}}선택한 장면{{/if}}', choices: [{ id: 'scene_a', label: '시작', content: '선택한 장면' }], scripts: [{ ref: null, comment: '시작 상황', code: 'function onButtonClick(accessKey, buttonKey)\n  if buttonKey == "scene_a" then\n    setChatVar(accessKey, "scene", "a")\n  end\nend' }], variables: { scene: 'none' }, regex: [] }, instruction: '퍼스트 메시지, 상황 목록, 변수, Lua, 필요한 정규식을 하나의 묶음으로 작성하라. HTML button의 risu-btn 값과 onButtonClick의 buttonKey 분기를 일치시켜라. 상황 본문이 선택 후 보이도록 첫 메시지에서 {{#if {{equal::{{getvar::scene}}::a}}}}...{{/if}} 같은 CBS 또는 제공된 코드 경로로 연결하라. choices의 content를 목록에만 적고 실제 표시에서 누락하지 마라. risu-trigger와 혼용하지 마라. 변수 값은 객체·배열이 아닌 한 줄 문자열이다.' },
 };
 const COMMON = `너는 RisuAI·RisuBard의 캐릭터와 시뮬레이션 제작을 돕는 공동 작성자다.
 이 작업은 허구의 세계와 인물을 만드는 창작 프로젝트다. 작품 속 사건과 현실의 사실을 구분하라.
@@ -178,7 +178,7 @@ export function formatFor(task, session, options = {}) {
   const format = { schemaVersion: 2, task, data: TASKS[task].format };
   const examples = responseExamples(task);
   const guide = examples.map((example, i) => "[올바른 출력 예시 " + (i + 1) + " — 새 작성·명시적 전체 재작성 또는 대화]\n" + JSON.stringify(example, null, 2)).join("\n\n");
-  const invalid = "\n\n[잘못된 출력 예시 — JSON 밖 제목·설명을 붙이지 마라]\n## OOC Response\n" + JSON.stringify(examples[0]);
+  const invalid = "\n\n[잘못된 출력 예시 — 응답 객체 앞이나 뒤에 Markdown 제목, 인사말, 해설, 코드 펜스 중 하나라도 붙은 응답. 올바른 출력 예시 1을 아무 장식 없이 그대로 보낸다]";
   const patchExample = textEditExample(task);
   const patchGuide = '\n\n[기존 원문 부분편집 예시 — 예시 전용 원문과 ref이며 실제 현재안으로 교체할 것]\n원문: ' + JSON.stringify(patchExample.source) + '\n응답: ' + JSON.stringify(patchExample.packet, null, 2);
   return jsonContract(task, options) + patchGuide + "\n\n[새로 작성할 때의 데이터 구조 — 기존 텍스트 수정은 공통 edits 형식 사용]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges의 각 task는 description/lorebook/regex/lua/greeting/choiceGreeting 중 하나이며 해당 data 형식은 다음과 같다:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n허용 필드: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. 삭제 목록에는 현재 원고의 ref만 사용할 것.";
@@ -231,12 +231,16 @@ function updates(list, field, prefix, draft, remove = []) {
   }
   for (const ref of remove) { assert(valid(ref) && !used.has(ref), '삭제 참조가 중복되거나 유효하지 않습니다.'); used.add(ref); }
 }
+// Risu stores initial variables as key=value lines, so a value is one flat string: never an object, array or number.
+function variableString(key, value) {
+  assert(typeof value === 'string', '변수 ' + key + ': 값은 한 줄 문자열이어야 합니다. 객체·배열·숫자는 넣을 수 없습니다. 구조화된 값은 partner1_name, partner1_state처럼 변수를 나누세요.');
+}
 function variables(data, draft) {
   object(data.variables, '변수'); array(data.removeVariables, '삭제할 변수');
   const old = parseVariables(draft.defaultVariables ?? '');
   for (const [key, val] of Object.entries(data.variables)) {
     assert(/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key) && !dangerous.has(key), '허용하지 않는 변수명: ' + key);
-    str(val, '변수 값'); assert(val.length > 0 && !/[=\r\n]/.test(val), '초기 변수 값에는 등호·줄바꿈·빈 값을 사용할 수 없습니다.');
+    variableString(key, val); assert(val.length > 0 && !/[=\r\n]/.test(val), '초기 변수 값에는 등호·줄바꿈·빈 값을 사용할 수 없습니다.');
   }
   const seen = new Set();
   for (const key of data.removeVariables) { assert(typeof key === 'string' && Object.hasOwn(old, key) && !Object.hasOwn(data.variables, key) && !seen.has(key), '삭제할 변수가 없거나 중복됩니다.'); seen.add(key); }
@@ -291,7 +295,10 @@ function materializeScripts(items, draft) {
 }
 function materializeVariables(values, draft) {
   object(values, '변수'); const prior = parseVariables(draft.defaultVariables ?? '');
-  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, resolveTextValue(prior[key], value, '변수 ' + key, Object.hasOwn(prior, key))]));
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => {
+    if (typeof value !== 'string' && !(isTextEdit(value) && Object.hasOwn(value, 'edits'))) variableString(key, value);
+    return [key, resolveTextValue(prior[key], value, '변수 ' + key, Object.hasOwn(prior, key))];
+  }));
 }
 export function materializeData(task, data, draft) {
   object(data, '응답');
@@ -776,7 +783,7 @@ export function jsonContract(task, options = {}) {
 JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
 모든 키와 문자열은 큰따옴표를 사용한다. 문자열 내부의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다. Lua/HTML/정규식도 반드시 JSON 문자열 값 안에 넣는다.
 주석, 후행 쉼표, 작은따옴표 문자열, undefined, 생략 기호는 금지한다. null/true/false는 문자열이 아니다.
-출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다.
+출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다. 변수 값에 객체·배열을 넣지 마라. 여러 값은 변수를 나눠라.
 새 항목의 ref는 null, 기존 항목 수정·삭제의 ref는 현재안에 실제로 있는 값만 사용한다.
 workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
 workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
