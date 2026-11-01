@@ -5,6 +5,7 @@ import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
 import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket, withCharacterIcon } from './core.js';
+import { registerInterop, DA_WORKSHOP_INTEROP_MARK } from './interop.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋', '프리셋']];
 const TAB_FIELDS = { overview: ['name'], description: ['desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags'], lorebook: ['globalLore'], regex: ['customscript'], lua: ['triggerscript', 'defaultVariables'], greeting: ['firstMessage', 'alternateGreetings'], assets: ['image', 'additionalAssets', 'ccAssets'] };
@@ -256,11 +257,28 @@ export class Workshop {
     };
     await this.api.registerSetting("봇빌더", open, "BB", "html");
     await this.api.registerButton({ name: "봇빌더", icon: "BB", iconType: "html", location: "hamburger" }, open);
+    // Dusk Atelier integration (DA Interop v1). Read-only toward 봇빌더: it may open the screen and read the draft, nothing else.
+    // Not awaited so slow or failing storage never blocks startup; the marker string must survive the build (checked in tools/build.mjs).
+    this.interopReady = registerInterop(this.api.pluginStorage, {
+      id: "risu-story-workshop", name: "봇빌더", version: VERSION, pluginName: "risu_story_workshop",
+      description: "Dusk Atelier에서 봇빌더 화면을 열고, 작업 중인 원고를 넘겨받아요.",
+      actions: [
+        { key: "open", label: "봇빌더 열기", run: async () => { await open(); return { opened: true }; } },
+        { key: "draft", label: "작업 중인 원고 보내기", run: async () => this.draftForInterop() },
+      ],
+    }).then((handle) => { this.interop = handle; if (this.destroyed) handle?.stop(); return handle; }).catch((error) => { console.warn("[봇빌더] DA Interop 등록 실패 " + DA_WORKSHOP_INTEROP_MARK, error); return null; });
     this.autoTimer = setInterval(() => this.autosave().catch((error) => this.toast("자동 저장 실패: " + error.message, true)), 18e4);
     this.elapsedTimer = setInterval(() => this.jobStatus(), 1e3);
     await this.api.onUnload(() => this.destroy());
   }
+  // Snapshot handed to Dusk Atelier: editable fields only, never chats or the host id.
+  draftForInterop() {
+    if (!this.s?.draft) return null;
+    return { name: String(this.s.draft.name ?? ""), targetId: this.s.targetId ?? null, started: !!this.started, dirty: !!this.dirty(), savedAt: this.slots.autosave?.savedAt ?? null, draft: editable(this.s.draft) };
+  }
   destroy() {
+    this.destroyed = true;
+    this.interop?.stop();
     this.doc.defaultView?.visualViewport?.removeEventListener("resize", this.updateViewport);
     this.doc.defaultView?.visualViewport?.removeEventListener("scroll", this.updateViewport);
     clearInterval(this.autoTimer);
