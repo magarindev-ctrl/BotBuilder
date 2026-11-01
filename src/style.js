@@ -295,11 +295,14 @@ details[open] > summary { margin-bottom: 9px; }
   .mobile-top button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
   .workspace { grid-row: 2; }
   .messages { padding: 14px 12px; gap: 14px; }
-  .composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: 'previews previews previews' 'input input input' 'attach options send' 'clear clear clear' 'status status status'; gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); flex: 0 0 auto; max-height: 48%; }
+  .composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: 'previews previews previews' 'input input input' 'attach options send' 'mode mode clear' 'status status status'; gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); flex: 0 0 auto; max-height: 48%; }
   .composer > textarea { grid-area: input; width: 100%; min-height: 52px; max-height: 122px; height: 52px; font-size: 16px; line-height: 22px; padding: 4px 9px; resize: none; }
   .mobile-prompt { display: block; }
   .request-settings { grid-area: options; min-width: 0; }
-  .composer > .mode-strip { display: none; }
+  /* The scope line sits left of '대화 비우기'; the task name itself is on the settings toggle above. */
+  .composer > .mode-strip { display: flex; grid-area: mode; align-self: center; min-width: 0; font-size: 11px; line-height: 1.4; }
+  .composer > .mode-strip .mode-pill { display: none; }
+  .composer > .mode-strip .mode-scope { flex: 1 1 auto; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .request-settings-toggle { display: block; width: 100%; min-height: 40px; padding: 6px; font-size: 12px; }
   .request-settings-body { display: none; }
   .request-settings[data-open=true] .request-settings-body { display: flex; position: fixed; z-index: 12; bottom: calc(100% - var(--workshop-vheight, 100dvh) - var(--workshop-vtop, 0px) + 150px); left: 10px; right: 10px; max-height: 40dvh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 5px 30px #0005; }

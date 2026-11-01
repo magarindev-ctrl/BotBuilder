@@ -812,9 +812,9 @@
       "send": {
         "top": 510,
         "bottom": 550,
-        "left": 684,
+        "left": 674.625,
         "right": 758,
-        "width": 74,
+        "width": 83.375,
         "height": 40
       },
       "sendVisible": true,
@@ -920,9 +920,9 @@
       "send": {
         "top": 390,
         "bottom": 430,
-        "left": 556,
+        "left": 546.625,
         "right": 630,
-        "width": 74,
+        "width": 83.375,
         "height": 40
       },
       "sendVisible": true,
@@ -1026,11 +1026,11 @@
         "height": 515
       },
       "send": {
-        "top": 478,
-        "bottom": 518,
-        "left": 306,
+        "top": 477.21875,
+        "bottom": 517.21875,
+        "left": 296.625,
         "right": 380,
-        "width": 74,
+        "width": 83.375,
         "height": 40
       },
       "sendVisible": true,
@@ -1134,11 +1134,11 @@
         "height": 791
       },
       "send": {
-        "top": 754,
-        "bottom": 794,
-        "left": 306,
+        "top": 753.21875,
+        "bottom": 793.21875,
+        "left": 296.625,
         "right": 380,
-        "width": 74,
+        "width": 83.375,
         "height": 40
       },
       "sendVisible": true,
@@ -1244,9 +1244,9 @@
       "send": {
         "top": 478,
         "bottom": 518,
-        "left": 306,
+        "left": 296.625,
         "right": 380,
-        "width": 74,
+        "width": 83.375,
         "height": 40
       },
       "sendVisible": true,
