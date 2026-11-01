@@ -35,15 +35,15 @@ export function normalizeModules(raw=[]) {
 }
 export function moduleOptions(state,module) {
   const own=Object.hasOwn(state.moduleOptions??{},module.id)?state.moduleOptions[module.id]:{};
-  return {skipRuntime:false,excludedLore:[],...own};
+  return {skipRuntime:false,excludedLore:[],relaxConditions:false,...own};
 }
 export function validateModuleOptions(state) {
   assert(state.moduleOptions&&typeof state.moduleOptions==='object'&&!Array.isArray(state.moduleOptions),'모듈 적용 설정은 객체여야 합니다.');tree(state.moduleOptions);
   const result={};
   for(const module of state.modules) {
     const value=moduleOptions(state,module);
-    assert(typeof value.skipRuntime==='boolean'&&Array.isArray(value.excludedLore)&&value.excludedLore.every(i=>Number.isInteger(i)&&i>=0&&i<module.lorebook.length),'모듈 적용 설정이 올바르지 않습니다: '+module.name);
-    result[module.id]={skipRuntime:value.skipRuntime,excludedLore:[...new Set(value.excludedLore)]};
+    assert(typeof value.skipRuntime==='boolean'&&typeof value.relaxConditions==='boolean'&&Array.isArray(value.excludedLore)&&value.excludedLore.every(i=>Number.isInteger(i)&&i>=0&&i<module.lorebook.length),'모듈 적용 설정이 올바르지 않습니다: '+module.name);
+    result[module.id]={skipRuntime:value.skipRuntime,excludedLore:[...new Set(value.excludedLore)],relaxConditions:value.relaxConditions};
   }
   return result;
 }
@@ -97,7 +97,7 @@ export function selectInstalledModules(state,catalog,ids) {
   const modules=normalizeModules(catalog.filter(module=>wanted.has(module.id))),options={};
   for(const module of modules) {
     const previous=(state.modules??[]).find(old=>old.id===module.id);
-    options[module.id]=previous&&equal(previous,module)?moduleOptions(state,module):{skipRuntime:false,excludedLore:[]};
+    options[module.id]=previous&&equal(previous,module)?moduleOptions(state,module):{skipRuntime:false,excludedLore:[],relaxConditions:false};
   }
   return {...state,modules,moduleOptions:options,excluded:{...state.excluded,modules:false}};
 }

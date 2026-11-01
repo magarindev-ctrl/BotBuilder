@@ -124,6 +124,8 @@ function whenCondition(values,context) {
   return {active:truth(stack[0]),mode};
 }
 const trimLines=text=>text.split('\n').map(line=>line.trimStart()).join('\n').trim();
+// Module lore may carry native @@ decorators (depth, activation, position…). They steer a live chat's lorebook engine and mean nothing in a one-shot request, so relaxed entries drop those lines and keep the prose.
+const stripDecorators=text=>text.split('\n').filter(line=>!/^\s*@@/.test(line)).join('\n');
 function trimBlankLines(text){const lines=text.split('\n');while(lines.length&&!lines[0].trim())lines.shift();while(lines.length&&!lines.at(-1).trim())lines.pop();return lines.join('\n');}
 function evaluate(nodes, context) {
   const render = list => {
@@ -132,19 +134,27 @@ function evaluate(nodes, context) {
     return out;
   };
   const part = p => render(p);
+  // Relaxed mode (module option): a condition the workshop cannot evaluate is false and an unknown macro is empty, instead of blocking the whole entry. Size limits still throw.
+  const relaxable=error=>!!context.lenient&&!/상한|초과/.test(error.message);
+  const relax=note=>{ if(context.relaxed&&context.relaxed.length<50)context.relaxed.push(note); };
   function one(node) {
     if(node.kind==='text')return node.text;
     if(node.kind==='block') {
-      assert(['if','if_pure','when'].includes(node.name),'지원하지 않는 CBS 블록: #'+node.name);
       let active,mode=node.name==='if_pure'?'keep':'legacy';
-      if(node.name==='when') {
-        const values=node.opening.parts.length>1?node.opening.parts.slice(1).map(part):[part(node.opening.parts[0]).replace(/^#when\s*/,'')];
-        ({active,mode}=whenCondition(values,context));
-      } else active=truth(part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/,''));
+      try {
+        assert(['if','if_pure','when'].includes(node.name),'지원하지 않는 CBS 블록: #'+node.name);
+        if(node.name==='when') {
+          const values=node.opening.parts.length>1?node.opening.parts.slice(1).map(part):[part(node.opening.parts[0]).replace(/^#when\s*/,'')];
+          ({active,mode}=whenCondition(values,context));
+        } else active=truth(part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/,''));
+      } catch(error) { if(!relaxable(error))throw error; relax('조건을 거짓으로 처리: '+error.message); active=false; }
       let text=render(active?node.yes:node.no);
       if(node.elseLine)text=active?text.replace(/(?:\r?\n)?[ \t]*$/,''):text.replace(/^[ \t]*\r?\n/,'');
       return mode==='keep'?text:mode==='legacy'?trimLines(text):trimBlankLines(text);
     }
+    try { return macro(node); } catch(error) { if(!relaxable(error))throw error; relax('표기를 빈 값으로 처리: '+error.message); return ''; }
+  }
+  function macro(node) {
     const rawHead=part(node.parts[0]),head=rawHead.trim(),name=head.toLowerCase(),args=node.parts.slice(1).map(part);
     // user_input is not registered in the audited native CBS tables. Native matcher
     // falls back to literal syntax; it does not alias this to the latest user message.
@@ -217,8 +227,19 @@ export function assemblePreset(rawState,session,task,directMessages) {
       const record={module:module.name,index,name:entry.comment||entry.key||'로어북',status:'excluded'};moduleTrace.push(record);
       if(options.excludedLore.includes(index))continue;
       let text;
-      try{assert(!/(?:^|\n)\s*@@/.test(entry.content),'@@ 위치·활성화 지시 처리는 미지원입니다. 모듈 탭에서 이 항목을 제외하세요.');text=renderPresetText(entry.content,context);record.status=text?'prepared':'empty';}
-      catch(error){record.status='error';record.error=error.message;issues.push(module.name+' / '+record.name+': '+error.message);continue;}
+      try{
+        const decorated=/(?:^|\n)\s*@@/.test(entry.content);
+        if(options.relaxConditions) {
+          const relaxed=decorated?['@@ 위치·활성화 지시 줄 제거']:[];
+          text=renderPresetText(decorated?stripDecorators(entry.content):entry.content,{...context,lenient:true,relaxed});
+          if(relaxed.length)record.relaxed=relaxed;
+        } else {
+          assert(!decorated,'@@ 위치·활성화 지시 처리는 미지원입니다.');
+          text=renderPresetText(entry.content,context);
+        }
+        record.status=text?'prepared':'empty';
+      }
+      catch(error){record.status='error';record.error=error.message;issues.push(module.name+' / '+record.name+': '+error.message+(options.relaxConditions?'':' 모듈 탭에서 이 항목을 제외하거나 "해석 못 하는 조건은 거짓으로 보고 본문만 포함"을 켜세요.'));continue;}
       moduleSize+=bytes(text);assert(moduleSize<=PROMPT_BYTES_LIMIT,'모듈 로어북 조립 결과가 32MiB를 초과했습니다.');
       if(text)moduleLore.push('[모듈 '+module.name+' · '+record.name+']\n'+text);
     }

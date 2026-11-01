@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.2
+//@version 1.1.3
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.3 adds a per-module "relax conditions" option for preset requests: @@ decorator lines are dropped, CBS conditions the workshop cannot evaluate become false and unknown macros become empty, so module lore entries are kept instead of blocked; relaxed handling is listed per entry in the module trace. Default off.
 Modified 2026-11-02: v1.1.2 adds raw blocks (long code or prose sent after the JSON object as <<<name>>> … <<</name>>> and referenced as {"block":"name"}, cut out before JSON parsing so no escaping is needed), reports the position and surrounding text of a JSON syntax error instead of a generic message, and retries such an answer once with that detail in the instruction.
 Modified 2026-11-02: v1.1.1 rejects an object, array or number as a Lua variable value with a clear one-line-string message (previously misreported as a text-edit shape), adds the rule to the prompt, and stops quoting the forbidden "## OOC Response" heading literally in the invalid-output example.
 Modified 2026-11-02: v1.1.0 adds chunked work: responses may carry a top-level "plan" of remaining parts, 봇빌더 continues the chain automatically on a staged copy of the draft (default budget about 5,000 output tokens per response, at most 8 parts), retries a truncated answer once with a smaller first part, and presents the parts as one multi-part proposal reviewed and applied once. Settings: 긴 응답 나눠 받기, 응답당 출력 예산, 최대 구간 수.
@@ -9919,7 +9920,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.2";
+  var VERSION = "1.1.3";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -13996,7 +13997,7 @@ details[open] > summary { margin-bottom: 9px; }
   }
   function moduleOptions(state, module) {
     const own = Object.hasOwn(state.moduleOptions ?? {}, module.id) ? state.moduleOptions[module.id] : {};
-    return { skipRuntime: false, excludedLore: [], ...own };
+    return { skipRuntime: false, excludedLore: [], relaxConditions: false, ...own };
   }
   function validateModuleOptions(state) {
     assert(state.moduleOptions && typeof state.moduleOptions === "object" && !Array.isArray(state.moduleOptions), "\uBAA8\uB4C8 \uC801\uC6A9 \uC124\uC815\uC740 \uAC1D\uCCB4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
@@ -14004,8 +14005,8 @@ details[open] > summary { margin-bottom: 9px; }
     const result = {};
     for (const module of state.modules) {
       const value = moduleOptions(state, module);
-      assert(typeof value.skipRuntime === "boolean" && Array.isArray(value.excludedLore) && value.excludedLore.every((i) => Number.isInteger(i) && i >= 0 && i < module.lorebook.length), "\uBAA8\uB4C8 \uC801\uC6A9 \uC124\uC815\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: " + module.name);
-      result[module.id] = { skipRuntime: value.skipRuntime, excludedLore: [...new Set(value.excludedLore)] };
+      assert(typeof value.skipRuntime === "boolean" && typeof value.relaxConditions === "boolean" && Array.isArray(value.excludedLore) && value.excludedLore.every((i) => Number.isInteger(i) && i >= 0 && i < module.lorebook.length), "\uBAA8\uB4C8 \uC801\uC6A9 \uC124\uC815\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4: " + module.name);
+      result[module.id] = { skipRuntime: value.skipRuntime, excludedLore: [...new Set(value.excludedLore)], relaxConditions: value.relaxConditions };
     }
     return result;
   }
@@ -14054,7 +14055,7 @@ details[open] > summary { margin-bottom: 9px; }
     const modules = normalizeModules(catalog.filter((module) => wanted.has(module.id))), options = {};
     for (const module of modules) {
       const previous = (state.modules ?? []).find((old) => old.id === module.id);
-      options[module.id] = previous && equal(previous, module) ? moduleOptions(state, module) : { skipRuntime: false, excludedLore: [] };
+      options[module.id] = previous && equal(previous, module) ? moduleOptions(state, module) : { skipRuntime: false, excludedLore: [], relaxConditions: false };
     }
     return { ...state, modules, moduleOptions: options, excluded: { ...state.excluded, modules: false } };
   }
@@ -14258,6 +14259,7 @@ details[open] > summary { margin-bottom: 9px; }
     return { active: truth(stack[0]), mode };
   }
   var trimLines = (text) => text.split("\n").map((line) => line.trimStart()).join("\n").trim();
+  var stripDecorators = (text) => text.split("\n").filter((line) => !/^\s*@@/.test(line)).join("\n");
   function trimBlankLines(text) {
     const lines = text.split("\n");
     while (lines.length && !lines[0].trim()) lines.shift();
@@ -14274,19 +14276,38 @@ details[open] > summary { margin-bottom: 9px; }
       return out2;
     };
     const part = (p) => render(p);
+    const relaxable = (error) => !!context.lenient && !/상한|초과/.test(error.message);
+    const relax = (note) => {
+      if (context.relaxed && context.relaxed.length < 50) context.relaxed.push(note);
+    };
     function one(node) {
       if (node.kind === "text") return node.text;
       if (node.kind === "block") {
-        assert(["if", "if_pure", "when"].includes(node.name), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 CBS \uBE14\uB85D: #" + node.name);
         let active, mode = node.name === "if_pure" ? "keep" : "legacy";
-        if (node.name === "when") {
-          const values = node.opening.parts.length > 1 ? node.opening.parts.slice(1).map(part) : [part(node.opening.parts[0]).replace(/^#when\s*/, "")];
-          ({ active, mode } = whenCondition(values, context));
-        } else active = truth(part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/, ""));
+        try {
+          assert(["if", "if_pure", "when"].includes(node.name), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 CBS \uBE14\uB85D: #" + node.name);
+          if (node.name === "when") {
+            const values = node.opening.parts.length > 1 ? node.opening.parts.slice(1).map(part) : [part(node.opening.parts[0]).replace(/^#when\s*/, "")];
+            ({ active, mode } = whenCondition(values, context));
+          } else active = truth(part(node.opening.parts[0]).replace(/^#if(?:_pure)?\s*/, ""));
+        } catch (error) {
+          if (!relaxable(error)) throw error;
+          relax("\uC870\uAC74\uC744 \uAC70\uC9D3\uC73C\uB85C \uCC98\uB9AC: " + error.message);
+          active = false;
+        }
         let text = render(active ? node.yes : node.no);
         if (node.elseLine) text = active ? text.replace(/(?:\r?\n)?[ \t]*$/, "") : text.replace(/^[ \t]*\r?\n/, "");
         return mode === "keep" ? text : mode === "legacy" ? trimLines(text) : trimBlankLines(text);
       }
+      try {
+        return macro(node);
+      } catch (error) {
+        if (!relaxable(error)) throw error;
+        relax("\uD45C\uAE30\uB97C \uBE48 \uAC12\uC73C\uB85C \uCC98\uB9AC: " + error.message);
+        return "";
+      }
+    }
+    function macro(node) {
       const rawHead = part(node.parts[0]), head = rawHead.trim(), name = head.toLowerCase(), args = node.parts.slice(1).map(part);
       if (name.replace(/[\s_-]/g, "") === "userinput") {
         if (context.nativeLiterals && context.nativeLiterals.size < 10) context.nativeLiterals.add(head);
@@ -14409,13 +14430,20 @@ details[open] > summary { margin-bottom: 9px; }
         if (options.excludedLore.includes(index)) continue;
         let text;
         try {
-          assert(!/(?:^|\n)\s*@@/.test(entry.content), "@@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uCC98\uB9AC\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uC774 \uD56D\uBAA9\uC744 \uC81C\uC678\uD558\uC138\uC694.");
-          text = renderPresetText(entry.content, context);
+          const decorated = /(?:^|\n)\s*@@/.test(entry.content);
+          if (options.relaxConditions) {
+            const relaxed = decorated ? ["@@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uC904 \uC81C\uAC70"] : [];
+            text = renderPresetText(decorated ? stripDecorators(entry.content) : entry.content, { ...context, lenient: true, relaxed });
+            if (relaxed.length) record.relaxed = relaxed;
+          } else {
+            assert(!decorated, "@@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uCC98\uB9AC\uB294 \uBBF8\uC9C0\uC6D0\uC785\uB2C8\uB2E4.");
+            text = renderPresetText(entry.content, context);
+          }
           record.status = text ? "prepared" : "empty";
         } catch (error) {
           record.status = "error";
           record.error = error.message;
-          issues.push(module.name + " / " + record.name + ": " + error.message);
+          issues.push(module.name + " / " + record.name + ": " + error.message + (options.relaxConditions ? "" : ' \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uC774 \uD56D\uBAA9\uC744 \uC81C\uC678\uD558\uAC70\uB098 "\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568"\uC744 \uCF1C\uC138\uC694.'));
           continue;
         }
         moduleSize += bytes(text);
@@ -14560,7 +14588,7 @@ details[open] > summary { margin-bottom: 9px; }
   function renderModules(app, host) {
     const h = app.h.bind(app), state = app.s.preset, modules = state.modules ?? [];
     const change = () => app.presetChanged();
-    host.append(h("p", { class: "muted" }, "\uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uACFC \uD1A0\uAE00\uC744 \uD504\uB9AC\uC14B \uC694\uCCAD\uC5D0 \uC5F0\uACB0\uD569\uB2C8\uB2E4. \uB85C\uC5B4\uBD81\uC740 \uC804\uCCB4 \uC81C\uC791 \uC790\uB8CC\uB85C \uCDE8\uAE09\uD558\uBA70 \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0\uC740 \uACC4\uC0B0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. @@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC\uAC00 \uC788\uB294 \uD56D\uBAA9\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC73C\uBBC0\uB85C \uC804\uC1A1 \uC624\uB958\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uC81C\uC678\uD574\uC57C \uD569\uB2C8\uB2E4. \uC9C1\uC811 \uC694\uCCAD \uBAA8\uB4DC\uC5D0\uB294 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."), app.check("\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678", !!state.excluded.modules, (value) => {
+    host.append(h("p", { class: "muted" }, '\uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uACFC \uD1A0\uAE00\uC744 \uD504\uB9AC\uC14B \uC694\uCCAD\uC5D0 \uC5F0\uACB0\uD569\uB2C8\uB2E4. \uB85C\uC5B4\uBD81\uC740 \uC804\uCCB4 \uC81C\uC791 \uC790\uB8CC\uB85C \uCDE8\uAE09\uD558\uBA70 \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0\uC740 \uACC4\uC0B0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. @@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC\uB098 \uD574\uC11D\uD558\uC9C0 \uBABB\uD558\uB294 CBS\uAC00 \uC788\uB294 \uD56D\uBAA9\uC740 \uAE30\uBCF8\uC801\uC73C\uB85C \uC804\uC1A1\uC744 \uB9C9\uC73C\uBA70, \uBAA8\uB4C8\uBCC4 "\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568"\uC744 \uCF1C\uBA74 \uBCF8\uBB38\uC744 \uC0B4\uB824 \uB123\uC2B5\uB2C8\uB2E4. \uC9C1\uC811 \uC694\uCCAD \uBAA8\uB4DC\uC5D0\uB294 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.'), app.check("\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678", !!state.excluded.modules, (value) => {
       state.excluded.modules = value;
       change();
     }));
@@ -14570,7 +14598,7 @@ details[open] > summary { margin-bottom: 9px; }
     }
     host.append(h("p", { class: "muted" }, "\uC120\uD0DD \uC2DC\uC810\uC758 \uC0AC\uBCF8\uC785\uB2C8\uB2E4. \uBCF8\uCCB4\uC5D0\uC11C \uBAA8\uB4C8\uC744 \uC218\uC815\uD588\uB2E4\uBA74 \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694. \uBC14\uB010 \uBAA8\uB4C8\uC758 \uC81C\uC678 \uC124\uC815\uC740 \uCD08\uAE30\uD654\uB429\uB2C8\uB2E4."));
     for (const module of modules) {
-      const option = state.moduleOptions[module.id] ??= { skipRuntime: false, excludedLore: [] }, profile = moduleRuntimeProfile(module), features = profile.blocking;
+      const option = state.moduleOptions[module.id] ??= { skipRuntime: false, excludedLore: [], relaxConditions: false }, profile = moduleRuntimeProfile(module), features = profile.blocking;
       const card = h("section", { class: "card stack", style: "overflow-wrap:anywhere" }, h("h3", {}, module.name), h("p", { class: "muted" }, module.id + (module.namespace ? " \xB7 " + module.namespace : "")), h("p", {}, module.description), h("p", { class: "muted" }, "\uB85C\uC5B4\uBD81 " + module.lorebook.length + "\uAC1C \xB7 \uD1A0\uAE00 \uC815\uC758 " + (module.customModuleToggle ? "\uC788\uC74C" : "\uC5C6\uC74C") + " \xB7 \uC5D0\uC14B \uC774\uB984 " + module.assets.length + "\uAC1C"));
       if (profile.notApplicable.length) card.append(h("p", { class: "muted" }, "BB \uC694\uCCAD \uB2E8\uACC4\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9: " + profile.notApplicable.join(", ") + ". \uCD9C\uB825\xB7\uD45C\uC2DC \uD6C4\uCC98\uB9AC\uB294 \uAD6C\uC870\uD654\uB41C \uC218\uC815\uC548\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC73C\uBA70, \uBC30\uACBD \uCF54\uB4DC\uC640 \uC77C\uBC18 \uC218\uB3D9\xB7\uD45C\uC2DC\xB7\uCD9C\uB825 \uD2B8\uB9AC\uAC70\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
       if (features.length) card.append(h("p", { class: "warn" }, "\uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uD56D\uBAA9: " + features.join(", ")), app.check("\uC774 \uBAA8\uB4C8\uC758 \uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uCC98\uB9AC\uB97C \uC81C\uC678", option.skipRuntime, (value) => {
@@ -14578,6 +14606,10 @@ details[open] > summary { margin-bottom: 9px; }
         change();
       }), h("p", { class: "muted" }, "\uC785\uB825\xB7\uC804\uCC98\uB9AC\xB7\uC694\uCCAD \uCC98\uB9AC\uC640 Lua\xB7JS \uCF5C\uBC31\uC740 \uC694\uCCAD \uB0B4\uC6A9\uC744 \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC81C\uC678\uD558\uBA74 \uD574\uB2F9 \uCC98\uB9AC\uB97C \uC2E4\uD589\uD558\uC9C0 \uC54A\uACE0 \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB9CC \uC0AC\uC6A9\uD569\uB2C8\uB2E4."));
       renderRuntimeInspection(app, card, profile, (item) => item.kind === "regex" ? module.regex[item.index] : item.kind === "trigger" ? module.trigger[item.index] : item.kind === "background" ? module.backgroundEmbedding : item.kind === "cjs" ? module.cjs : module.mcp, "\uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uACFC \uC6D0\uBB38 \uD655\uC778");
+      card.append(app.check("\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568", option.relaxConditions === true, (value) => {
+        option.relaxConditions = value;
+        change();
+      }), h("p", { class: "muted" }, "\uCF1C\uBA74 @@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uC904\uC740 \uBE7C\uACE0, \uBD07\uBE4C\uB354\uAC00 \uD574\uC11D\uD558\uC9C0 \uBABB\uD558\uB294 CBS \uC870\uAC74\uC740 \uAC70\uC9D3 \uBD84\uAE30\uB85C, \uBCF8\uBB38 \uC548\uC758 \uD574\uC11D \uBABB \uD558\uB294 \uD45C\uAE30\uB294 \uBE48 \uAC12\uC73C\uB85C \uCC98\uB9AC\uD574 \uD56D\uBAA9\uC744 \uBC84\uB9AC\uC9C0 \uC54A\uACE0 \uB123\uC2B5\uB2C8\uB2E4. \uD1A0\uAE00 \uC870\uAC74\uC740 \uD1A0\uAE00 \uC124\uC815 \uAC12\uC744 \uADF8\uB300\uB85C \uB530\uB985\uB2C8\uB2E4. \uADF8\uB807\uAC8C \uCC98\uB9AC\uB41C \uD56D\uBAA9\uC740 \uC804\uC1A1 \uB0B4\uC6A9\uC758 \uBAA8\uB4C8\uBCC4 \uACB0\uACFC\uC5D0 relaxed\uB85C \uB0A8\uC2B5\uB2C8\uB2E4."));
       const details = h("details", {}, h("summary", {}, "\uBAA8\uB4C8 \uB85C\uC5B4\uBD81 \uD3EC\uD568 \uD56D\uBAA9 \uD655\uC778"));
       for (const [i, entry] of module.lorebook.entries()) details.append(h("div", { class: "card stack" }, app.check(i + 1 + ". " + (entry.comment || entry.key || "\uB85C\uC5B4\uBD81"), !option.excludedLore.includes(i), (value) => {
         option.excludedLore = option.excludedLore.filter((index) => index !== i);
