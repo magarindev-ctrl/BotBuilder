@@ -1,4 +1,4 @@
-import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX } from './core.js';
+import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX, candidatePackets, chunkOptions, CHUNK_MIN_TOKENS, CHUNK_MAX_TOKENS, CHUNK_HARD_MAX } from './core.js';
 import { CSS } from './style.js';
 import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
@@ -14,7 +14,7 @@ const SLOT_NAMES = { autosave: '자동 저장 · 최근', 'autosave-1': '자동 
 const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
 // What each request task may change; shown beside the input so the active task is never a guess.
 const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명·성격·시나리오 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
-const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system' };
+const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system', chunking: true, chunkTokens: 5000, chunkMax: 8 };
 
 export class Workshop {
   fitRequestInput() {
@@ -217,6 +217,7 @@ export class Workshop {
     if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 900;
     Object.assign(this.settings, migrateInputSettings(this.settings));
     if (!["system", "light", "dark"].includes(this.settings.theme)) this.settings.theme = "system";
+    Object.assign(this.settings, chunkOptions(this.settings));
     this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
     this.themeListener = () => this.applyTheme();
     this.themeMedia?.addEventListener("change", this.themeListener);
@@ -767,9 +768,12 @@ export class Workshop {
   candidateValid(c) { return c.sessionId === this.s.sessionId && c.targetId === this.s.targetId && c.revision === this.s.revision && c.promptRevision === this.s.promptRevision; }
   diffView(candidate) {
     const h = this.h.bind(this);
-    let rows;
+    let rows, sections = [];
     try {
-      rows = proposalDiff(candidate.before, candidate.packet);
+      let draft = candidate.before;
+      const packets = candidatePackets(candidate);
+      packets.forEach((packet, i) => { const part = proposalDiff(draft, packet).map((row) => ({ ...row, part: packets.length > 1 ? candidate.partLabels?.[i] ?? `구간 ${i + 1}` : null })); sections.push(part); draft = applyPacket(draft, packet); });
+      rows = sections.flat();
     } catch (error) {
       return h("p", { class: "warn" }, "수정안을 해석할 수 없습니다: " + error.message);
     }
@@ -779,17 +783,23 @@ export class Workshop {
     const mobile = this.doc.defaultView?.matchMedia?.('(max-width: 840px)').matches;
     return h('details', mobile ? { open: '' } : {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
       h('p', { class: 'muted' }, '부분편집의 줄 번호는 검토용입니다. 실제 적용은 요청 당시 원문과 정확히 일치하는 구간을 사용합니다. 코드 실행 결과를 검증한 것은 아닙니다.'),
-      rows.map(row => h('section', { class: 'card stack', style: 'margin:12px 0' }, h('strong', {}, row.label),
+      rows.map(row => h('section', { class: 'card stack', style: 'margin:12px 0' }, row.part ? h('span', { class: 'pill' }, row.part) : null, h('strong', {}, row.label),
         h('span', { class: 'muted' }, row.mode === 'patch' ? `부분편집 · 기존 ${lines(row.startLine, row.endLine)} → ${row.after === '' ? '삭제' : '수정 ' + lines(row.afterStartLine, row.afterEndLine)}` : row.mode === 'add' ? '추가' : row.mode === 'remove' ? '삭제' : typeof row.after === 'string' ? '전체 문자열 교체' : '설정값 변경'),
         h('div', { class: 'diff' }, h('pre', { class: 'before' }, row.mode === 'patch' ? numbered(row.before, row.startLine) : display(row.before)), h('pre', { class: 'after' }, row.mode === 'patch' ? numbered(row.after, row.afterStartLine) : display(row.after))))));
   }
   async applyCandidate(candidate) {
     assert(this.candidateValid(candidate), "현재 원고와 다른 시점의 수정안입니다. 다시 요청하세요.");
-    validateLoreSelection(candidate.packet, this.s);
-    const next = applyPacket(this.s.draft, candidate.packet);
-    assert(this.candidateValid(candidate), "원고가 바뀌었습니다.");
     const loreBefore = loreSelection(this.s);
-    this.s.loreIncluded = loreSelectionAfterPacket(this.s, candidate.packet);
+    let next = this.s.draft, lore = loreBefore;
+    for (const packet of candidatePackets(candidate)) {
+      const session = { ...this.s, draft: next, loreIncluded: lore };
+      validateLoreSelection(packet, session);
+      const applied = applyPacket(next, packet);
+      lore = loreSelectionAfterPacket(session, packet);
+      next = applied;
+    }
+    assert(this.candidateValid(candidate), "원고가 바뀌었습니다.");
+    this.s.loreIncluded = lore;
     this.s.draft = next;
     candidate.status = "applied";
     this.touch();
@@ -820,16 +830,17 @@ export class Workshop {
     if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "현재 편집 항목이 요청에서 제외되어 있습니다. 로어북 탭에서 ‘이번 요청에 포함’을 체크하거나 ‘현재 선택한 항목만 수정’을 해제하세요.");
     return { request, scope, text: request + (scope ? "\n[허용 편집 범위] 기존 항목 " + scope + "만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다." : "") };
   }
-  previewRequest(task = this.task, forcePreset = false) {
-    const usePreset = forcePreset || this.s.preset.mode === "preset";
-    const direct = composeMessages(usePreset ? { ...this.s, thread: [] } : this.s, task, this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task));
-    const report = usePreset ? assemblePreset(this.s.preset, this.s, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
-    return { ...report, messages: withRequestImages(report.messages, requestImages(this.s, task)) };
+  // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
+  previewRequest(task = this.task, forcePreset = false, override = {}) {
+    const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
+    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), chunkOptions(this.settings));
+    const report = usePreset ? assemblePreset(session.preset, session, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+    return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
   }
   async sendRequest() {
     assert(!this.imageLoading, "이미지를 읽는 중입니다. 완료 후 전송해 주세요.");
     assert(!this.job, "다른 LLM 요청이 진행 중입니다.");
-    const task = this.task, s = this.s, { request, scope } = this.requestWithScope(task);
+    const task = this.task, s = this.s, { request, scope, text: requestText } = this.requestWithScope(task);
     assert(request, "LLM에게 전달할 요청을 적어 주세요.");
     const report = this.previewRequest(task);
     assert(!report.issues.length, "프리셋 조립 오류:\n" + report.issues.join("\n"));
@@ -844,27 +855,76 @@ export class Workshop {
     if (s.requestImages) s.requestImages[task] = [];
     this.touch(false);
     this.render();
-    let raw;
-    try {
-      raw = await callModel(this.api, messages, this.settings.model, this.settings.timeout, job);
-      assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
-      const packet = await reviewPacket(parseResponse(raw, task, before, true), before, (item) => {
-        assert(!job.cancelled, "요청을 취소했습니다.");
-        return this.chooseTextRange(item);
-      });
-      assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), "검토 중 원고가 변경되었습니다. 최신 원고로 다시 요청하세요.");
-      validateLoreSelection(packet, s);
-      if (scope) {
-        assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
+    // Chunked work: each part is applied to a staged copy; the user reviews and applies the whole chain once.
+    const options = chunkOptions(this.settings), parts = [], replies = [], notes = [];
+    let raw, staged = clone(before), stagedLore = loreSelection(s);
+    const stagedSession = () => ({ ...s, draft: staged, loreIncluded: stagedLore });
+    const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
+    const receive = async (text, draft) => {
+      const parsed = parseResponse(text, task, draft, true);
+      if (parsed.data === null) return parsed;
+      return reviewPacket(parsed, draft, (item) => { assert(!job.cancelled, "요청을 취소했습니다."); return this.chooseTextRange(item); });
+    };
+    // One request; a truncated answer is retried once with an instruction to take a smaller first part.
+    const ask = async (stepMessages, stepText) => {
+      raw = await callModel(this.api, stepMessages, this.settings.model, this.settings.timeout, job);
+      guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+      try { return await receive(raw, staged); } catch (error) {
+        if (!error.truncated || !options.chunking) throw error;
+        notes.push("응답이 끊겨 더 작은 구간으로 다시 요청했습니다.");
+        const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라.", images: [] });
+        assert(!retry.issues.length, "프리셋 조립 오류:\n" + retry.issues.join("\n"));
+        inputSize(retry.messages, this.settings.maxInputChars);
+        raw = await callModel(this.api, retry.messages, this.settings.model, this.settings.timeout, job);
+        guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+        return receive(raw, staged);
       }
-      const changes = proposalDiff(before, packet).length;
-      s.thread.push({ id: uid(), role: "assistant", task, content: task === "workshop" ? packet.data.reply : !changes ? "원고에 적용할 변경 사항이 없습니다." : TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." });
-      if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
+    };
+    const absorb = (packet, label) => {
+      guard("검토 중 원고가 변경되었습니다. 최신 원고로 다시 요청하세요.");
+      if (packet.data === null) return;
+      const session = stagedSession();
+      validateLoreSelection(packet, session);
+      if (scope) assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "선택한 항목 밖의 변경이 포함되어 제안을 거부했습니다.");
+      if (task === "workshop" && packet.data.reply) replies.push(packet.data.reply);
+      if (!proposalDiff(staged, packet).length) return;
+      const { plan, ...stored } = packet;
+      parts.push({ packet: stored, label });
+      stagedLore = loreSelectionAfterPacket(session, packet);
+      staged = applyPacket(staged, packet);
+    };
+    const finish = (partial) => {
+      const time = (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      const summary = replies.length ? replies.join("\n\n") : parts.length ? TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." : "원고에 적용할 변경 사항이 없습니다.";
+      const chain = parts.length > 1 || partial ? `\n\n${partial ? "일부만 완성했습니다 · " : ""}${parts.length}개 구간${partial ? " 보관" : "으로 나눠 작성"}` : "";
+      s.thread.push({ id: uid(), role: "assistant", task, content: summary + chain + (notes.length ? "\n\n" + notes.join("\n") : "") });
+      if (parts.length) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + time + (parts.length > 1 || partial ? ` · ${parts.length}구간${partial ? " (일부)" : ""}` : ""), before, ...parts.length === 1 && !partial ? { packet: parts[0].packet } : { packets: parts.map((p) => p.packet), partLabels: parts.map((p) => p.label) } });
       this.touch(false);
+    };
+    try {
+      let packet = await ask(messages, requestText);
+      let remaining = packet.plan ?? [];
+      absorb(packet, "구간 1");
+      if (remaining.length && !options.chunking) { notes.push(`모델이 ${remaining.length}개 구간을 더 제안했습니다. 설정에서 '긴 응답 나눠 받기'를 켜면 자동으로 이어 받습니다.`); remaining = []; }
+      while (remaining.length) {
+        if (parts.length >= options.chunkMax) { notes.push(`최대 구간 수(${options.chunkMax})에 도달해 남은 ${remaining.length}개 구간은 요청하지 않았습니다. 적용 후 이어서 요청하세요.`); break; }
+        const next = remaining[0], index = parts.length + 1, total = Math.min(parts.length + remaining.length, options.chunkMax);
+        job.label = `${TASKS[task].label} · 구간 ${index}/${total}`; this.jobStatus();
+        assert(!job.cancelled, "요청을 취소했습니다.");
+        const stepText = `${requestText}\n\n[분할 작업 ${index}/${total}] 이번 구간: ${next.title}\n${next.instruction}\n이전 구간의 결과는 이미 현재안에 반영되어 있다. 이번 구간만 작성하고, 아직 남은 구간이 있으면 plan에 남은 것만 다시 적어라(이번 구간은 제외). 남은 구간이 없으면 plan을 생략하라.`;
+        const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [] });
+        assert(!step.issues.length, "프리셋 조립 오류:\n" + step.issues.join("\n"));
+        inputSize(step.messages, this.settings.maxInputChars);
+        packet = await ask(step.messages, stepText);
+        const planned = packet.plan ?? remaining.slice(1);
+        absorb(packet, `구간 ${index} · ${next.title}`);
+        remaining = packet.data === null && !packet.plan ? [] : planned;
+      }
+      finish(false);
     } catch (error) {
       if (this.s.sessionId === s.sessionId) {
-        s.thread.push({ id: uid(), role: "assistant", task, content: error.message, error: true, ...raw ? { raw } : {} });
-        this.touch(false);
+        if (parts.length) { notes.push(error.message); finish(true); }
+        else { s.thread.push({ id: uid(), role: "assistant", task, content: error.message, error: true, ...raw ? { raw } : {} }); this.touch(false); }
       }
     } finally {
       if (this.job?.id === job.id) this.job = null;
@@ -927,10 +987,12 @@ export class Workshop {
     const next = clone(this.settings);
     const result = await this.dialog("작업 설정", (body) => {
       body.append(this.h("p", { class: "muted" }, "30만 입력 토큰 규모용: 기본 3,000,000자, 전체 32MiB까지 전송합니다. 글자 수는 토큰 수가 아닙니다. 사용하는 모델·API가 입력 300,000토큰과 응답 여유를 지원해야 합니다. 본체 컨텍스트 설정은 자동 변경하지 않습니다."));
-      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.h("p", { class: "muted" }, "자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
+      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.h("h3", {}, "분할 작업"), this.check("긴 응답 나눠 받기 · 결과가 예산을 넘으면 모델이 구간 계획을 세우고 봇빌더가 자동으로 이어 요청합니다", next.chunking !== false, (v) => next.chunking = v), this.field("응답당 출력 예산 · 토큰 (사고 토큰 제외, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("최대 구간 수 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "구간마다 현재안을 다시 보내므로 입력 토큰은 구간 수에 비례해 늘어납니다. 구간 결과는 임시 원고에 쌓이고, 검토와 적용은 마지막에 한 번만 합니다. 중간에 취소하면 그때까지 완성된 구간만 수정안으로 남깁니다."), this.h("p", { class: "muted" }, "자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
     }, [{ label: "취소", value: false }, { label: "저장", value: true, kind: "primary" }]);
     if (result) {
       assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= MAX_INPUT_CHARS, "설정 범위를 확인하세요.");
+      assert(Number.isInteger(next.chunkTokens) && next.chunkTokens >= CHUNK_MIN_TOKENS && next.chunkTokens <= CHUNK_MAX_TOKENS && Number.isInteger(next.chunkMax) && next.chunkMax >= 2 && next.chunkMax <= CHUNK_HARD_MAX, "분할 작업 설정 범위를 확인하세요.");
+      next.chunking = next.chunking !== false;
       next.inputLimitVersion = INPUT_LIMIT_VERSION;
       await this.store("settings", next);
       this.settings = next;
