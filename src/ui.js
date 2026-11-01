@@ -4,7 +4,7 @@ import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, mig
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
-import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket, withCharacterIcon } from './core.js';
+import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket, withCharacterIcon, cbsIssues } from './core.js';
 import { registerInterop, DA_WORKSHOP_INTEROP_MARK } from './interop.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋', '프리셋']];
@@ -781,9 +781,14 @@ export class Workshop {
     const numbered = (value, start) => value === '' ? '(구간 삭제)' : value.split(/\r\n|\r|\n/).map((line, i) => `${start + i} | ${line}`).join('\n');
     const lines = (start, end) => start === end ? `${start}행` : `${start}–${end}행`;
     const mobile = this.doc.defaultView?.matchMedia?.('(max-width: 840px)').matches;
-    return h('details', mobile ? { open: '' } : {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
+    // Text-only CBS check on the proposed text of each field; the host is never executed.
+    const cbs = rows.map((row) => typeof row.after === 'string' ? cbsIssues(row.after) : []);
+    const cbsCount = cbs.reduce((n, list) => n + list.length, 0);
+    return h('details', mobile ? { open: '' } : {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인` + (cbsCount ? ` · CBS 경고 ${cbsCount}건` : '')),
+      cbsCount ? h('p', { class: 'warn cbs-summary' }, `CBS 검사 경고 ${cbsCount}건이 있습니다. 적용하면 리스 화면에서 조건 분기가 깨질 수 있으니 아래 구간별 안내를 확인하고, 필요하면 "{{else}}를 {{:else}}로 바꿔 줘"처럼 부분편집을 다시 요청하세요.`) : null,
       h('p', { class: 'muted' }, '부분편집의 줄 번호는 검토용입니다. 실제 적용은 요청 당시 원문과 정확히 일치하는 구간을 사용합니다. 코드 실행 결과를 검증한 것은 아닙니다.'),
-      rows.map(row => h('section', { class: 'card stack', style: 'margin:12px 0' }, row.part ? h('span', { class: 'pill' }, row.part) : null, h('strong', {}, row.label),
+      rows.map((row, i) => h('section', { class: 'card stack', style: 'margin:12px 0' }, row.part ? h('span', { class: 'pill' }, row.part) : null, h('strong', {}, row.label),
+        cbs[i].length ? h('p', { class: 'warn cbs-warn' }, 'CBS 검사: ' + cbs[i].join(' ')) : null,
         h('span', { class: 'muted' }, row.mode === 'patch' ? `부분편집 · 기존 ${lines(row.startLine, row.endLine)} → ${row.after === '' ? '삭제' : '수정 ' + lines(row.afterStartLine, row.afterEndLine)}` : row.mode === 'add' ? '추가' : row.mode === 'remove' ? '삭제' : typeof row.after === 'string' ? '전체 문자열 교체' : '설정값 변경'),
         h('div', { class: 'diff' }, h('pre', { class: 'before' }, row.mode === 'patch' ? numbered(row.before, row.startLine) : display(row.before)), h('pre', { class: 'after' }, row.mode === 'patch' ? numbered(row.after, row.afterStartLine) : display(row.after))))));
   }

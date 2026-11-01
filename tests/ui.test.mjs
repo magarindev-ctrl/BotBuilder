@@ -634,3 +634,19 @@ test('mobile job status asks to keep the screen on while a request is running', 
     x.app.job = null; x.app.jobStatus(); assert.equal(doc.querySelector('.job-hint'), null);
   } finally { x.close(); }
 });
+
+test('proposal review shows CBS warnings for {{else}} in a proposed first message', async () => {
+  const x = await make(); try {
+    x.app.task = 'greeting'; x.app.s.requests.greeting = '콘솔'; x.app.touch();
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'greeting', data: { text: '{{#if {{equal::{{getvar::z1}}::1}}}}선택됨{{else}}선택하기{{/if}}' } }) });
+    await x.app.sendRequest();
+    const doc = x.dom.window.document;
+    assert.match(doc.querySelector('.candidate summary').textContent, /CBS 경고 1건/);
+    assert.match(doc.querySelector('.candidate .cbs-summary').textContent, /CBS 검사 경고 1건/);
+    assert.match(doc.querySelector('.candidate .cbs-warn').textContent, /\{\{else\}\}/);
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'greeting', data: { text: '{{#if {{equal::{{getvar::z1}}::1}}}}선택됨{{:else}}선택하기{{/if}}' } }) });
+    x.app.s.requests.greeting = '수정'; await x.app.sendRequest();
+    const cards = doc.querySelectorAll('.candidate');
+    assert.equal(cards[cards.length - 1].querySelector('.cbs-warn'), null, 'valid CBS has no warning');
+  } finally { x.close(); }
+});
