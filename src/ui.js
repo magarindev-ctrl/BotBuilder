@@ -217,6 +217,10 @@ export class Workshop {
     this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
     this.themeListener = () => this.applyTheme();
     this.themeMedia?.addEventListener("change", this.themeListener);
+    // Re-render when crossing the mobile breakpoint (rotation, split screen) so layout-dependent parts update.
+    this.layoutMedia = this.doc.defaultView?.matchMedia?.("(max-width: 840px)");
+    this.layoutListener = () => { if (!this.job) this.render(); };
+    this.layoutMedia?.addEventListener?.("change", this.layoutListener);
     this.applyTheme();
     await Promise.all(Object.keys(TASKS).map(async (task) => {
       const raw = await this.api.pluginStorage.getItem(PREFIX + "prompt:" + task);
@@ -260,6 +264,7 @@ export class Workshop {
     clearInterval(this.elapsedTimer);
     clearTimeout(this.toastTimer);
     this.themeMedia?.removeEventListener("change", this.themeListener);
+    this.layoutMedia?.removeEventListener?.("change", this.layoutListener);
     this.job?.stop?.();
     this.activeModal?.close(null);
   }
@@ -300,6 +305,7 @@ export class Workshop {
     if (!this.statusEl) return;
     const date = key => this.slots[key]?.savedAt ? new Date(this.slots[key].savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '없음';
     this.statusEl.textContent = `${this.dirty() ? '원고 편집 중' : '변경 없음'} · 자동 저장 ${date('autosave')} · 임시 저장 ${date('manual')}`;
+    if (this.mobileStatusEl) this.mobileStatusEl.textContent = `${this.dirty() ? '편집 중' : '변경 없음'} · 자동 ${date('autosave')} · 임시 ${date('manual')}`;
     if (this.titleEl) this.titleEl.textContent = this.s.draft.name || '이름 없는 이야기';
     const undoBar = this.root?.querySelector('.undo-bar');
     if (undoBar) undoBar.hidden = !this.undoAvailable();
@@ -367,9 +373,14 @@ export class Workshop {
       this.render();
     }, "navitem", { "aria-current": s.tab === id ? "page" : null, "data-tab": id })), h("div", { class: "sidefoot muted" }, "대화로 구상하고,\n원고로 구체화하세요.", h("p", { style: "margin-top:12px" }, `v${VERSION} · 3분 자동 저장`)));
     const chat = this.renderChat();
+    // Mobile tab strip: flag when more tabs are hidden to the right so the fade hint shows.
+    const trackOverflow = () => { sidebar.dataset.overflow = String(sidebar.scrollLeft + sidebar.clientWidth < sidebar.scrollWidth - 1); };
+    sidebar.addEventListener("scroll", trackOverflow, { passive: true });
+    this.sidebarOverflow = trackOverflow;
     this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
     if (this.job) header.append(h("span", { class: "warn", role: "status" }, "응답 처리 중 · 편집 잠금"), this.b("요청 취소", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
-    const mobileTop = h("header", { class: "mobile-top" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "봇빌더"), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "원고" : "대화", () => {
+    this.mobileStatusEl = h("span", { class: "mobile-status", "aria-live": "polite" });
+    const mobileTop = h("header", { class: "mobile-top" }, h("div", { class: "mobile-title" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "봇빌더"), this.mobileStatusEl), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "원고" : "대화", () => {
       this.view = view;
       this.render();
     }, "", { "aria-pressed": this.view === view })), this.job ? this.b("취소", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request", "aria-label": "요청 취소" }) : this.b("☰", () => this.showMobileMenu(header, tools, chat), "", { "aria-label": "작업 메뉴" }));
@@ -378,6 +389,8 @@ export class Workshop {
     this.status();
     this.jobStatus();
     this.lockRequestEditors();
+    this.sidebarOverflow();
+    this.doc.defaultView?.requestAnimationFrame?.(() => this.sidebarOverflow?.());
   }
   renderEditor() {
     const h = this.h.bind(this), s = this.s;
@@ -737,7 +750,8 @@ export class Workshop {
     const display = value => value === undefined ? '(없음)' : value === '' ? '(빈 문자열)' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     const numbered = (value, start) => value === '' ? '(구간 삭제)' : value.split(/\r\n|\r|\n/).map((line, i) => `${start + i} | ${line}`).join('\n');
     const lines = (start, end) => start === end ? `${start}행` : `${start}–${end}행`;
-    return h('details', {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
+    const mobile = this.doc.defaultView?.matchMedia?.('(max-width: 840px)').matches;
+    return h('details', mobile ? { open: '' } : {}, h('summary', {}, `변경 내용 ${rows.length}개 구간·필드 확인`),
       h('p', { class: 'muted' }, '부분편집의 줄 번호는 검토용입니다. 실제 적용은 요청 당시 원문과 정확히 일치하는 구간을 사용합니다. 코드 실행 결과를 검증한 것은 아닙니다.'),
       rows.map(row => h('section', { class: 'card stack', style: 'margin:12px 0' }, h('strong', {}, row.label),
         h('span', { class: 'muted' }, row.mode === 'patch' ? `부분편집 · 기존 ${lines(row.startLine, row.endLine)} → ${row.after === '' ? '삭제' : '수정 ' + lines(row.afterStartLine, row.afterEndLine)}` : row.mode === 'add' ? '추가' : row.mode === 'remove' ? '삭제' : typeof row.after === 'string' ? '전체 문자열 교체' : '설정값 변경'),

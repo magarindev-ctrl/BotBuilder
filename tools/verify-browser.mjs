@@ -387,7 +387,8 @@ try {
   await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-desktop.png',animations:'disabled'});
   await page.setViewportSize({width:390,height:844});
   await frame.getByRole('button',{name:'대화',exact:true}).click();
-  await patchCandidate.locator('summary').click();
+  // Proposal details open by default on mobile; only click the summary when it is still collapsed.
+  assert.equal(await patchCandidate.locator('details').first().evaluate(d=>d.open),true,'mobile proposal details should start expanded');
   await patchCandidate.locator('.before').scrollIntoViewIfNeeded();
   assert.equal(await frame.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-mobile.png',animations:'disabled'});

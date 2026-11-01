@@ -5,7 +5,7 @@
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
-Modified 2026-11-01: v1.0.0 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode.
+Modified 2026-11-01: v1.0.0 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode; mobile shows save status under the title, fades the tab strip edge while more tabs are hidden, opens proposal details by default and re-renders when the layout breakpoint changes.
 Modified 2026-10-31: v1.0.0 adds the GitHub Raw update URL for native RisuAI/RisuBard plugin updates; version unchanged.
 Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
@@ -11242,7 +11242,10 @@ details[open] > summary { margin-bottom: 9px; }
   .toolbar-files, .toolbar-saves { flex: 1 1 auto; }
   .toolbar-saves { margin-left: 0; }
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .sidebar::-webkit-scrollbar { display: none; }
+  /* Fade the right edge while more tabs are hidden past it. */
+  .sidebar[data-overflow=true] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
   .sidebar .eyebrow, .sidefoot, .navnum, .navcount { display: none; }
   .navmeta { margin-left: 4px; }
   .navitem { width: auto; flex-shrink: 0; white-space: nowrap; padding: 10px; margin: 0; }
@@ -11280,7 +11283,9 @@ details[open] > summary { margin-bottom: 9px; }
   #story-workshop { inset: auto 0 auto; top: var(--workshop-vtop, 0px); height: var(--workshop-vheight, 100dvh); grid-template-rows: auto minmax(0, 1fr); }
   .topbar, .toolbar, .chathead { display: none; }
   .mobile-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 10px; background: var(--paper); border-bottom: 1px solid var(--line); }
-  .mobile-top .document-name { flex: 1; font-size: 13px; }
+  .mobile-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .mobile-top .document-name { font-size: 13px; }
+  .mobile-status { font-size: 11px; line-height: 1.3; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mobile-top button { min-height: 40px; padding: 6px 9px; font-size: 12px; flex-shrink: 0; }
   .mobile-top button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
   .workspace { grid-row: 2; }
@@ -14999,6 +15004,11 @@ details[open] > summary { margin-bottom: 9px; }
       this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
       this.themeListener = () => this.applyTheme();
       this.themeMedia?.addEventListener("change", this.themeListener);
+      this.layoutMedia = this.doc.defaultView?.matchMedia?.("(max-width: 840px)");
+      this.layoutListener = () => {
+        if (!this.job) this.render();
+      };
+      this.layoutMedia?.addEventListener?.("change", this.layoutListener);
       this.applyTheme();
       await Promise.all(Object.keys(TASKS).map(async (task) => {
         const raw = await this.api.pluginStorage.getItem(PREFIX + "prompt:" + task);
@@ -15042,6 +15052,7 @@ details[open] > summary { margin-bottom: 9px; }
       clearInterval(this.elapsedTimer);
       clearTimeout(this.toastTimer);
       this.themeMedia?.removeEventListener("change", this.themeListener);
+      this.layoutMedia?.removeEventListener?.("change", this.layoutListener);
       this.job?.stop?.();
       this.activeModal?.close(null);
     }
@@ -15103,6 +15114,7 @@ details[open] > summary { margin-bottom: 9px; }
       if (!this.statusEl) return;
       const date = (key2) => this.slots[key2]?.savedAt ? new Date(this.slots[key2].savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "\uC5C6\uC74C";
       this.statusEl.textContent = `${this.dirty() ? "\uC6D0\uACE0 \uD3B8\uC9D1 \uC911" : "\uBCC0\uACBD \uC5C6\uC74C"} \xB7 \uC790\uB3D9 \uC800\uC7A5 ${date("autosave")} \xB7 \uC784\uC2DC \uC800\uC7A5 ${date("manual")}`;
+      if (this.mobileStatusEl) this.mobileStatusEl.textContent = `${this.dirty() ? "\uD3B8\uC9D1 \uC911" : "\uBCC0\uACBD \uC5C6\uC74C"} \xB7 \uC790\uB3D9 ${date("autosave")} \xB7 \uC784\uC2DC ${date("manual")}`;
       if (this.titleEl) this.titleEl.textContent = this.s.draft.name || "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30";
       const undoBar = this.root?.querySelector(".undo-bar");
       if (undoBar) undoBar.hidden = !this.undoAvailable();
@@ -15170,9 +15182,15 @@ details[open] > summary { margin-bottom: 9px; }
         this.render();
       }, "navitem", { "aria-current": s.tab === id ? "page" : null, "data-tab": id })), h("div", { class: "sidefoot muted" }, "\uB300\uD654\uB85C \uAD6C\uC0C1\uD558\uACE0,\n\uC6D0\uACE0\uB85C \uAD6C\uCCB4\uD654\uD558\uC138\uC694.", h("p", { style: "margin-top:12px" }, `v${VERSION} \xB7 3\uBD84 \uC790\uB3D9 \uC800\uC7A5`)));
       const chat = this.renderChat();
+      const trackOverflow = () => {
+        sidebar.dataset.overflow = String(sidebar.scrollLeft + sidebar.clientWidth < sidebar.scrollWidth - 1);
+      };
+      sidebar.addEventListener("scroll", trackOverflow, { passive: true });
+      this.sidebarOverflow = trackOverflow;
       this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
       if (this.job) header.append(h("span", { class: "warn", role: "status" }, "\uC751\uB2F5 \uCC98\uB9AC \uC911 \xB7 \uD3B8\uC9D1 \uC7A0\uAE08"), this.b("\uC694\uCCAD \uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
-      const mobileTop = h("header", { class: "mobile-top" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "\uBD07\uBE4C\uB354"), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "\uC6D0\uACE0" : "\uB300\uD654", () => {
+      this.mobileStatusEl = h("span", { class: "mobile-status", "aria-live": "polite" });
+      const mobileTop = h("header", { class: "mobile-top" }, h("div", { class: "mobile-title" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "\uBD07\uBE4C\uB354"), this.mobileStatusEl), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "\uC6D0\uACE0" : "\uB300\uD654", () => {
         this.view = view;
         this.render();
       }, "", { "aria-pressed": this.view === view })), this.job ? this.b("\uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request", "aria-label": "\uC694\uCCAD \uCDE8\uC18C" }) : this.b("\u2630", () => this.showMobileMenu(header, tools, chat), "", { "aria-label": "\uC791\uC5C5 \uBA54\uB274" }));
@@ -15181,6 +15199,8 @@ details[open] > summary { margin-bottom: 9px; }
       this.status();
       this.jobStatus();
       this.lockRequestEditors();
+      this.sidebarOverflow();
+      this.doc.defaultView?.requestAnimationFrame?.(() => this.sidebarOverflow?.());
     }
     renderEditor() {
       const h = this.h.bind(this), s = this.s;
@@ -15654,9 +15674,10 @@ details[open] > summary { margin-bottom: 9px; }
       const display = (value) => value === void 0 ? "(\uC5C6\uC74C)" : value === "" ? "(\uBE48 \uBB38\uC790\uC5F4)" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
       const numbered = (value, start) => value === "" ? "(\uAD6C\uAC04 \uC0AD\uC81C)" : value.split(/\r\n|\r|\n/).map((line, i) => `${start + i} | ${line}`).join("\n");
       const lines = (start, end) => start === end ? `${start}\uD589` : `${start}\u2013${end}\uD589`;
+      const mobile = this.doc.defaultView?.matchMedia?.("(max-width: 840px)").matches;
       return h(
         "details",
-        {},
+        mobile ? { open: "" } : {},
         h("summary", {}, `\uBCC0\uACBD \uB0B4\uC6A9 ${rows.length}\uAC1C \uAD6C\uAC04\xB7\uD544\uB4DC \uD655\uC778`),
         h("p", { class: "muted" }, "\uBD80\uBD84\uD3B8\uC9D1\uC758 \uC904 \uBC88\uD638\uB294 \uAC80\uD1A0\uC6A9\uC785\uB2C8\uB2E4. \uC2E4\uC81C \uC801\uC6A9\uC740 \uC694\uCCAD \uB2F9\uC2DC \uC6D0\uBB38\uACFC \uC815\uD655\uD788 \uC77C\uCE58\uD558\uB294 \uAD6C\uAC04\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uCF54\uB4DC \uC2E4\uD589 \uACB0\uACFC\uB97C \uAC80\uC99D\uD55C \uAC83\uC740 \uC544\uB2D9\uB2C8\uB2E4."),
         rows.map((row) => h(

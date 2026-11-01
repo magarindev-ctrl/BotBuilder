@@ -585,3 +585,20 @@ test('conversation labels are Korean', async () => {
     assert.deepEqual([...x.dom.window.document.querySelectorAll('.msglabel')].map(e => e.textContent), ['나', '작성 파트너']);
   } finally { x.close(); }
 });
+
+test('mobile shows save status under the title, opens proposal details by default and tracks tab-strip overflow', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document, media = x.dom.window.matchMedia;
+    x.dom.window.matchMedia = query => query.includes('max-width') ? { matches: true } : media(query);
+    x.app.render();
+    assert.equal(doc.querySelector('.mobile-top .mobile-status').textContent, '변경 없음 · 자동 없음 · 임시 없음');
+    assert.equal(doc.querySelector('.sidebar').dataset.overflow, 'false');
+    x.app.task = 'description'; x.app.s.requests.description = '수정'; x.app.s.draft.desc = 'same'; x.app.touch();
+    assert.match(doc.querySelector('.mobile-top .mobile-status').textContent, /^편집 중 · 자동 없음/);
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'rewritten' } }) });
+    await x.app.sendRequest();
+    assert.equal(doc.querySelector('.candidate details').open, true, 'mobile proposal details start expanded');
+    x.dom.window.matchMedia = media; x.app.render();
+    assert.equal(doc.querySelector('.candidate details').open, false, 'desktop proposal details stay collapsed');
+  } finally { x.close(); }
+});

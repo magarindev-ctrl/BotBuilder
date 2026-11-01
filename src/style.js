@@ -242,7 +242,10 @@ details[open] > summary { margin-bottom: 9px; }
   .toolbar-files, .toolbar-saves { flex: 1 1 auto; }
   .toolbar-saves { margin-left: 0; }
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .sidebar::-webkit-scrollbar { display: none; }
+  /* Fade the right edge while more tabs are hidden past it. */
+  .sidebar[data-overflow=true] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
   .sidebar .eyebrow, .sidefoot, .navnum, .navcount { display: none; }
   .navmeta { margin-left: 4px; }
   .navitem { width: auto; flex-shrink: 0; white-space: nowrap; padding: 10px; margin: 0; }
@@ -280,7 +283,9 @@ details[open] > summary { margin-bottom: 9px; }
   #story-workshop { inset: auto 0 auto; top: var(--workshop-vtop, 0px); height: var(--workshop-vheight, 100dvh); grid-template-rows: auto minmax(0, 1fr); }
   .topbar, .toolbar, .chathead { display: none; }
   .mobile-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 10px; background: var(--paper); border-bottom: 1px solid var(--line); }
-  .mobile-top .document-name { flex: 1; font-size: 13px; }
+  .mobile-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .mobile-top .document-name { font-size: 13px; }
+  .mobile-status { font-size: 11px; line-height: 1.3; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mobile-top button { min-height: 40px; padding: 6px 9px; font-size: 12px; flex-shrink: 0; }
   .mobile-top button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
   .workspace { grid-row: 2; }
