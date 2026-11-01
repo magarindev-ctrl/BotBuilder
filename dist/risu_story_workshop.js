@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.0.0
+//@version 1.0.1
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-01: v1.0.1 release polish: tab, list and model navigation no longer starts a session or autosaves an empty draft; error toasts persist until closed; three rotating autosave slots; one-step undo of an applied proposal; per-tab change markers; Korean conversation labels; higher-contrast small text and a stronger proposal card edge in dark mode; mobile shows save status under the title, fades the tab strip edge while more tabs are hidden, opens proposal details by default and re-renders when the layout breakpoint changes. The active request task is shown as a strip above the input, on the mobile settings toggle and as a tag on each message.
 Modified 2026-10-31: v1.0.0 adds the GitHub Raw update URL for native RisuAI/RisuBard plugin updates; version unchanged.
 Modified 2026-10-31: v1.0.0 marks the first stable release; functionality is unchanged from v0.4.16.
 Modified 2026-10-31: v0.4.16 moves desktop image attachment and request instructions from paragraphs to button hover tooltips.
@@ -9911,7 +9912,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.0.0";
+  var VERSION = "1.0.1";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -11001,11 +11002,11 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
 :root {
   color-scheme: light;
   --bg: #f4f2ed; --paper: #fffefa; --line: #dddcd3;
-  --ink: #243431; --muted: #66746f;
+  --ink: #243431; --muted: #5c6a65;
   --accent: #23685b; --accent-bg: #e6f0eb; --warm: #a05a39; --error: #a53232;
   --hover: #eaece5; --hover-line: #b9c6be; --focus: #93beb0;
   --primary-bg: #23685b; --primary-ink: #fff; --primary-hover: #1c554a;
-  --selected: #e1e9df; --subtle: #86908a; --brand-line: #9eb5a9;
+  --selected: #e1e9df; --subtle: #657169; --brand-line: #9eb5a9;
   --hero-bg: linear-gradient(135deg, #e7eee4, #f7f4e9); --hero-line: #cdd9cf;
   --hero-ink: #53665b; --step-line: #cfdbd0; --chat-bg: #fcfcf8; --bubble-bg: #e9eee5;
   --candidate-bg: #fffdf4; --candidate-line: #dac99b; --candidate-tag: #efe7c8; --candidate-ink: #795e25;
@@ -11024,11 +11025,12 @@ ${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D
   --selected: #383838; --subtle: #aaa; --brand-line: #757575;
   --hero-bg: linear-gradient(135deg, #252525, #2b2b2b); --hero-line: #4b4b4b;
   --hero-ink: #c4c4c4; --step-line: #626262; --chat-bg: #1c1c1c; --bubble-bg: #333;
-  --candidate-bg: #292929; --candidate-line: #666; --candidate-tag: #414141; --candidate-ink: #e4e4e4;
+  --candidate-bg: #2b2b2b; --candidate-line: #a3a3a3; --candidate-tag: #e6e6e6; --candidate-ink: #181818;
   --diff-bg: #1b1b1b; --before-bg: #342b2b; --before-ink: #e6bdb9; --after-bg: #303030; --after-ink: #e0e0e0;
   --warn-bg: #352f23; --warn-ink: #eed09b; --toast-bg: #414141; --overlay: #0009;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { width: 100%; height: 100%; min-height: 0; margin: 0; overflow: hidden; }
 body { background: var(--bg); color: var(--ink); }
 #story-workshop {
@@ -11044,7 +11046,7 @@ button {
 }
 button:hover { background: var(--hover); border-color: var(--hover-line); }
 button:disabled { opacity: .48; cursor: not-allowed; }
-button.primary { background: var(--primary-bg); color: var(--primary-ink); border-color: var(--primary-bg); }
+button.primary { background: var(--primary-bg); color: var(--primary-ink); border-color: var(--primary-bg); font-weight: 650; }
 button.primary:hover { background: var(--primary-hover); }
 button.ghost { background: transparent; border-color: transparent; }
 button.small { padding: 5px 9px; min-height: 30px; font-size: 12px; }
@@ -11055,7 +11057,7 @@ input, textarea, select {
   padding: 9px 11px; min-width: 0; max-width: 100%;
 }
 textarea { resize: vertical; line-height: 1.7; min-height: 110px; width: 100%; }
-textarea::placeholder, input::placeholder { color: var(--muted); opacity: .8; }
+textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
 input:not([type=checkbox]), select { width: 100%; }
 input[type=checkbox] { accent-color: var(--accent); }
 textarea.code, .code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; tab-size: 2; }
@@ -11065,7 +11067,7 @@ h1 { font-size: 18px; letter-spacing: -.7px; }
 h2 { font-size: 21px; font-weight: 650; letter-spacing: -.7px; }
 h3 { font-size: 14px; font-weight: 650; }
 .muted { color: var(--muted); font-size: 12px; line-height: 1.65; }
-.eyebrow { font-size: 10px; letter-spacing: 2px; color: var(--warm); font-weight: 700; }
+.eyebrow { font-size: 11px; letter-spacing: 2px; color: var(--warm); font-weight: 700; }
 .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .between { justify-content: space-between; }
 .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -11102,7 +11104,12 @@ h3 { font-size: 14px; font-weight: 650; }
 .navitem { display: flex; gap: 10px; text-align: left; width: 100%; border: 0; background: transparent; padding: 13px 10px; margin: 3px 0; border-radius: 8px; align-items: center; }
 .navitem[aria-current=page] { color: var(--accent); background: var(--selected); font-weight: 650; }
 .navnum { font-family: Georgia, serif; color: var(--subtle); font-size: 12px; flex-shrink: 0; }
-.navcount { margin-left: auto; color: var(--subtle); font-size: 11px; }
+.navlabel { min-width: 0; }
+.navmeta { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.navcount { color: var(--subtle); font-size: 11px; }
+.navcount:empty { display: none; }
+.navdot { display: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warm); }
+.navitem[data-changed=true] .navdot { display: inline-block; }
 .sidefoot { margin: 26px 10px; padding-top: 17px; border-top: 1px solid var(--line); }
 .editor { overflow: auto; min-width: 0; min-height: 0; padding: 28px 32px 60px; background: var(--bg); overscroll-behavior: contain; }
 .sectionhead { margin-bottom: 24px; }
@@ -11161,7 +11168,12 @@ h3 { font-size: 14px; font-weight: 650; }
 }
 .message { display: flex; flex-direction: column; gap: 7px; min-width: 0; flex-shrink: 0; }
 .message.user { align-items: flex-end; }
-.msglabel { font-size: 10px; letter-spacing: .7px; color: var(--subtle); }
+.msglabel { font-size: 11px; letter-spacing: .3px; color: var(--subtle); display: inline-flex; align-items: center; gap: 6px; }
+.msgtask { font-size: 10px; letter-spacing: 0; padding: 1px 7px; border-radius: 10px; background: var(--accent-bg); color: var(--accent); font-weight: 650; }
+.mode-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.mode-pill { background: var(--accent-bg); color: var(--accent); font-weight: 650; padding: 3px 10px; border-radius: 20px; font-size: 12px; white-space: nowrap; }
+.mode-strip[data-task=workshop] .mode-pill { background: var(--selected); color: var(--ink); }
+.mode-scope { flex: 1 1 200px; min-width: 0; }
 .bubble { font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .message.user .bubble { background: var(--bubble-bg); border-radius: 12px 12px 2px 12px; padding: 11px 14px; max-width: 95%; }
 .message.assistant .bubble { padding: 0 3px; }
@@ -11177,8 +11189,9 @@ h3 { font-size: 14px; font-weight: 650; }
 .composer textarea { min-height: 80px; max-height: 180px; }
 .composer select { font-size: 12px; padding: 7px; }
 .request-options { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr); gap: 6px; }
-.candidate { background: var(--candidate-bg); border: 1px solid var(--candidate-line); border-radius: 10px; padding: 13px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
+.candidate { background: var(--candidate-bg); border: 1.5px solid var(--candidate-line); border-left-width: 5px; border-radius: 10px; padding: 13px; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex-shrink: 0; }
 .candidate .pill { background: var(--candidate-tag); color: var(--candidate-ink); }
+.undo-bar { border: 1px dashed var(--candidate-line); border-radius: 10px; padding: 8px 12px; flex-shrink: 0; }
 .diff { border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 360px; overflow: auto; background: var(--diff-bg); min-width: 0; }
 .diff .before { color: var(--before-ink); background: var(--before-bg); padding: 8px; }
 .diff .after { color: var(--after-ink); background: var(--after-bg); padding: 8px; margin-top: 6px; }
@@ -11188,8 +11201,11 @@ details[open] > summary { margin-bottom: 9px; }
 .jobbar { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; min-height: 24px; }
 .spinner { display: inline-block; flex-shrink: 0; width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--toast-bg); color: #fff; padding: 12px 18px; border-radius: 10px; max-width: min(700px, 90vw); box-shadow: 0 4px 24px #0002; font-size: 13px; line-height: 1.6; pointer-events: none; }
-.toast.bad { background: #843d35; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--toast-bg); color: #fff; padding: 12px 18px; border-radius: 10px; max-width: min(700px, 90vw); box-shadow: 0 4px 24px #0002; font-size: 13px; line-height: 1.6; pointer-events: none; display: flex; align-items: flex-start; gap: 12px; }
+.toast-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.toast.bad { background: #843d35; pointer-events: auto; user-select: text; max-height: 60vh; overflow: auto; }
+.toast-close { flex-shrink: 0; color: #fff; background: transparent; border-color: #fff8; }
+.toast-close:hover { background: #fff2; border-color: #fff; }
 .modal-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 100; display: grid; place-items: center; padding: 20px; }
 .modal { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; width: min(860px, 100%); max-height: 100%; min-height: 0; min-width: 0; display: flex; flex-direction: column; box-shadow: 0 18px 80px #0005; }
 .modalhead { padding: 18px 22px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
@@ -11231,8 +11247,12 @@ details[open] > summary { margin-bottom: 9px; }
   .toolbar-files, .toolbar-saves { flex: 1 1 auto; }
   .toolbar-saves { margin-left: 0; }
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar { display: flex; overflow-x: auto; padding: 6px; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .sidebar::-webkit-scrollbar { display: none; }
+  /* Fade the right edge while more tabs are hidden past it. */
+  .sidebar[data-overflow=true] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
   .sidebar .eyebrow, .sidefoot, .navnum, .navcount { display: none; }
+  .navmeta { margin-left: 4px; }
   .navitem { width: auto; flex-shrink: 0; white-space: nowrap; padding: 10px; margin: 0; }
   .editor { padding: 22px 16px; }
   .conversation { grid-row: 1 / -1; border-left: 0; }
@@ -11268,15 +11288,21 @@ details[open] > summary { margin-bottom: 9px; }
   #story-workshop { inset: auto 0 auto; top: var(--workshop-vtop, 0px); height: var(--workshop-vheight, 100dvh); grid-template-rows: auto minmax(0, 1fr); }
   .topbar, .toolbar, .chathead { display: none; }
   .mobile-top { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 10px; background: var(--paper); border-bottom: 1px solid var(--line); }
-  .mobile-top .document-name { flex: 1; font-size: 13px; }
+  .mobile-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .mobile-top .document-name { font-size: 13px; }
+  .mobile-status { font-size: 11px; line-height: 1.3; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mobile-top button { min-height: 40px; padding: 6px 9px; font-size: 12px; flex-shrink: 0; }
   .mobile-top button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--brand-line); }
   .workspace { grid-row: 2; }
   .messages { padding: 14px 12px; gap: 14px; }
-  .composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: 'previews previews previews' 'input input input' 'attach options send' 'clear clear clear' 'status status status'; gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); flex: 0 0 auto; max-height: 48%; }
+  .composer { display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: 'previews previews previews' 'input input input' 'attach options send' 'mode mode clear' 'status status status'; gap: 6px; padding: 8px 10px max(8px, env(safe-area-inset-bottom)); flex: 0 0 auto; max-height: 48%; }
   .composer > textarea { grid-area: input; width: 100%; min-height: 52px; max-height: 122px; height: 52px; font-size: 16px; line-height: 22px; padding: 4px 9px; resize: none; }
   .mobile-prompt { display: block; }
   .request-settings { grid-area: options; min-width: 0; }
+  /* The scope line sits left of '\uB300\uD654 \uBE44\uC6B0\uAE30'; the task name itself is on the settings toggle above. */
+  .composer > .mode-strip { display: flex; grid-area: mode; align-self: center; min-width: 0; font-size: 11px; line-height: 1.4; }
+  .composer > .mode-strip .mode-pill { display: none; }
+  .composer > .mode-strip .mode-scope { flex: 1 1 auto; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .request-settings-toggle { display: block; width: 100%; min-height: 40px; padding: 6px; font-size: 12px; }
   .request-settings-body { display: none; }
   .request-settings[data-open=true] .request-settings-body { display: flex; position: fixed; z-index: 12; bottom: calc(100% - var(--workshop-vheight, 100dvh) - var(--workshop-vtop, 0px) + 150px); left: 10px; right: 10px; max-height: 40dvh; overflow: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 5px 30px #0005; }
@@ -11298,6 +11324,8 @@ details[open] > summary { margin-bottom: 9px; }
   .composer > .muted { display: none; }
   .composer .jobbar { grid-area: status; min-height: 0; font-size: 11px; }
   #story-workshop[aria-busy=false] .composer .jobbar { display: none; }
+  .toast { bottom: auto; top: calc(var(--workshop-vtop, 0px) + 58px); max-width: calc(100vw - 20px); }
+  .toast.bad { max-height: 40vh; }
   .mobile-menu-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .mobile-menu-list button { min-height: 46px; }
 }
@@ -14737,8 +14765,12 @@ details[open] > summary { margin-bottom: 9px; }
   }
 
   // src/ui.js
-  var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B"]];
+  var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B", "\uD504\uB9AC\uC14B"]];
+  var TAB_FIELDS = { overview: ["name"], description: ["desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags"], lorebook: ["globalLore"], regex: ["customscript"], lua: ["triggerscript", "defaultVariables"], greeting: ["firstMessage", "alternateGreetings"], assets: ["image", "additionalAssets", "ccAssets"] };
+  var AUTOSAVE_KEYS = ["autosave", "autosave-1", "autosave-2"];
+  var SLOT_NAMES = { autosave: "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC", "autosave-1": "\uC790\uB3D9 \uC800\uC7A5 \xB7 1\uD68C \uC804", "autosave-2": "\uC790\uB3D9 \uC800\uC7A5 \xB7 2\uD68C \uC804", manual: "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5" };
   var fieldNames = { name: "\uC774\uB984", image: "\uBD07 \uC544\uC774\uCF58", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
+  var TASK_SCOPE = { workshop: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD569\uB2C8\uB2E4. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD560 \uB54C\uB9CC \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 \uBB36\uC5B4 \uC81C\uC548\uD569\uB2C8\uB2E4.", description: "\uCE90\uB9AD\uD130 \uC124\uBA85\xB7\uC131\uACA9\xB7\uC2DC\uB098\uB9AC\uC624 \uBCF8\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lorebook: "\uB85C\uC5B4\uBD81 \uD56D\uBAA9\uC744 \uCD94\uAC00\xB7\uC218\uC815\xB7\uC0AD\uC81C\uD569\uB2C8\uB2E4.", regex: "\uC815\uADDC\uC2DD \uADDC\uCE59\uACFC HTML/CSS \uC6D0\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lua: "Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", greeting: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", choiceGreeting: "\uCCAB \uBA54\uC2DC\uC9C0\xB7\uC0C1\uD669 \uBAA9\uB85D\xB7\uBCC0\uC218\xB7Lua\xB7\uC815\uADDC\uC2DD\uC744 \uD55C \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD569\uB2C8\uB2E4." };
   var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system" };
   var Workshop = class {
     fitRequestInput() {
@@ -14858,6 +14890,7 @@ details[open] > summary { margin-bottom: 9px; }
       this.serial = 0;
       this.autoSerial = 0;
       this.slots = {};
+      this.slotRaw = {};
       this.ioBusy = false;
       this.job = null;
       this.view = "editor";
@@ -14919,6 +14952,11 @@ details[open] > summary { margin-bottom: 9px; }
       if (draft) this.s.revision++;
       this.status();
     }
+    // Navigation-only state (tab, list selection, model choice) never starts a session or marks the draft edited.
+    navigate() {
+      if (this.started) this.serial++;
+      this.status();
+    }
     setField(key2, value) {
       this.s.draft[key2] = value;
       this.touch();
@@ -14933,9 +14971,11 @@ details[open] > summary { margin-bottom: 9px; }
     toast(message, bad = false) {
       this.toastEl?.remove();
       clearTimeout(this.toastTimer);
-      this.toastEl = this.h("div", { class: "toast" + (bad ? " bad" : ""), role: bad ? "alert" : "status" }, message);
-      this.doc.body.append(this.toastEl);
-      this.toastTimer = setTimeout(() => this.toastEl?.remove(), 7e3);
+      const toast = this.h("div", { class: "toast" + (bad ? " bad" : ""), role: bad ? "alert" : "status" }, this.h("span", { class: "toast-text" }, message));
+      if (bad) toast.append(this.b("\uB2EB\uAE30", () => toast.remove(), "small toast-close", { "aria-label": "\uC624\uB958 \uC548\uB0B4 \uB2EB\uAE30" }));
+      else this.toastTimer = setTimeout(() => toast.remove(), 7e3);
+      this.toastEl = toast;
+      this.doc.body.append(toast);
     }
     async init() {
       const style = this.h("style", {}, CSS);
@@ -14974,6 +15014,11 @@ details[open] > summary { margin-bottom: 9px; }
       this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
       this.themeListener = () => this.applyTheme();
       this.themeMedia?.addEventListener("change", this.themeListener);
+      this.layoutMedia = this.doc.defaultView?.matchMedia?.("(max-width: 840px)");
+      this.layoutListener = () => {
+        if (!this.job) this.render();
+      };
+      this.layoutMedia?.addEventListener?.("change", this.layoutListener);
       this.applyTheme();
       await Promise.all(Object.keys(TASKS).map(async (task) => {
         const raw = await this.api.pluginStorage.getItem(PREFIX + "prompt:" + task);
@@ -15001,7 +15046,7 @@ details[open] > summary { margin-bottom: 9px; }
         this.render();
         if (!this.opened) {
           this.opened = true;
-          if (this.slots.autosave || this.slots.manual) await this.showRecovery(true);
+          if (Object.values(this.slots).some(Boolean)) await this.showRecovery(true);
         }
       };
       await this.api.registerSetting("\uBD07\uBE4C\uB354", open, "BB", "html");
@@ -15017,6 +15062,7 @@ details[open] > summary { margin-bottom: 9px; }
       clearInterval(this.elapsedTimer);
       clearTimeout(this.toastTimer);
       this.themeMedia?.removeEventListener("change", this.themeListener);
+      this.layoutMedia?.removeEventListener?.("change", this.layoutListener);
       this.job?.stop?.();
       this.activeModal?.close(null);
     }
@@ -15024,8 +15070,9 @@ details[open] > summary { margin-bottom: 9px; }
       this.doc.documentElement.dataset.theme = this.settings.theme === "system" ? this.themeMedia?.matches ? "dark" : "light" : this.settings.theme;
     }
     async readSlots() {
-      for (const name of ["autosave", "manual"]) {
+      for (const name of [...AUTOSAVE_KEYS, "manual"]) {
         const raw = await this.api.pluginStorage.getItem(PREFIX + name);
+        this.slotRaw[name] = raw ? typeof raw === "string" ? raw : JSON.stringify(raw) : null;
         if (!raw) {
           this.slots[name] = null;
           continue;
@@ -15041,18 +15088,32 @@ details[open] > summary { margin-bottom: 9px; }
       }
     }
     async store(key2, data) {
-      const text = JSON.stringify(data);
+      return this.storeRaw(key2, JSON.stringify(data));
+    }
+    async storeRaw(key2, text) {
       const work = this.storageQueue.catch(() => {
-      }).then(() => this.api.pluginStorage.setItem(PREFIX + key2, text));
+      }).then(() => text === null ? this.api.pluginStorage.removeItem(PREFIX + key2) : this.api.pluginStorage.setItem(PREFIX + key2, text));
       this.storageQueue = work;
       await work;
+    }
+    // Keeps the three most recent automatic saves: autosave → autosave-1 → autosave-2.
+    async rotateAutosaves() {
+      for (let i = AUTOSAVE_KEYS.length - 1; i > 0; i--) {
+        const from = AUTOSAVE_KEYS[i - 1], to = AUTOSAVE_KEYS[i], raw = this.slotRaw[from] ?? null;
+        if (raw === (this.slotRaw[to] ?? null)) continue;
+        await this.storeRaw(to, raw);
+        this.slotRaw[to] = raw;
+        this.slots[to] = raw ? this.slots[from] : null;
+      }
     }
     async saveSlot(name) {
       assert(this.started, "\uC0C8 \uC791\uC5C5\uC744 \uC2DC\uC791\uD558\uAC70\uB098 \uC6D0\uACE0\uB97C \uBD88\uB7EC\uC628 \uB4A4 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
       this.s.requestSettings = { ...this.settings, task: this.task, scopeOnly: this.scopeOnly };
-      const serial = this.serial, value = snapshot(this.s);
-      await this.store(name, value);
+      const serial = this.serial, value = snapshot(this.s), text = JSON.stringify(value);
+      if (name === "autosave") await this.rotateAutosaves();
+      await this.storeRaw(name, text);
       this.slots[name] = value;
+      this.slotRaw[name] = text;
       if (name === "autosave") this.autoSerial = serial;
       this.status();
     }
@@ -15062,13 +15123,22 @@ details[open] > summary { margin-bottom: 9px; }
     status() {
       if (!this.statusEl) return;
       const date = (key2) => this.slots[key2]?.savedAt ? new Date(this.slots[key2].savedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "\uC5C6\uC74C";
-      this.statusEl.textContent = `${this.dirty() ? "\uC6D0\uACE0 \uD3B8\uC9D1 \uC911" : "\uBCC0\uACBD \uC5C6\uC74C"} \xB7 \uC790\uB3D9 ${date("autosave")} \xB7 \uC784\uC2DC ${date("manual")}`;
+      this.statusEl.textContent = `${this.dirty() ? "\uC6D0\uACE0 \uD3B8\uC9D1 \uC911" : "\uBCC0\uACBD \uC5C6\uC74C"} \xB7 \uC790\uB3D9 \uC800\uC7A5 ${date("autosave")} \xB7 \uC784\uC2DC \uC800\uC7A5 ${date("manual")}`;
+      if (this.mobileStatusEl) this.mobileStatusEl.textContent = `${this.dirty() ? "\uD3B8\uC9D1 \uC911" : "\uBCC0\uACBD \uC5C6\uC74C"} \xB7 \uC790\uB3D9 ${date("autosave")} \xB7 \uC784\uC2DC ${date("manual")}`;
       if (this.titleEl) this.titleEl.textContent = this.s.draft.name || "\uC774\uB984 \uC5C6\uB294 \uC774\uC57C\uAE30";
-      const counts = this.root?.querySelectorAll(".navcount");
-      if (counts?.length) {
-        counts[2].textContent = this.s.draft.globalLore?.length ?? 0;
-        counts[3].textContent = this.s.draft.customscript?.length ?? 0;
+      const undoBar = this.root?.querySelector(".undo-bar");
+      if (undoBar) undoBar.hidden = !this.undoAvailable();
+      const changed = this.changedTabs();
+      for (const item of this.root?.querySelectorAll(".navitem[data-tab]") ?? []) {
+        const tab = item.dataset.tab, count = item.querySelector(".navcount");
+        if (count) count.textContent = tab === "lorebook" ? this.s.draft.globalLore?.length ?? 0 : tab === "regex" ? this.s.draft.customscript?.length ?? 0 : "";
+        item.dataset.changed = String(changed.has(tab));
       }
+    }
+    // Tabs whose fields differ from the loaded character, or from a blank draft for new work.
+    changedTabs() {
+      const base = this.s.base ?? editable(blankCharacter()), draft = editable(this.s.draft);
+      return new Set(Object.entries(TAB_FIELDS).filter(([, fields]) => fields.some((f) => !equal(base[f], draft[f]))).map(([tab]) => tab));
     }
     jobStatus() {
       if (this.regexStatusEl?.isConnected) this.regexStatusEl.textContent = this.regexJob ? `\uD14D\uC2A4\uD2B8 \uAC80\uC0AC \uC911 \xB7 ${Math.floor((Date.now() - this.regexJob.start) / 1e3)}\uCD08` : "";
@@ -15114,17 +15184,23 @@ details[open] > summary { margin-bottom: 9px; }
         this.render();
       }, "small", { "aria-pressed": this.view === "chat" })));
       this.editor = h("section", { class: "editor", "aria-label": "\uC81C\uC791 \uC6D0\uACE0" });
-      const sidebar = h("nav", { class: "sidebar", "aria-label": "\uC6D0\uACE0 \uAD6C\uC131" }, h("span", { class: "eyebrow" }, "MANUSCRIPT"), TABS.map(([id, name], i) => this.b([h("span", { class: "navnum" }, String(i + 1).padStart(2, "0")), name, h("span", { class: "navcount" }, id === "lorebook" ? s.draft.globalLore?.length ?? 0 : id === "regex" ? s.draft.customscript?.length ?? 0 : "")], () => {
+      const sidebar = h("nav", { class: "sidebar", "aria-label": "\uC6D0\uACE0 \uAD6C\uC131" }, h("span", { class: "eyebrow" }, "MANUSCRIPT"), TABS.map(([id, name, short], i) => this.b([h("span", { class: "navnum" }, String(i + 1).padStart(2, "0")), h("span", { class: "navlabel" }, short ?? name), h("span", { class: "navmeta" }, h("span", { class: "navdot", title: "\uC6D0\uBCF8\uACFC \uB2E4\uB978 \uB0B4\uC6A9\uC774 \uC788\uC2B5\uB2C8\uB2E4", "aria-label": "\uBCC0\uACBD\uB428" }), h("span", { class: "navcount" }, ""))], () => {
         s.tab = id;
         if (Object.hasOwn(TASKS, id)) this.task = id;
         this.view = "editor";
-        this.touch(false);
+        this.navigate();
         this.render();
-      }, "navitem", { "aria-current": s.tab === id ? "page" : null })), h("div", { class: "sidefoot muted" }, "\uB300\uD654\uB85C \uAD6C\uC0C1\uD558\uACE0,\n\uC6D0\uACE0\uB85C \uAD6C\uCCB4\uD654\uD558\uC138\uC694.", h("p", { style: "margin-top:12px" }, `v${VERSION} \xB7 3\uBD84 \uC790\uB3D9 \uC800\uC7A5`)));
+      }, "navitem", { "aria-current": s.tab === id ? "page" : null, "data-tab": id })), h("div", { class: "sidefoot muted" }, "\uB300\uD654\uB85C \uAD6C\uC0C1\uD558\uACE0,\n\uC6D0\uACE0\uB85C \uAD6C\uCCB4\uD654\uD558\uC138\uC694.", h("p", { style: "margin-top:12px" }, `v${VERSION} \xB7 3\uBD84 \uC790\uB3D9 \uC800\uC7A5`)));
       const chat = this.renderChat();
+      const trackOverflow = () => {
+        sidebar.dataset.overflow = String(sidebar.scrollLeft + sidebar.clientWidth < sidebar.scrollWidth - 1);
+      };
+      sidebar.addEventListener("scroll", trackOverflow, { passive: true });
+      this.sidebarOverflow = trackOverflow;
       this.workspace = h("div", { class: "workspace", "data-view": this.view }, sidebar, this.editor, chat);
       if (this.job) header.append(h("span", { class: "warn", role: "status" }, "\uC751\uB2F5 \uCC98\uB9AC \uC911 \xB7 \uD3B8\uC9D1 \uC7A0\uAE08"), this.b("\uC694\uCCAD \uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }));
-      const mobileTop = h("header", { class: "mobile-top" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "\uBD07\uBE4C\uB354"), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "\uC6D0\uACE0" : "\uB300\uD654", () => {
+      this.mobileStatusEl = h("span", { class: "mobile-status", "aria-live": "polite" });
+      const mobileTop = h("header", { class: "mobile-top" }, h("div", { class: "mobile-title" }, h("strong", { class: "document-name", title: s.draft.name }, s.draft.name || "\uBD07\uBE4C\uB354"), this.mobileStatusEl), ...["editor", "chat"].map((view) => this.b(view === "editor" ? "\uC6D0\uACE0" : "\uB300\uD654", () => {
         this.view = view;
         this.render();
       }, "", { "aria-pressed": this.view === view })), this.job ? this.b("\uCDE8\uC18C", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request", "aria-label": "\uC694\uCCAD \uCDE8\uC18C" }) : this.b("\u2630", () => this.showMobileMenu(header, tools, chat), "", { "aria-label": "\uC791\uC5C5 \uBA54\uB274" }));
@@ -15133,6 +15209,8 @@ details[open] > summary { margin-bottom: 9px; }
       this.status();
       this.jobStatus();
       this.lockRequestEditors();
+      this.sidebarOverflow();
+      this.doc.defaultView?.requestAnimationFrame?.(() => this.sidebarOverflow?.());
     }
     renderEditor() {
       const h = this.h.bind(this), s = this.s;
@@ -15243,7 +15321,7 @@ details[open] > summary { margin-bottom: 9px; }
           "aria-current": i === selected ? "true" : null,
           onclick: () => {
             s.selected[task] = i;
-            this.touch(false);
+            this.navigate();
             if (lore) redrawLoreList();
             else this.renderEditor();
           }
@@ -15495,7 +15573,7 @@ details[open] > summary { margin-bottom: 9px; }
       this.messagesEl = messages;
       if (!s.thread.length) messages.append(h("div", { class: "chatempty" }, h("span", { class: "eyebrow" }, "LET\u2019S MAKE SOMETHING"), h("h3", { style: "margin-top:10px" }, "\uD55C \uAC00\uC9C0 \uC544\uC774\uB514\uC5B4\uBD80\uD130 \uC2DC\uC791\uD558\uC138\uC694."), h("p", {}, "\u201C\uC774 \uC138\uACC4\uAD00\uC5D0 \uC5B4\uC6B8\uB9AC\uB294 \uC778\uBB3C\uBD80\uD130 \uAC19\uC774 \uC815\uD574\uBCF4\uC790.\u201D\n\u201C\uC774 \uC124\uC815\uC758 \uBAA8\uC21C\uC744 \uCC3E\uC544\uC918.\u201D\n\u201C\uC9C0\uAE08 \uC815\uD55C \uB0B4\uC6A9\uC744 \uC124\uBA85\uACFC \uB85C\uC5B4\uBD81\uC73C\uB85C \uC81C\uC548\uD574\uC918.\u201D"), h("p", { style: "margin-top:14px" }, "\uB300\uD654\uC640 \uC218\uC815\uC548\uC740 \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD574 \uBCF4\uAD00\uD569\uB2C8\uB2E4.")));
       for (const message of s.thread) {
-        const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "YOU" : "WRITING PARTNER"), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
+        const row = h("article", { class: "message " + message.role }, h("span", { class: "msglabel" }, message.role === "user" ? "\uB098" : "\uC791\uC131 \uD30C\uD2B8\uB108", message.task && message.task !== "workshop" && TASKS[message.task] ? h("span", { class: "msgtask" }, TASKS[message.task].label) : null), h("div", { class: "bubble" + (message.error ? " error" : "") }, message.content));
         if (message.images?.length) {
           const gallery = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
           for (const image of message.images) gallery.append(h("img", { src: image.data, alt: image.name, loading: "lazy", style: "width:140px;max-width:100%;height:110px;object-fit:contain" }));
@@ -15528,6 +15606,7 @@ details[open] > summary { margin-bottom: 9px; }
         );
         messages.append(card);
       }
+      if (this.undoAvailable()) messages.append(h("div", { class: "undo-bar row between" }, h("span", { class: "muted" }, "\uC801\uC6A9\uD568 \xB7 " + s.undo.label), this.b("\uC801\uC6A9 \uB418\uB3CC\uB9AC\uAE30", () => this.undoApplied(), "small", { "data-action": "undo-candidate", title: "\uBC29\uAE08 \uC801\uC6A9\uD55C \uC218\uC815\uC548\uC744 \uC801\uC6A9 \uC804 \uC6D0\uACE0\uB85C \uB418\uB3CC\uB9BD\uB2C8\uB2E4. \uC774\uD6C4 \uC6D0\uACE0\uB97C \uD3B8\uC9D1\uD558\uBA74 \uB418\uB3CC\uB9B4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." })));
       this.jobEl = h("div", { class: "jobbar", role: "status", "aria-live": "polite" });
       this.requestInput = h("textarea", { "aria-label": "LLM\uC5D0\uAC8C \uBCF4\uB0BC \uC694\uCCAD", placeholder: this.task === "workshop" ? "\uC544\uC774\uB514\uC5B4\uB97C \uC774\uC57C\uAE30\uD558\uAC70\uB098, \uD604\uC7AC \uC6D0\uACE0\uC5D0\uC11C \uB2E4\uB4EC\uC744 \uBD80\uBD84\uC744 \uBB3C\uC5B4\uBCF4\uC138\uC694." : TASKS[this.task].label + " \uC791\uC131\xB7\uC218\uC815 \uC694\uCCAD\uC744 \uC801\uC73C\uC138\uC694.", value: s.requests[this.task] ?? "" });
       this.requestInput.addEventListener("paste", (event) => this.pasteRequestImages(event));
@@ -15548,7 +15627,7 @@ details[open] > summary { margin-bottom: 9px; }
       }, "LLM \uC694\uCCAD \uC885\uB958");
       const model = this.select(this.settings.model, [["submodel", "\uBCF4\uC870 \uBAA8\uB378"], ["model", "\uBA54\uC778 \uBAA8\uB378"]], async (v) => {
         this.settings.model = v;
-        this.touch(false);
+        this.navigate();
         await this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
       }, "LLM \uBAA8\uB378");
       const mobile = this.doc.defaultView?.matchMedia("(max-width: 840px)").matches;
@@ -15568,17 +15647,21 @@ details[open] > summary { margin-bottom: 9px; }
         this.render();
       }, "\uC694\uCCAD \uAD6C\uC131");
       const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
-      const settingsToggle = this.b("\uC694\uCCAD \uC124\uC815 \u25BE", () => {
+      const toggleLabel = TASKS[this.task].label + " \u25BE";
+      const settingsToggle = this.b(toggleLabel, () => {
         const open = requestSettings.dataset.open !== "true";
         requestSettings.dataset.open = String(open);
         settingsToggle.setAttribute("aria-expanded", String(open));
-        settingsToggle.textContent = open ? "\uC124\uC815 \uB2EB\uAE30 \u25B4" : "\uC694\uCCAD \uC124\uC815 \u25BE";
-      }, "request-settings-toggle", { "aria-expanded": "false" });
+        settingsToggle.textContent = open ? "\uC124\uC815 \uB2EB\uAE30 \u25B4" : toggleLabel;
+      }, "request-settings-toggle", { "aria-expanded": "false", title: "\uC694\uCCAD \uC124\uC815 \xB7 \uC885\uB958\xB7\uBAA8\uB378\xB7\uAD6C\uC131\uC744 \uBC14\uAFC9\uB2C8\uB2E4." });
+      const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
+      const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " \uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\uD569\uB2C8\uB2E4." : "")));
       requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1", () => this.showPrompt(this.task), "small mobile-prompt")));
       panel.append(messages, h(
         "div",
         { class: "composer" },
         requestSettings,
+        modeStrip,
         this.requestInput,
         this.requestImageComposer(),
         h("div", { class: "row composer-actions" }, send, this.b("\uD504\uB86C\uD504\uD2B8", () => this.showPrompt(this.task), "", { "data-action": "prompt" }), this.job ? this.b("\uB300\uAE30 \uC911\uB2E8", () => this.cancelRequest(), "danger small", { "data-action": "cancel-request" }) : null),
@@ -15605,9 +15688,10 @@ details[open] > summary { margin-bottom: 9px; }
       const display = (value) => value === void 0 ? "(\uC5C6\uC74C)" : value === "" ? "(\uBE48 \uBB38\uC790\uC5F4)" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
       const numbered = (value, start) => value === "" ? "(\uAD6C\uAC04 \uC0AD\uC81C)" : value.split(/\r\n|\r|\n/).map((line, i) => `${start + i} | ${line}`).join("\n");
       const lines = (start, end) => start === end ? `${start}\uD589` : `${start}\u2013${end}\uD589`;
+      const mobile = this.doc.defaultView?.matchMedia?.("(max-width: 840px)").matches;
       return h(
         "details",
-        {},
+        mobile ? { open: "" } : {},
         h("summary", {}, `\uBCC0\uACBD \uB0B4\uC6A9 ${rows.length}\uAC1C \uAD6C\uAC04\xB7\uD544\uB4DC \uD655\uC778`),
         h("p", { class: "muted" }, "\uBD80\uBD84\uD3B8\uC9D1\uC758 \uC904 \uBC88\uD638\uB294 \uAC80\uD1A0\uC6A9\uC785\uB2C8\uB2E4. \uC2E4\uC81C \uC801\uC6A9\uC740 \uC694\uCCAD \uB2F9\uC2DC \uC6D0\uBB38\uACFC \uC815\uD655\uD788 \uC77C\uCE58\uD558\uB294 \uAD6C\uAC04\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uCF54\uB4DC \uC2E4\uD589 \uACB0\uACFC\uB97C \uAC80\uC99D\uD55C \uAC83\uC740 \uC544\uB2D9\uB2C8\uB2E4."),
         rows.map((row) => h(
@@ -15624,12 +15708,30 @@ details[open] > summary { margin-bottom: 9px; }
       validateLoreSelection(candidate.packet, this.s);
       const next = applyPacket(this.s.draft, candidate.packet);
       assert(this.candidateValid(candidate), "\uC6D0\uACE0\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4.");
+      const loreBefore = loreSelection(this.s);
       this.s.loreIncluded = loreSelectionAfterPacket(this.s, candidate.packet);
       this.s.draft = next;
       candidate.status = "applied";
       this.touch();
+      this.s.undo = { candidateId: candidate.id, sessionId: this.s.sessionId, revision: this.s.revision, restoreRevision: candidate.revision, before: candidate.before, loreIncluded: loreBefore, label: candidate.label };
       this.render();
       this.toast("\uC218\uC815\uC548\uC744 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4. \uC2E4\uC81C \uCE90\uB9AD\uD130 \uC800\uC7A5\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4.");
+    }
+    undoAvailable() {
+      const undo = this.s.undo;
+      return !!undo && undo.sessionId === this.s.sessionId && undo.revision === this.s.revision && !this.job;
+    }
+    undoApplied() {
+      assert(this.undoAvailable(), "\uC801\uC6A9 \uC774\uD6C4 \uC6D0\uACE0\uAC00 \uBC14\uB00C\uC5B4 \uB418\uB3CC\uB9B4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      const undo = this.s.undo, candidate = this.s.candidates.find((c) => c.id === undo.candidateId);
+      this.s.draft = clone(undo.before);
+      this.s.loreIncluded = loreSelection({ draft: this.s.draft, loreIncluded: undo.loreIncluded });
+      this.s.revision = undo.restoreRevision;
+      if (candidate) delete candidate.status;
+      delete this.s.undo;
+      this.touch(false);
+      this.render();
+      this.toast("\uC218\uC815\uC548 \uC801\uC6A9\uC744 \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4. \uC218\uC815\uC548\uC740 \uB2E4\uC2DC \uAC80\uD1A0 \uB300\uAE30 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.");
     }
     requestWithScope(task) {
       const s = this.s, request = (s.requests[task] ?? "").trim() || (requestImages(s, task).length ? "\uCCA8\uBD80\uD55C \uD654\uBA74\uC744 \uD655\uC778\uD558\uACE0 \uD604\uC7AC \uC694\uCCAD \uC791\uC5C5\uC5D0 \uB9DE\uAC8C \uBD84\uC11D\uD574 \uC8FC\uC138\uC694." : "");
@@ -15675,12 +15777,12 @@ details[open] > summary { margin-bottom: 9px; }
           assert(packet.data.upsert.every((x) => x.ref === scope) && packet.data.remove.every((x) => x === scope), "\uC120\uD0DD\uD55C \uD56D\uBAA9 \uBC16\uC758 \uBCC0\uACBD\uC774 \uD3EC\uD568\uB418\uC5B4 \uC81C\uC548\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.");
         }
         const changes = proposalDiff(before, packet).length;
-        s.thread.push({ id: uid(), role: "assistant", content: task === "workshop" ? packet.data.reply : !changes ? "\uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD560 \uBCC0\uACBD \uC0AC\uD56D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : TASKS[task].label + " \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0\uC11C \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uAC80\uD1A0\uD558\uC138\uC694." });
+        s.thread.push({ id: uid(), role: "assistant", task, content: task === "workshop" ? packet.data.reply : !changes ? "\uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD560 \uBCC0\uACBD \uC0AC\uD56D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : TASKS[task].label + " \uC218\uC815\uC548\uC744 \uC791\uC131\uD588\uC2B5\uB2C8\uB2E4. \uC544\uB798\uC5D0\uC11C \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uAC80\uD1A0\uD558\uC138\uC694." });
         if (changes) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " \xB7 " + (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), before, packet });
         this.touch(false);
       } catch (error) {
         if (this.s.sessionId === s.sessionId) {
-          s.thread.push({ id: uid(), role: "assistant", content: error.message, error: true, ...raw ? { raw } : {} });
+          s.thread.push({ id: uid(), role: "assistant", task, content: error.message, error: true, ...raw ? { raw } : {} });
           this.touch(false);
         }
       } finally {
@@ -15839,14 +15941,15 @@ details[open] > summary { margin-bottom: 9px; }
       await this.readSlots();
       let choice = null;
       await this.dialog(initial ? "\uC774\uC5B4\uC11C \uC791\uC5C5\uD560 \uC800\uC7A5\uBCF8\uC774 \uC788\uC2B5\uB2C8\uB2E4" : "\uC791\uC5C5 \uC800\uC7A5\uBCF8 \uBD88\uB7EC\uC624\uAE30", (body) => {
-        for (const key2 of ["autosave", "manual"]) {
+        for (const key2 of [...AUTOSAVE_KEYS, "manual"]) {
           const v = this.slots[key2];
-          body.append(this.h("div", { class: "card stack" }, this.h("h3", {}, key2 === "autosave" ? "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC 1\uAC1C" : "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5 \xB7 \uCD5C\uADFC 1\uAC1C"), this.h("p", { class: "muted" }, v?.error ?? (v ? `${v.name} \xB7 ${new Date(v.savedAt).toLocaleString("ko-KR")}` : "\uC544\uC9C1 \uC800\uC7A5\uBCF8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.")), this.b("\uC774 \uC800\uC7A5\uBCF8 \uBD88\uB7EC\uC624\uAE30", () => {
+          if (!v && key2 !== "autosave" && key2 !== "manual") continue;
+          body.append(this.h("div", { class: "card stack" }, this.h("h3", {}, SLOT_NAMES[key2]), this.h("p", { class: "muted" }, v?.error ?? (v ? `${v.name} \xB7 ${new Date(v.savedAt).toLocaleString("ko-KR")}` : "\uC544\uC9C1 \uC800\uC7A5\uBCF8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.")), this.b("\uC774 \uC800\uC7A5\uBCF8 \uBD88\uB7EC\uC624\uAE30", () => {
             choice = key2;
             this.activeModal.close(true);
           }, "", { disabled: !v || !!v.error })));
         }
-        body.append(this.h("p", { class: "muted" }, "\uBCF5\uC6D0\uD558\uBA74 \uC6D0\uACE0\xB7\uB300\uD654\xB7\uBBF8\uC801\uC6A9 \uC81C\uC548\xB7\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1 \uCD08\uC548\uC744 \uBD88\uB7EC\uC635\uB2C8\uB2E4. \uCE90\uB9AD\uD130 \uBCF8\uCCB4\uB098 \uC800\uC7A5\uB41C \uD504\uB86C\uD504\uD2B8 \uC124\uC815\uC5D0\uB294 \uC790\uB3D9\uC73C\uB85C \uBC18\uC601\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+        body.append(this.h("p", { class: "muted" }, "\uC790\uB3D9 \uC800\uC7A5\uC740 3\uBD84 \uAC04\uACA9\uC73C\uB85C \uCD5C\uADFC 3\uAC1C, \uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5\uC740 \uCD5C\uADFC 1\uAC1C\uB97C \uBCF4\uAD00\uD569\uB2C8\uB2E4. \uBCF5\uC6D0\uD558\uBA74 \uC6D0\uACE0\xB7\uB300\uD654\xB7\uBBF8\uC801\uC6A9 \uC81C\uC548\xB7\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1 \uCD08\uC548\uC744 \uBD88\uB7EC\uC635\uB2C8\uB2E4. \uCE90\uB9AD\uD130 \uBCF8\uCCB4\uB098 \uC800\uC7A5\uB41C \uD504\uB86C\uD504\uD2B8 \uC124\uC815\uC5D0\uB294 \uC790\uB3D9\uC73C\uB85C \uBC18\uC601\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
       }, [{ label: initial ? "\uC800\uC7A5\uBCF8 \uC720\uC9C0\uD558\uACE0 \uC0C8\uB85C \uC2DC\uC791" : "\uB2EB\uAE30", value: false }]);
       if (!choice) return;
       if (!initial && !await this.guardReplace()) return;

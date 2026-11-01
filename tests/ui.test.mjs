@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Workshop } from '../src/ui.js';
-import { PREFIX, newSession, snapshot, restoreSnapshot } from '../src/core.js';
+import { PREFIX, newSession, snapshot, restoreSnapshot, editable } from '../src/core.js';
 import { applyImportedPreset, importPresetFile, savePresetWorkspace, selectModules } from '../src/preset-ui.js';
 import { samplePreset, encodePreset } from './preset-fixture.mjs';
 import { installedModules, modulePreset } from './modules-fixture.mjs';
@@ -365,7 +365,7 @@ test('workshop renders manuscript + persistent chat, with prompt beside every se
   const x = await make(); try {
     assert.match(x.dom.window.document.body.textContent, /봇빌더/); assert.equal(x.dom.window.document.querySelectorAll('.editor').length, 1); assert.equal(x.dom.window.document.querySelectorAll('.conversation').length, 1);
     assert.ok(x.dom.window.document.querySelector('[data-action="send-request"]')); assert.ok(x.dom.window.document.querySelector('[data-action="prompt"]'));
-    const presetTab=[...x.dom.window.document.querySelectorAll('.navitem')].find(e=>e.textContent.includes('프롬프트 프리셋'));presetTab.click();await wait();
+    const presetTab=x.dom.window.document.querySelector('.navitem[data-tab="preset"]');presetTab.click();await wait();
     assert.ok(x.dom.window.document.querySelector('[data-action="import-preset"]'));assert.equal(x.app.task,'workshop');
     x.app.s.draft.desc = '<img src=x onerror=alert(1)>'; x.app.s.tab = 'description'; x.app.render(); assert.equal(x.dom.window.document.querySelectorAll('img').length, 0);
   } finally { x.close(); }
@@ -499,4 +499,127 @@ test('changing the draft during save-conflict review prevents the write', async(
   x.app.reviewSaveConflicts=async()=>{x.app.setField('desc','new draft');return {desc:'draft'};};
   await assert.rejects(x.app.saveHost(),/검토 중/);assert.equal(writes,0);assert.equal(x.app.s.draft.desc,'new draft');assert.equal(x.app.ioBusy,false);
  }finally{x.close();}
+});
+
+test('tab clicks, list selection and model choice never start a session or trigger an autosave', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document;
+    doc.querySelector('.navitem[data-tab="description"]').click(); await wait();
+    doc.querySelector('.navitem[data-tab="lorebook"]').click(); await wait();
+    assert.equal(x.app.started, false); assert.equal(x.app.dirty(), false);
+    assert.match(x.app.statusEl.textContent, /^변경 없음 · 자동 저장 없음 · 임시 저장 없음$/);
+    const model = doc.querySelector('select[aria-label="LLM 모델"]'); model.value = 'model'; model.dispatchEvent(new x.dom.window.Event('change')); await wait();
+    assert.equal(x.app.settings.model, 'model'); assert.equal(x.app.started, false);
+    await x.app.autosave(); assert.equal(x.store.has(PREFIX + 'autosave'), false);
+    x.app.setField('desc', '실제 편집'); assert.equal(x.app.started, true); assert.match(x.app.statusEl.textContent, /^원고 편집 중/);
+    await x.app.autosave(); assert.equal(x.store.has(PREFIX + 'autosave'), true);
+  } finally { x.close(); }
+});
+
+test('error toasts stay until closed and notices fade; both are replaced by the next toast', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document;
+    x.app.toast('프리셋 조립 오류:\n첫 줄\n둘째 줄', true);
+    const bad = doc.querySelector('.toast.bad'); assert.ok(bad); assert.equal(bad.getAttribute('role'), 'alert');
+    assert.equal(bad.querySelector('.toast-text').textContent, '프리셋 조립 오류:\n첫 줄\n둘째 줄');
+    await new Promise(resolve => setTimeout(resolve, 30)); assert.ok(doc.querySelector('.toast.bad'), 'error toast must not fade on its own');
+    bad.querySelector('.toast-close').click(); await wait(); assert.equal(doc.querySelector('.toast'), null);
+    x.app.toast('안내'); const notice = doc.querySelector('.toast'); assert.ok(notice); assert.equal(notice.querySelector('.toast-close'), null); assert.equal(notice.getAttribute('role'), 'status');
+    x.app.toast('다음 안내'); assert.equal(doc.querySelectorAll('.toast').length, 1);
+  } finally { x.close(); }
+});
+
+test('autosave keeps the three most recent snapshots in order and recovery lists them', async () => {
+  const x = await make(); try {
+    for (const name of ['첫 저장', '둘째 저장', '셋째 저장', '넷째 저장']) { x.app.setField('name', name); await x.app.autosave(); }
+    const slot = key => JSON.parse(x.store.get(PREFIX + key)).name;
+    assert.equal(slot('autosave'), '넷째 저장'); assert.equal(slot('autosave-1'), '셋째 저장'); assert.equal(slot('autosave-2'), '둘째 저장');
+    assert.equal(x.app.slots['autosave-2'].name, '둘째 저장');
+    await x.app.autosave(); assert.equal(slot('autosave'), '넷째 저장'); assert.equal(slot('autosave-1'), '셋째 저장');
+    const y = await make(Object.fromEntries([...x.store]));
+    try {
+      const dialog = y.app.showRecovery(); await wait();
+      const cards = [...y.dom.window.document.querySelectorAll('.modal .card h3')].map(e => e.textContent);
+      assert.deepEqual(cards, ['자동 저장 · 최근', '자동 저장 · 1회 전', '자동 저장 · 2회 전', '수동 임시 저장']);
+      y.dom.window.document.querySelectorAll('.modal .card button')[2].click(); await dialog;
+      assert.equal(y.app.s.draft.name, '둘째 저장');
+    } finally { y.close(); }
+  } finally { x.close(); }
+});
+
+test('applied proposal can be undone once until the draft changes again', async () => {
+  const x = await make(); try {
+    x.app.task = 'description'; x.app.s.requests.description = '수정'; x.app.s.draft.desc = 'same same'; x.app.touch();
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'rewritten' } }) });
+    await x.app.sendRequest(); const candidate = x.app.s.candidates[0]; assert.ok(candidate);
+    const revision = x.app.s.revision;
+    await x.app.applyCandidate(candidate); assert.equal(x.app.s.draft.desc, 'rewritten'); assert.equal(candidate.status, 'applied');
+    const undo = x.dom.window.document.querySelector('[data-action="undo-candidate"]'); assert.ok(undo);
+    undo.click(); await wait();
+    assert.equal(x.app.s.draft.desc, 'same same'); assert.equal(candidate.status, undefined); assert.equal(x.app.s.revision, revision);
+    assert.ok(x.app.candidateValid(candidate)); assert.equal(x.dom.window.document.querySelector('[data-action="undo-candidate"]'), null);
+    await x.app.applyCandidate(candidate); assert.equal(x.app.s.draft.desc, 'rewritten');
+    x.app.setField('desc', 'manual'); assert.equal(x.app.undoAvailable(), false);
+    assert.equal(x.dom.window.document.querySelector('.undo-bar').hidden, true, 'undo bar hides as soon as the draft is edited');
+    x.app.render(); assert.equal(x.dom.window.document.querySelector('[data-action="undo-candidate"]'), null);
+    assert.throws(() => x.app.undoApplied(), /되돌릴 수 없습니다/);
+  } finally { x.close(); }
+});
+
+test('sidebar marks tabs whose fields differ from the loaded character or blank draft', async () => {
+  const x = await make(); try {
+    const changed = () => [...x.dom.window.document.querySelectorAll('.navitem[data-changed="true"]')].map(e => e.dataset.tab);
+    assert.deepEqual(changed(), []);
+    x.app.setField('desc', '설명'); assert.deepEqual(changed(), ['description']);
+    x.app.s.draft.globalLore = [{ key: 'k', content: 'c', comment: '' }]; x.app.touch(); assert.deepEqual(changed(), ['description', 'lorebook']);
+    assert.equal(x.dom.window.document.querySelector('.navitem[data-tab="lorebook"] .navcount').textContent, '1');
+    const base = newSession(); base.targetId = 'cha-1'; base.draft.desc = '원본'; base.base = editable(base.draft);
+    await x.app.replaceSession(base); assert.deepEqual(changed(), []);
+    x.app.setField('firstMessage', '첫 장면'); assert.deepEqual(changed(), ['greeting']);
+  } finally { x.close(); }
+});
+
+test('conversation labels are Korean', async () => {
+  const x = await make(); try {
+    x.app.s.requests.workshop = '시작'; await x.app.sendRequest();
+    assert.deepEqual([...x.dom.window.document.querySelectorAll('.msglabel')].map(e => e.textContent), ['나', '작성 파트너']);
+  } finally { x.close(); }
+});
+
+test('mobile shows save status under the title, opens proposal details by default and tracks tab-strip overflow', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document, media = x.dom.window.matchMedia;
+    x.dom.window.matchMedia = query => query.includes('max-width') ? { matches: true } : media(query);
+    x.app.render();
+    assert.equal(doc.querySelector('.mobile-top .mobile-status').textContent, '변경 없음 · 자동 없음 · 임시 없음');
+    assert.equal(doc.querySelector('.sidebar').dataset.overflow, 'false');
+    x.app.task = 'description'; x.app.s.requests.description = '수정'; x.app.s.draft.desc = 'same'; x.app.touch();
+    assert.match(doc.querySelector('.mobile-top .mobile-status').textContent, /^편집 중 · 자동 없음/);
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'rewritten' } }) });
+    await x.app.sendRequest();
+    assert.equal(doc.querySelector('.candidate details').open, true, 'mobile proposal details start expanded');
+    x.dom.window.matchMedia = media; x.app.render();
+    assert.equal(doc.querySelector('.candidate details').open, false, 'desktop proposal details stay collapsed');
+  } finally { x.close(); }
+});
+
+test('the active request task is shown beside the input, on the mobile settings toggle and on each message', async () => {
+  const x = await make(); try {
+    const doc = x.dom.window.document;
+    assert.equal(doc.querySelector('.mode-strip .mode-pill').textContent, '설계 대화');
+    assert.equal(doc.querySelector('.request-settings-toggle').textContent, '설계 대화 ▾');
+    x.app.task = 'lorebook'; x.app.s.draft.globalLore = [{ key: 'k', content: 'c', comment: '' }]; x.app.scopeOnly = true; x.app.render();
+    assert.equal(doc.querySelector('.mode-strip').dataset.task, 'lorebook');
+    assert.equal(doc.querySelector('.mode-strip .mode-pill').textContent, '로어북');
+    assert.match(doc.querySelector('.mode-strip .mode-scope').textContent, /로어북 항목을 추가·수정·삭제합니다\. 현재 선택한 항목만 수정합니다\./);
+    assert.equal(doc.querySelector('.request-settings-toggle').textContent, '로어북 ▾');
+    x.app.task = 'description'; x.app.scopeOnly = false; x.app.s.requests.description = '수정'; x.app.s.draft.desc = 'same'; x.app.touch();
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'rewritten' } }) });
+    await x.app.sendRequest();
+    assert.deepEqual([...doc.querySelectorAll('.msglabel')].map(e => e.textContent), ['나캐릭터 설명', '작성 파트너캐릭터 설명']);
+    assert.equal(x.app.s.thread.at(-1).task, 'description');
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '의논'; x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '네', changes: [] } }) });
+    await x.app.sendRequest();
+    assert.equal(doc.querySelectorAll('.msgtask').length, 2, 'workshop messages carry no task tag');
+  } finally { x.close(); }
 });

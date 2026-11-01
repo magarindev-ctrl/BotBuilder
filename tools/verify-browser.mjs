@@ -163,7 +163,7 @@ try {
   await frame.getByText('2개 매칭', { exact: false }).waitFor(); assert.equal(await frame.locator('.testresult b').count(), 0);
   results.push({ name: 'RE2JS executes under CSP and displays HTML as text', passed: true });
   await page.locator('#plugin').screenshot({ path: 'artifacts/workshop-regex.png', animations: 'disabled' });
-  await frame.locator('.navitem').filter({hasText:'프롬프트 프리셋'}).click();
+  await frame.locator('.navitem[data-tab="preset"]').click();
   console.log('Checking binary preset import');
   const chooserPromise=page.waitForEvent('filechooser');
   await frame.locator('[data-action="import-preset"]').click();
@@ -228,6 +228,8 @@ try {
   await frame.waitForFunction(()=>window.__calls.length===4&&!document.querySelector('[data-action="send-request"]').disabled);
   assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.role==='user'&&m.cachePoint===true)));
   assert.ok(await frame.evaluate(()=>window.__calls[3].messages.some(m=>m.content.includes('(What Cattleya have to respond!)'))));
+  // Error toasts persist until closed; the harness dismisses it like a user would.
+  if (await frame.locator('.toast.bad').count()) await frame.locator('.toast.bad .toast-close').click();
   await frame.locator('.toast.bad').waitFor({state:'hidden'});
   await page.locator('#plugin').screenshot({path:'artifacts/workshop-cbs-compat.png',animations:'disabled'});
   await frame.getByRole('button',{name:'토글 설정',exact:true}).click();
@@ -385,7 +387,8 @@ try {
   await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-desktop.png',animations:'disabled'});
   await page.setViewportSize({width:390,height:844});
   await frame.getByRole('button',{name:'대화',exact:true}).click();
-  await patchCandidate.locator('summary').click();
+  // Proposal details open by default on mobile; only click the summary when it is still collapsed.
+  assert.equal(await patchCandidate.locator('details').first().evaluate(d=>d.open),true,'mobile proposal details should start expanded');
   await patchCandidate.locator('.before').scrollIntoViewIfNeeded();
   assert.equal(await frame.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.locator('#plugin').screenshot({path:'artifacts/bb-text-patch-mobile.png',animations:'disabled'});
@@ -484,10 +487,10 @@ try {
   assert.equal(await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).inputValue(),'이 화면을 설명해줘');
   await checkLayout('390x568 chat with two image previews');
   await page.locator('#plugin').screenshot({path:'artifacts/bb-request-images-mobile.png',animations:'disabled'});
-  await frame.getByRole('button',{name:'요청 설정 ▾',exact:true}).click();
+  await frame.getByRole('button',{name:'캐릭터 설명 ▾',exact:true}).click();
   await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('workshop');
   // Attachments are scoped to the request task; switch back to description.
-  await frame.getByRole('button',{name:'요청 설정 ▾',exact:true}).click();
+  await frame.getByRole('button',{name:'설계 대화 ▾',exact:true}).click();
   await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
   assert.equal(await frame.locator('.request-previews img').count(),2);
   await frame.evaluate(()=>{window.__responseOverride=JSON.stringify({schemaVersion:1,task:'description',data:{text:'이미지를 참고한 제안'}});});
