@@ -117,6 +117,30 @@ test('unsupported lore decorators are identified and per-entry exclusion allows 
   assert.match(report(state).issues.join(),/제작 규칙.*@@/);
   state.moduleOptions['world-id'].excludedLore=[0];assert.deepEqual(report(state).issues,[]);
 });
+test('relaxed module conditions keep entries: decorators stripped, unknown conditions false, unknown macros empty, toggles still honored',()=>{
+  const state=selectInstalledModules(stateFor(),installedModules(),['world-id']);
+  state.modules[0].lorebook[0].content='@@depth 4\n@@activate_only_after 3\n본문 {{#if {{random::a::b}}}}미지원{{:else}}거짓분기{{/if}} {{random::x}}끝 {{#if {{getglobalvar::toggle_focus}}}}켜짐{{/if}} {{#when::toggle::nope}}없는토글{{/when}}';
+  state.values.toggle_focus='1';
+  const strict=report(state);assert.match(strict.issues.join(),/@@/);assert.match(strict.issues.join(),/본문만 포함/);
+  state.moduleOptions['world-id'].relaxConditions=true;
+  const result=report(state);assert.deepEqual(result.issues,[]);
+  const text=result.messages.map(m=>m.content).join('\n');
+  assert.match(text,/본문 거짓분기 끝 켜짐/);assert.doesNotMatch(text,/@@depth|미지원|없는토글/);
+  const record=result.moduleTrace.find(r=>r.index===0);assert.equal(record.status,'included');
+  assert.ok(record.relaxed.some(n=>n.includes('@@')));assert.ok(record.relaxed.some(n=>n.includes('거짓')));assert.ok(record.relaxed.some(n=>n.includes('빈 값')));
+  state.values.toggle_focus='0';assert.doesNotMatch(report(state).messages.map(m=>m.content).join('\n'),/켜짐/);
+  const plain=selectInstalledModules(stateFor(),installedModules(),['world-id']);plain.moduleOptions['world-id'].relaxConditions=true;
+  assert.equal(report(plain).moduleTrace.find(r=>r.index===0).relaxed,undefined,'entries without relaxed handling carry no note');
+});
+test('relaxConditions is validated, kept for unchanged modules and reset when the module changes',()=>{
+  const state=selectInstalledModules(stateFor(),installedModules(),['world-id']);
+  state.moduleOptions['world-id'].relaxConditions='yes';assert.throws(()=>report(state),/모듈 적용 설정이 올바르지 않습니다/);
+  state.moduleOptions['world-id'].relaxConditions=true;
+  assert.equal(selectInstalledModules(state,installedModules(),['world-id']).moduleOptions['world-id'].relaxConditions,true);
+  const changed=installedModules();changed.find(m=>m.id==='world-id').lorebook[0].content='바뀜';
+  assert.equal(selectInstalledModules(state,changed,['world-id']).moduleOptions['world-id'].relaxConditions,false);
+  assert.equal(moduleOptions({moduleOptions:{'world-id':{skipRuntime:false,excludedLore:[]}}},{id:'world-id'}).relaxConditions,false,'old saved options default to strict');
+});
 test('refreshing changed installed modules resets exclusions; unchanged modules and old state migrate safely',()=>{
   let state=selectInstalledModules(stateFor(),installedModules(),['world-id']);state.moduleOptions['world-id'].excludedLore=[0];
   state=selectInstalledModules(state,installedModules(),['world-id']);assert.deepEqual(moduleOptions(state,state.modules[0]).excludedLore,[0]);

@@ -31,15 +31,16 @@ export async function chooseInstalledModules(app,{references,validate,save}) {
 export function renderModules(app,host) {
   const h=app.h.bind(app),state=app.s.preset,modules=state.modules??[];
   const change=()=>app.presetChanged();
-  host.append(h('p',{class:'muted'},'선택한 모듈의 로어북과 토글을 프리셋 요청에 연결합니다. 로어북은 전체 제작 자료로 취급하며 본체의 키워드 활성화·토큰 예산은 계산하지 않습니다. @@ 위치·활성화 지시가 있는 항목은 지원하지 않으므로 전송 오류에서 확인한 뒤 제외해야 합니다. 직접 요청 모드에는 적용하지 않습니다.'),app.check('모듈 연동 전체 제외',!!state.excluded.modules,value=>{state.excluded.modules=value;change();}));
+  host.append(h('p',{class:'muted'},'선택한 모듈의 로어북과 토글을 프리셋 요청에 연결합니다. 로어북은 전체 제작 자료로 취급하며 본체의 키워드 활성화·토큰 예산은 계산하지 않습니다. @@ 위치·활성화 지시나 해석하지 못하는 CBS가 있는 항목은 기본적으로 전송을 막으며, 모듈별 "해석 못 하는 조건은 거짓으로 보고 본문만 포함"을 켜면 본문을 살려 넣습니다. 직접 요청 모드에는 적용하지 않습니다.'),app.check('모듈 연동 전체 제외',!!state.excluded.modules,value=>{state.excluded.modules=value;change();}));
   if(!modules.length){host.append(h('p',{class:'empty'},'설치 모듈 선택 버튼에서 사용할 모듈을 선택하세요.'));return;}
   host.append(h('p',{class:'muted'},'선택 시점의 사본입니다. 본체에서 모듈을 수정했다면 설치 모듈 선택에서 다시 적용하세요. 바뀐 모듈의 제외 설정은 초기화됩니다.'));
   for(const module of modules) {
-    const option=state.moduleOptions[module.id]??={skipRuntime:false,excludedLore:[]},profile=moduleRuntimeProfile(module),features=profile.blocking;
+    const option=state.moduleOptions[module.id]??={skipRuntime:false,excludedLore:[],relaxConditions:false},profile=moduleRuntimeProfile(module),features=profile.blocking;
     const card=h('section',{class:'card stack',style:'overflow-wrap:anywhere'},h('h3',{},module.name),h('p',{class:'muted'},module.id+(module.namespace?' · '+module.namespace:'')),h('p',{},module.description),h('p',{class:'muted'},'로어북 '+module.lorebook.length+'개 · 토글 정의 '+(module.customModuleToggle?'있음':'없음')+' · 에셋 이름 '+module.assets.length+'개'));
     if(profile.notApplicable.length)card.append(h('p',{class:'muted'},'BB 요청 단계에 적용하지 않는 항목: '+profile.notApplicable.join(', ')+'. 출력·표시 후처리는 구조화된 수정안에 적용하지 않으며, 배경 코드와 일반 수동·표시·출력 트리거도 실행하지 않습니다.'));
     if(features.length)card.append(h('p',{class:'warn'},'요청 관련 미지원 항목: '+features.join(', ')),app.check('이 모듈의 요청 관련 미지원 처리를 제외',option.skipRuntime,value=>{option.skipRuntime=value;change();}),h('p',{class:'muted'},'입력·전처리·요청 처리와 Lua·JS 콜백은 요청 내용을 바꿀 수 있습니다. 제외하면 해당 처리를 실행하지 않고 로어북·토글만 사용합니다.'));
     renderRuntimeInspection(app,card,profile,item=>item.kind==='regex'?module.regex[item.index]:item.kind==='trigger'?module.trigger[item.index]:item.kind==='background'?module.backgroundEmbedding:item.kind==='cjs'?module.cjs:module.mcp,'정규식·트리거 처리 내역과 원문 확인');
+    card.append(app.check('해석 못 하는 조건은 거짓으로 보고 본문만 포함',option.relaxConditions===true,value=>{option.relaxConditions=value;change();}),h('p',{class:'muted'},'켜면 @@ 위치·활성화 지시 줄은 빼고, 봇빌더가 해석하지 못하는 CBS 조건은 거짓 분기로, 본문 안의 해석 못 하는 표기는 빈 값으로 처리해 항목을 버리지 않고 넣습니다. 토글 조건은 토글 설정 값을 그대로 따릅니다. 그렇게 처리된 항목은 전송 내용의 모듈별 결과에 relaxed로 남습니다.'));
     const details=h('details',{},h('summary',{},'모듈 로어북 포함 항목 확인'));
     for(const [i,entry] of module.lorebook.entries())details.append(h('div',{class:'card stack'},app.check((i+1)+'. '+(entry.comment||entry.key||'로어북'),!option.excludedLore.includes(i),value=>{option.excludedLore=option.excludedLore.filter(index=>index!==i);if(!value)option.excludedLore.push(i);change();}),h('pre',{class:'diff'},entry.content)));
     card.append(details);host.append(card);
