@@ -263,3 +263,58 @@ test('cbsIssues flags {{else}} spellings and unbalanced condition blocks, and ac
   assert.match(defaultPrompt('greeting').system, /else는 반드시 \{\{:else\}\}/);
   assert.match(composeMessages(newSession(), 'greeting', '요청', defaultPrompt('greeting'))[1].content, /\{\{:else\}\}/);
 });
+
+test('lorebook folders follow the Risu layout: folder entries group their children, never reach the model, and nested or broken folders are handled', async () => {
+  const { loreTree, loreDescendants, newLoreFolder, isLoreFolder, LORE_FOLDER_PREFIX } = await import('../src/core.js');
+  const folder = newLoreFolder('세계관'), inner = newLoreFolder('도시', folder.key);
+  assert.ok(folder.key.startsWith(LORE_FOLDER_PREFIX)); assert.equal(folder.mode, 'folder'); assert.equal(folder.content, ''); assert.equal(inner.folder, folder.key);
+  assert.ok(isLoreFolder(folder)); assert.ok(!isLoreFolder({ mode: 'normal' }));
+  const list = [folder, { key: 'a', content: 'A', folder: folder.key }, { key: 'top', content: 'T' }, inner, { key: 'c', content: 'C', folder: inner.key }, { key: 'orphan', content: 'O', folder: 'missing' }];
+  const tree = loreTree(list);
+  assert.deepEqual(tree.roots.map(n => n.index), [0, 2, 5]);
+  assert.deepEqual(tree.roots[0].children.map(n => n.index), [1, 3]);
+  assert.deepEqual(tree.roots[0].children[1].children.map(n => n.index), [4]);
+  assert.equal(tree.nodes[4].depth, 2); assert.equal(tree.nodes[4].parent, 3);
+  assert.deepEqual(loreDescendants(list, 0), [1, 3, 4]); assert.deepEqual(loreDescendants(list, 3), [4]); assert.deepEqual(loreDescendants(list, 2), []);
+  // A folder cycle cannot hide entries: both folders surface at the top level.
+  const a = newLoreFolder('A'), b = newLoreFolder('B', a.key); a.folder = b.key;
+  const cyclic = loreTree([a, b, { key: 'x', content: 'X', folder: b.key }]);
+  assert.deepEqual(cyclic.roots.map(n => n.index), [0, 1]); assert.deepEqual(cyclic.roots[1].children.map(n => n.index), [2]);
+  // Requests carry entries only; refs keep their original index so numbering is unaffected by folders.
+  const session = { ...newSession(), draft: { ...blankCharacter(), globalLore: list }, loreIncluded: [] };
+  assert.deepEqual(requestLorebook(session).map(x => x.ref), ['l1', 'l2', 'l4', 'l5']);
+  const user = composeMessages(session, 'lorebook', '요청', defaultPrompt('lorebook'))[1].content;
+  assert.match(user, /"lorebookSelection":\{"included":4,"total":4/); assert.doesNotMatch(user, /"ref":"l0"/); assert.doesNotMatch(user, /folder:/);
+});
+
+test('a long cumulative stream is assembled in linear time and still enforces the 1MiB limit', async () => {
+  const text = 'x'.repeat(200000), chunks = 4000, stream = new ReadableStream({ start(controller) { for (let i = 1; i <= chunks; i++) controller.enqueue({ '0': text.slice(0, Math.round(text.length * i / chunks)) }); controller.close(); } });
+  const started = Date.now();
+  const result = await callModel({ runLLMModel: async () => ({ type: 'streaming', result: stream }) }, [], 'submodel', 30, {});
+  assert.equal(result, text); assert.ok(Date.now() - started < 3000, 'cumulative chunks must not re-encode the whole text each time');
+  const appended = new ReadableStream({ start(controller) { for (let i = 0; i < 3; i++) controller.enqueue(new TextEncoder().encode('한글' + i)); controller.close(); } });
+  assert.equal(await callModel({ runLLMModel: async () => ({ type: 'streaming', result: appended }) }, [], 'submodel', 30, {}), '한글0한글1한글2');
+  const big = new ReadableStream({ start(controller) { controller.enqueue({ '0': 'y'.repeat(1048577) }); controller.close(); } });
+  await assert.rejects(callModel({ runLLMModel: async () => ({ type: 'streaming', result: big }) }, [], 'submodel', 30, {}), /1MiB/);
+});
+
+test('the user template keeps stable material first and the request last, and an old saved template still works', async () => {
+  const { USER_TEMPLATE, LEGACY_USER_TEMPLATE } = await import('../src/core.js');
+  const s = newSession(); s.draft.desc = '설명'; s.thread.push({ role: 'user', content: '이전 질문' }, { role: 'assistant', content: '이전 답' });
+  s.candidates.push({ id: 'cand', packet: { task: 'description', data: { text: '제안 본문' } }, before: clone(s.draft) });
+  const user = composeMessages(s, 'description', '이번 요청', defaultPrompt('description'))[1].content;
+  const at = (label) => user.indexOf(label);
+  assert.ok(at('[현재안]') < at('[참고자료]') && at('[참고자료]') < at('[출력 형식]') && at('[출력 형식]') < at('[설계 대화 기록]') && at('[설계 대화 기록]') < at('[미적용 제안]') && at('[미적용 제안]') < at('[사용자 요청사항]'));
+  assert.ok(user.trimEnd().endsWith('이번 요청'), 'the request is the last thing in the message');
+  // The reference no longer repeats the conversation or proposals; they live in their own slots after the stable prefix.
+  const reference = user.slice(at('[참고자료]'), at('[출력 형식]'));
+  assert.doesNotMatch(reference, /이전 답/); assert.doesNotMatch(reference, /제안 본문/); assert.match(reference, /lorebookSelection/);
+  assert.match(user.slice(at('[설계 대화 기록]'), at('[미적용 제안]')), /이전 답/); assert.match(user.slice(at('[미적용 제안]'), at('[사용자 요청사항]')), /제안 본문/);
+  // Two requests on the same draft share everything up to the conversation; only the tail differs.
+  const again = composeMessages(s, 'description', '다른 요청', defaultPrompt('description'))[1].content;
+  assert.equal(again.slice(0, again.indexOf('[설계 대화 기록]')), user.slice(0, at('[설계 대화 기록]')));
+  // A custom template in the old order still receives the conversation and proposals inside the reference.
+  const legacy = composeMessages(s, 'description', '이번 요청', { ...defaultPrompt('description'), user: LEGACY_USER_TEMPLATE })[1].content;
+  assert.match(legacy, /이전 답/); assert.match(legacy, /제안 본문/); assert.match(legacy, /pendingProposalNote/); assert.doesNotMatch(legacy, /\[설계 대화 기록\]/);
+  assert.notEqual(USER_TEMPLATE, LEGACY_USER_TEMPLATE);
+});

@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.10
+//@version 1.2.0
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.2.0 adds lorebook folders in the Risu layout (folder entries with mode 'folder' and children keyed by the folder key) with folder-level request inclusion, Risu enable/hide and always-active switches; a drag handle between every item list and its editor plus list folding (both remembered in settings); foldable module and preview cards; and linear-time assembly of long streamed answers so the plugin no longer stays busy after the model has finished; the user template now puts stable material (draft, reference, format) before the conversation, pending proposals and request so provider prefix caches can reuse it, with new CONVERSATION and PENDING_PROPOSALS slots and in-place upgrade of a saved default template.
 Modified 2026-11-02: v1.1.10 accepts a closing block tag that is glued to the last code line, indented, or spaced inside (<<< /name >>>), and allows an indented opening tag; a genuinely missing closer is still reported as a truncated answer, now with the received length.
 Modified 2026-11-02: v1.1.9 removes two mechanical JSON slips before giving up on an answer: trailing commas before a closer and one closing brace or bracket too many. Each removal is validated against the response schema and reported to the user; nothing inside strings is touched and no other syntax is corrected.
 Modified 2026-11-02: v1.1.8 asks the user before every automatic re-request (truncated answer, broken JSON, wrong block reference): the dialog shows the failure, the purpose and the instruction the retry adds, and declining keeps the original error without sending anything.
@@ -9927,7 +9928,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.10";
+  var VERSION = "1.2.0";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10106,6 +10107,26 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
 [\uD604\uC7AC\uC548]
 <<CURRENT_DRAFT>>
 
+[\uCC38\uACE0\uC790\uB8CC]
+<<REFERENCE_CONTEXT>>
+
+[\uCD9C\uB825 \uD615\uC2DD]
+<<OUTPUT_FORMAT>>
+
+[\uC124\uACC4 \uB300\uD654 \uAE30\uB85D]
+<<CONVERSATION>>
+
+[\uBBF8\uC801\uC6A9 \uC81C\uC548]
+<<PENDING_PROPOSALS>>
+
+[\uC0AC\uC6A9\uC790 \uC694\uCCAD\uC0AC\uD56D]
+<<USER_REQUEST>>`;
+  var LEGACY_USER_TEMPLATE = `[\uC791\uC5C5 \uC885\uB958]
+<<TASK_NAME>>
+
+[\uD604\uC7AC\uC548]
+<<CURRENT_DRAFT>>
+
 [\uC0AC\uC6A9\uC790 \uC694\uCCAD\uC0AC\uD56D]
 <<USER_REQUEST>>
 
@@ -10161,14 +10182,23 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       delete reference.character.lorebook;
       reference.currentDraftNote = "\uD604\uC7AC \uB85C\uC5B4\uBD81\uACFC ref\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4. \uBCC0\uACBD\xB7\uCD94\uAC00 \uD56D\uBAA9\uB9CC \uBC18\uD658\uD558\uB77C.";
     }
-    reference.pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => {
+    const pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => {
       const packets = candidatePackets(c);
       return packets.map((p, i) => ({ id: packets.length > 1 ? c.id + "#" + (i + 1) : c.id, task: p.task, data: filterLoreProposal(p, session).data }));
     });
-    reference.pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
-    reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).length, note: "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB85C\uC5B4\uBD81\uC740 \uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC81C\uACF5\uD588\uB2E4. ref\uB294 \uC6D0\uBCF8 \uC778\uB371\uC2A4\uC774\uBA70 \uBE60\uC9C4 \uBC88\uD638\uB97C \uC7AC\uC815\uB82C\uD558\uAC70\uB098 \uB204\uB77D \uD56D\uBAA9\uC744 \uCD94\uCE21\uD574 \uC218\uC815\xB7\uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uC774\uC804 \uB300\uD654\uC5D0 \uB0A8\uC544 \uC788\uB294 \uC790\uB8CC\uB294 \uD604\uC7AC \uD3EC\uD568 \uC0C1\uD0DC\uB97C \uC758\uBBF8\uD558\uC9C0 \uC54A\uB294\uB2E4." };
+    const pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
+    reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length, note: "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB85C\uC5B4\uBD81\uC740 \uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC81C\uACF5\uD588\uB2E4. ref\uB294 \uC6D0\uBCF8 \uC778\uB371\uC2A4\uC774\uBA70 \uBE60\uC9C4 \uBC88\uD638\uB97C \uC7AC\uC815\uB82C\uD558\uAC70\uB098 \uB204\uB77D \uD56D\uBAA9\uC744 \uCD94\uCE21\uD574 \uC218\uC815\xB7\uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uC774\uC804 \uB300\uD654\uC5D0 \uB0A8\uC544 \uC788\uB294 \uC790\uB8CC\uB294 \uD604\uC7AC \uD3EC\uD568 \uC0C1\uD0DC\uB97C \uC758\uBBF8\uD558\uC9C0 \uC54A\uB294\uB2E4." };
+    if (prompt.user.includes("<<CONVERSATION>>")) {
+      values.CONVERSATION = JSON.stringify(reference.conversation);
+      delete reference.conversation;
+    }
+    if (prompt.user.includes("<<PENDING_PROPOSALS>>")) values.PENDING_PROPOSALS = JSON.stringify({ note: pendingProposalNote, proposals: pendingProposals });
+    else {
+      reference.pendingProposals = pendingProposals;
+      reference.pendingProposalNote = pendingProposalNote;
+    }
     values.REFERENCE_CONTEXT = JSON.stringify(reference);
-    return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key2) => values[key2]) }];
+    return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT|CONVERSATION|PENDING_PROPOSALS)>>/g, (_, key2) => values[key2]) }];
   }
   var LORE_KEYS = ["comment", "key", "secondkey", "content", "insertorder", "mode", "alwaysActive", "selective", "useRegex", "activationPercent"];
   var REGEX_KEYS = ["comment", "in", "out", "flag", "ableFlag", "type"];
@@ -10922,22 +10952,33 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     assert(stream, "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uBAA8\uB378 \uC751\uB2F5 \uD615\uC2DD\uC785\uB2C8\uB2E4.");
     const reader = stream.getReader();
     job.reader = reader;
-    let current = "", decoder = new TextDecoder(), cumulative = false;
+    let current = "", decoder = new TextDecoder(), cumulative = false, size = 0;
+    const limit = (count) => assert(count <= 1048576, "\uC751\uB2F5\uC774 1MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     try {
       while (true) {
         assert(!job.cancelled, "\uB300\uAE30\uB97C \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
         const { value, done } = await reader.read();
         if (done) break;
-        if (typeof value === "string") current += value;
-        else if (value instanceof Uint8Array) current += decoder.decode(value, { stream: true });
-        else if (value && typeof value === "object" && typeof value["0"] === "string") {
+        if (typeof value === "string") {
+          current += value;
+          size += bytes(value);
+        } else if (value instanceof Uint8Array) {
+          const text = decoder.decode(value, { stream: true });
+          current += text;
+          size += bytes(text);
+        } else if (value && typeof value === "object" && typeof value["0"] === "string") {
           current = value["0"];
           cumulative = true;
+          size = current.length > 1048576 / 4 ? bytes(current) : current.length;
         } else throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC2A4\uD2B8\uB9BC \uC870\uAC01 \uD615\uC2DD\uC785\uB2C8\uB2E4.");
-        assert(bytes(current) <= 1048576, "\uC751\uB2F5\uC774 1MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+        limit(size);
       }
-      if (!cumulative) current += decoder.decode();
-      assert(bytes(current) <= 1048576, "\uC751\uB2F5\uC774 1MiB\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
+      if (!cumulative) {
+        const tail = decoder.decode();
+        current += tail;
+        size += bytes(tail);
+      }
+      limit(size);
       return current;
     } finally {
       if (job.cancelled) reader.cancel().catch(() => {
@@ -11054,9 +11095,65 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   function loreSelection(session) {
     return (session.draft.globalLore ?? []).map((_, i) => session.loreIncluded?.[i] !== false);
   }
+  var LORE_FOLDER_PREFIX = "\uF000folder:";
+  var isLoreFolder = (entry) => !!entry && entry.mode === "folder";
+  function newLoreFolder(comment = "\uC0C8 \uD3F4\uB354", folder) {
+    return { key: LORE_FOLDER_PREFIX + uid(), secondkey: "", content: "", comment, insertorder: 100, mode: "folder", alwaysActive: false, selective: false, ...folder ? { folder } : {} };
+  }
+  function loreTree(list = []) {
+    const folders = /* @__PURE__ */ new Map();
+    list.forEach((entry, index) => {
+      if (isLoreFolder(entry) && typeof entry.key === "string" && entry.key && !folders.has(entry.key)) folders.set(entry.key, index);
+    });
+    const up = (index) => {
+      const key2 = list[index]?.folder;
+      return typeof key2 === "string" && key2 && folders.has(key2) && folders.get(key2) !== index ? folders.get(key2) : -1;
+    };
+    const parentOf = (index) => {
+      const parent = up(index);
+      if (parent < 0) return -1;
+      const seen = /* @__PURE__ */ new Set();
+      for (let cursor = parent; cursor >= 0; cursor = up(cursor)) {
+        if (cursor === index) return -1;
+        if (seen.has(cursor)) break;
+        seen.add(cursor);
+      }
+      return parent;
+    };
+    const nodes = list.map((entry, index) => ({ index, entry, children: [], depth: 0, parent: -1 }));
+    for (const node of nodes) node.parent = parentOf(node.index);
+    const roots = [];
+    for (const node of nodes) {
+      if (node.parent < 0) roots.push(node);
+      else nodes[node.parent].children.push(node);
+    }
+    const walk = (items, depth) => {
+      for (const node of items) {
+        node.depth = depth;
+        walk(node.children, depth + 1);
+      }
+    };
+    walk(roots, 0);
+    return { roots, nodes };
+  }
+  function loreDescendants(list, index) {
+    const { nodes } = loreTree(list), out = [];
+    const walk = (node) => {
+      for (const child of node.children) {
+        out.push(child.index);
+        walk(child);
+      }
+    };
+    if (nodes[index]) walk(nodes[index]);
+    return out.sort((a, b) => a - b);
+  }
   function requestLorebook(session) {
     const included = loreSelection(session);
-    return (session.draft.globalLore ?? []).flatMap((entry, i) => included[i] ? [{ ref: "l" + i, entry }] : []);
+    return (session.draft.globalLore ?? []).flatMap((entry, i) => {
+      if (!included[i] || isLoreFolder(entry)) return [];
+      const { folder, enabled, ...rest } = entry;
+      return [{ ref: "l" + i, entry: rest }];
+    });
   }
   function filterLoreProposal(packet, session) {
     const allowed2 = new Set(requestLorebook(session).map((item) => item.ref));
@@ -11446,7 +11543,15 @@ h3 { font-size: 14px; font-weight: 650; }
 .hero p { max-width: 620px; margin-top: 13px; line-height: 1.8; font-size: 13px; color: var(--hero-ink); }
 .steps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .step { border: 1px solid var(--step-line); border-radius: 20px; padding: 5px 10px; color: var(--hero-ink); font-size: 11px; }
-.list-editor { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
+.list-editor { display: grid; grid-template-columns: var(--list-nav, 170px) 14px minmax(0, 1fr); gap: 0 8px; min-width: 0; }
+.list-editor[data-collapsed=true] { grid-template-columns: minmax(0, 1fr); }
+.list-editor[data-collapsed=true] > .itemlist, .list-editor[data-collapsed=true] > .list-splitter { display: none; }
+/* Drag handle between the list and its editor; the bar shows on hover, focus and while dragging. */
+.list-splitter { position: relative; cursor: col-resize; touch-action: none; border-radius: 6px; min-height: 48px; align-self: stretch; }
+.list-splitter::before { content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 4px; border-radius: 4px; background: var(--line); transition: background .15s; }
+.list-splitter:hover::before, .list-splitter:focus-visible::before, .list-splitter.is-dragging::before { background: var(--accent); }
+.list-splitter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.list-collapse { margin-left: auto; }
 .preset-block-list { max-height: 560px; overflow: auto; }
 .itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
@@ -11464,6 +11569,20 @@ h3 { font-size: 14px; font-weight: 650; }
   border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
 }
 .lore-request-item.is-selected { border-color: var(--brand-line); background: var(--accent-bg); }
+/* Folder rows: a disclosure, the folder name, a count, one checkbox for everything inside, then the children indented. */
+.lore-folder-item { display: flex; flex-direction: column; flex: 0 0 auto; width: 100%; min-width: 0; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lore-folder-item.is-selected { border-color: var(--brand-line); }
+.lore-folder-item.is-selected > .lore-folder-head { background: var(--accent-bg); border-radius: 8px; }
+.lore-folder-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.lore-folder-head .listitem { flex: 1 1 auto; font-weight: 650; }
+.lore-folder-disclosure { flex: 0 0 32px; width: 32px; min-height: 44px; padding: 0; border: 0; background: transparent; font-size: 14px; color: var(--muted); }
+.lore-folder-count { flex: 0 0 auto; font-size: 11px; padding-right: 6px; }
+.lore-folder-children { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px 10px; padding-left: 8px; border-left: 2px solid var(--line); min-width: 0; }
+.lore-folder-children:empty { display: none; }
+.lore-folder-toggle input[type=checkbox]:indeterminate { opacity: .8; }
+.module-card > summary { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 14px; color: var(--ink); }
+.module-card > summary h3 { font-size: 15px; }
+.preview-message > summary { font-size: 13px; color: var(--ink); font-weight: 650; }
 .lore-request-list .listitem {
   display: block; width: 100%; min-width: 0; max-width: none;
   min-height: 44px; height: auto; padding: 10px; line-height: 1.5;
@@ -11551,7 +11670,8 @@ details[open] > summary { margin-bottom: 9px; }
   .editor { padding: 22px 20px; }
   .sidebar { padding: 20px 7px; }
   .navitem { gap: 7px; padding: 12px 7px; font-size: 13px; }
-  .list-editor { grid-template-columns: minmax(0, 1fr); }
+  .list-editor { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .list-splitter { display: none; }
   .itemlist { flex-direction: row; overflow-x: auto; }
   .preset-block-list { max-height: 140px; }
   .itemlist.lore-request-list { flex-direction: column; max-height: 42vh; max-height: min(42dvh, 420px); }
@@ -14724,14 +14844,18 @@ details[open] > summary { margin-bottom: 9px; }
     host.append(h("p", { class: "muted" }, "\uC120\uD0DD \uC2DC\uC810\uC758 \uC0AC\uBCF8\uC785\uB2C8\uB2E4. \uBCF8\uCCB4\uC5D0\uC11C \uBAA8\uB4C8\uC744 \uC218\uC815\uD588\uB2E4\uBA74 \uC124\uCE58 \uBAA8\uB4C8 \uC120\uD0DD\uC5D0\uC11C \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694. \uBC14\uB010 \uBAA8\uB4C8\uC758 \uC81C\uC678 \uC124\uC815\uC740 \uCD08\uAE30\uD654\uB429\uB2C8\uB2E4."));
     for (const module of modules) {
       const option = state.moduleOptions[module.id] ??= { skipRuntime: false, excludedLore: [], relaxConditions: false }, profile = moduleRuntimeProfile(module), features = profile.blocking;
-      const card = h("section", { class: "card stack", style: "overflow-wrap:anywhere" }, h("h3", {}, module.name), h("p", { class: "muted" }, module.id + (module.namespace ? " \xB7 " + module.namespace : "")), h("p", {}, module.description), h("p", { class: "muted" }, "\uB85C\uC5B4\uBD81 " + module.lorebook.length + "\uAC1C \xB7 \uD1A0\uAE00 \uC815\uC758 " + (module.customModuleToggle ? "\uC788\uC74C" : "\uC5C6\uC74C") + " \xB7 \uC5D0\uC14B \uC774\uB984 " + module.assets.length + "\uAC1C"));
-      if (profile.notApplicable.length) card.append(h("p", { class: "muted" }, "BB \uC694\uCCAD \uB2E8\uACC4\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9: " + profile.notApplicable.join(", ") + ". \uCD9C\uB825\xB7\uD45C\uC2DC \uD6C4\uCC98\uB9AC\uB294 \uAD6C\uC870\uD654\uB41C \uC218\uC815\uC548\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC73C\uBA70, \uBC30\uACBD \uCF54\uB4DC\uC640 \uC77C\uBC18 \uC218\uB3D9\xB7\uD45C\uC2DC\xB7\uCD9C\uB825 \uD2B8\uB9AC\uAC70\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
-      if (features.length) card.append(h("p", { class: "warn" }, "\uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uD56D\uBAA9: " + features.join(", ")), app.check("\uC774 \uBAA8\uB4C8\uC758 \uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uCC98\uB9AC\uB97C \uC81C\uC678", option.skipRuntime, (value) => {
+      const body = h("div", { class: "stack", style: "margin-top:12px" }, h("p", { class: "muted" }, module.id + (module.namespace ? " \xB7 " + module.namespace : "")), h("p", {}, module.description), h("p", { class: "muted" }, "\uB85C\uC5B4\uBD81 " + module.lorebook.length + "\uAC1C \xB7 \uD1A0\uAE00 \uC815\uC758 " + (module.customModuleToggle ? "\uC788\uC74C" : "\uC5C6\uC74C") + " \xB7 \uC5D0\uC14B \uC774\uB984 " + module.assets.length + "\uAC1C"));
+      const card = h("details", { class: "card module-card", style: "overflow-wrap:anywhere", ...app.moduleFolded.has(module.id) ? {} : { open: "" } }, h("summary", {}, h("h3", { style: "display:inline" }, module.name), h("span", { class: "muted" }, " \xB7 \uB85C\uC5B4\uBD81 " + module.lorebook.length + "\uAC1C")), body);
+      card.addEventListener("toggle", () => {
+        card.open ? app.moduleFolded.delete(module.id) : app.moduleFolded.add(module.id);
+      });
+      if (profile.notApplicable.length) body.append(h("p", { class: "muted" }, "BB \uC694\uCCAD \uB2E8\uACC4\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uB294 \uD56D\uBAA9: " + profile.notApplicable.join(", ") + ". \uCD9C\uB825\xB7\uD45C\uC2DC \uD6C4\uCC98\uB9AC\uB294 \uAD6C\uC870\uD654\uB41C \uC218\uC815\uC548\uC5D0 \uC801\uC6A9\uD558\uC9C0 \uC54A\uC73C\uBA70, \uBC30\uACBD \uCF54\uB4DC\uC640 \uC77C\uBC18 \uC218\uB3D9\xB7\uD45C\uC2DC\xB7\uCD9C\uB825 \uD2B8\uB9AC\uAC70\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
+      if (features.length) body.append(h("p", { class: "warn" }, "\uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uD56D\uBAA9: " + features.join(", ")), app.check("\uC774 \uBAA8\uB4C8\uC758 \uC694\uCCAD \uAD00\uB828 \uBBF8\uC9C0\uC6D0 \uCC98\uB9AC\uB97C \uC81C\uC678", option.skipRuntime, (value) => {
         option.skipRuntime = value;
         change();
       }), h("p", { class: "muted" }, "\uC785\uB825\xB7\uC804\uCC98\uB9AC\xB7\uC694\uCCAD \uCC98\uB9AC\uC640 Lua\xB7JS \uCF5C\uBC31\uC740 \uC694\uCCAD \uB0B4\uC6A9\uC744 \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC81C\uC678\uD558\uBA74 \uD574\uB2F9 \uCC98\uB9AC\uB97C \uC2E4\uD589\uD558\uC9C0 \uC54A\uACE0 \uB85C\uC5B4\uBD81\xB7\uD1A0\uAE00\uB9CC \uC0AC\uC6A9\uD569\uB2C8\uB2E4."));
-      renderRuntimeInspection(app, card, profile, (item) => item.kind === "regex" ? module.regex[item.index] : item.kind === "trigger" ? module.trigger[item.index] : item.kind === "background" ? module.backgroundEmbedding : item.kind === "cjs" ? module.cjs : module.mcp, "\uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uACFC \uC6D0\uBB38 \uD655\uC778");
-      card.append(app.check("\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568", option.relaxConditions === true, (value) => {
+      renderRuntimeInspection(app, body, profile, (item) => item.kind === "regex" ? module.regex[item.index] : item.kind === "trigger" ? module.trigger[item.index] : item.kind === "background" ? module.backgroundEmbedding : item.kind === "cjs" ? module.cjs : module.mcp, "\uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uACFC \uC6D0\uBB38 \uD655\uC778");
+      body.append(app.check("\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568", option.relaxConditions === true, (value) => {
         option.relaxConditions = value;
         change();
       }), h("p", { class: "muted" }, "\uCF1C\uBA74 @@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uC904\uC740 \uBE7C\uACE0, \uBD07\uBE4C\uB354\uAC00 \uD574\uC11D\uD558\uC9C0 \uBABB\uD558\uB294 CBS \uC870\uAC74\uC740 \uAC70\uC9D3 \uBD84\uAE30\uB85C, \uBCF8\uBB38 \uC548\uC758 \uD574\uC11D \uBABB \uD558\uB294 \uD45C\uAE30\uB294 \uBE48 \uAC12\uC73C\uB85C \uCC98\uB9AC\uD574 \uD56D\uBAA9\uC744 \uBC84\uB9AC\uC9C0 \uC54A\uACE0 \uB123\uC2B5\uB2C8\uB2E4. \uD1A0\uAE00 \uC870\uAC74\uC740 \uD1A0\uAE00 \uC124\uC815 \uAC12\uC744 \uADF8\uB300\uB85C \uB530\uB985\uB2C8\uB2E4. \uADF8\uB807\uAC8C \uCC98\uB9AC\uB41C \uD56D\uBAA9\uC740 \uC804\uC1A1 \uB0B4\uC6A9\uC758 \uBAA8\uB4C8\uBCC4 \uACB0\uACFC\uC5D0 relaxed\uB85C \uB0A8\uC2B5\uB2C8\uB2E4."));
@@ -14741,7 +14865,7 @@ details[open] > summary { margin-bottom: 9px; }
         if (!value) option.excludedLore.push(i);
         change();
       }), h("pre", { class: "diff" }, entry.content)));
-      card.append(details);
+      body.append(details);
       host.append(card);
     }
   }
@@ -14942,7 +15066,7 @@ details[open] > summary { margin-bottom: 9px; }
             h("details", {}, h("summary", {}, "\uBE14\uB85D\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.trace, null, 2))),
             h("details", {}, h("summary", {}, "\uBAA8\uB4C8\uBCC4 \uD3EC\uD568\xB7\uC81C\uC678 \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.moduleTrace ?? [], null, 2))),
             h("details", {}, h("summary", {}, "\uD504\uB9AC\uC14B \uC815\uADDC\uC2DD \uCC98\uB9AC \uACB0\uACFC"), h("pre", { class: "diff" }, JSON.stringify(report.presetRegexTrace ?? [], null, 2))),
-            ...report.messages.map((m, i) => h("section", { class: "card stack" }, h("h3", {}, `${i + 1}. ${m.role}`), m.cachePoint ? h("span", { class: "pill" }, "\uCE90\uC2DC \uC9C0\uC810") : null, h("pre", { class: "diff" }, m.content))),
+            ...report.messages.map((m, i) => h("details", { class: "card preview-message", open: "" }, h("summary", {}, `${i + 1}. ${m.role} \xB7 ${m.content.length.toLocaleString()}\uC790` + (m.cachePoint ? " \xB7 \uCE90\uC2DC \uC9C0\uC810" : "")), h("pre", { class: "diff" }, m.content))),
             h("p", { class: "muted" }, report.notes.join("\n"))
           );
         } catch (error) {
@@ -14974,8 +15098,8 @@ details[open] > summary { margin-bottom: 9px; }
       app.touch(false);
       redraw();
     }, "listitem" + (i === index ? " active" : ""))));
-    const edit = h("div", { class: "stack" });
-    host.append(h("div", { class: "list-editor" }, nav, edit));
+    const edit = h("div", { class: "stack" }), pane = h("div", { class: "list-editor", "data-list": "preset" }, nav, app.listSplitter(), edit);
+    host.append(h("div", { class: "row" }, h("span", { class: "muted" }, list.length + "\uAC1C \uBE14\uB85D"), app.listCollapseButton("preset", pane)), pane);
     const b = list[i];
     if (!b) {
       edit.append(h("div", { class: "empty" }, "\uBE14\uB85D\uC744 \uCD94\uAC00\uD558\uC138\uC694. \uC774\uBC88 \uC694\uCCAD\uC744 \uD3EC\uD568\uD558\uB294 \uC81C\uC791 \uB300\uD654 \uBE14\uB85D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."));
@@ -15287,7 +15411,9 @@ details[open] > summary { margin-bottom: 9px; }
   var SLOT_NAMES = { autosave: "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC", "autosave-1": "\uC790\uB3D9 \uC800\uC7A5 \xB7 1\uD68C \uC804", "autosave-2": "\uC790\uB3D9 \uC800\uC7A5 \xB7 2\uD68C \uC804", manual: "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5" };
   var fieldNames = { name: "\uC774\uB984", image: "\uBD07 \uC544\uC774\uCF58", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
   var TASK_SCOPE = { workshop: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD569\uB2C8\uB2E4. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD560 \uB54C\uB9CC \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 \uBB36\uC5B4 \uC81C\uC548\uD569\uB2C8\uB2E4.", description: "\uCE90\uB9AD\uD130 \uC124\uBA85\xB7\uC131\uACA9\xB7\uC2DC\uB098\uB9AC\uC624 \uBCF8\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lorebook: "\uB85C\uC5B4\uBD81 \uD56D\uBAA9\uC744 \uCD94\uAC00\xB7\uC218\uC815\xB7\uC0AD\uC81C\uD569\uB2C8\uB2E4.", regex: "\uC815\uADDC\uC2DD \uADDC\uCE59\uACFC HTML/CSS \uC6D0\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lua: "Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", greeting: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", choiceGreeting: "\uCCAB \uBA54\uC2DC\uC9C0\xB7\uC0C1\uD669 \uBAA9\uB85D\xB7\uBCC0\uC218\xB7Lua\xB7\uC815\uADDC\uC2DD\uC744 \uD55C \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD569\uB2C8\uB2E4." };
-  var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system", chunking: true, chunkTokens: 5e3, chunkMax: 8 };
+  var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system", chunking: true, chunkTokens: 5e3, chunkMax: 8, listNavWidth: null, collapsedLists: {} };
+  var LIST_NAV_MIN = 120;
+  var LIST_NAV_DEFAULT = 170;
   var Workshop = class {
     fitRequestInput() {
       const input = this.requestInput;
@@ -15400,6 +15526,8 @@ details[open] > summary { margin-bottom: 9px; }
       this.s = newSession();
       this.prompts = {};
       this.settings = { ...SETTINGS };
+      this.loreFolderClosed = /* @__PURE__ */ new Set();
+      this.moduleFolded = /* @__PURE__ */ new Set();
       this.s.preset = newPresetState();
       this.savedPreset = null;
       this.started = false;
@@ -15519,6 +15647,8 @@ details[open] > summary { margin-bottom: 9px; }
         if (setting) {
           const saved = JSON.parse(setting);
           this.settings = { ...SETTINGS, ...saved, ...migrateInputSettings(saved) };
+          if (!Number.isFinite(this.settings.listNavWidth) || this.settings.listNavWidth < LIST_NAV_MIN) this.settings.listNavWidth = null;
+          if (!this.settings.collapsedLists || typeof this.settings.collapsedLists !== "object") this.settings.collapsedLists = {};
           if (saved.inputLimitVersion !== INPUT_LIMIT_VERSION && saved.timeout === 300) this.settings.timeout = 900;
         }
       } catch {
@@ -15542,7 +15672,13 @@ details[open] > summary { margin-bottom: 9px; }
         try {
           if (raw) {
             const p = JSON.parse(raw);
-            if (typeof p.system === "string" && typeof p.user === "string") this.prompts[task] = p;
+            if (typeof p.system === "string" && typeof p.user === "string") {
+              if (p.user === LEGACY_USER_TEMPLATE) {
+                p.user = USER_TEMPLATE;
+                await this.store("prompt:" + task, p);
+              }
+              this.prompts[task] = p;
+            }
           }
         } catch {
         }
@@ -15832,6 +15968,9 @@ details[open] > summary { margin-bottom: 9px; }
       const selected = Math.min(Math.max(s.selected[task] ?? 0, 0), Math.max(list.length - 1, 0));
       s.selected[task] = selected;
       if (lore) s.loreIncluded = loreSelection(s);
+      const tree2 = lore ? loreTree(list) : null;
+      const descendants = (index) => lore ? loreDescendants(list, index) : [];
+      const entries = (index) => descendants(index).filter((i) => !isLoreFolder(list[i]));
       const redrawLoreList = () => {
         const scrollTop = nav.scrollTop;
         const editorScrollTop = this.editor?.scrollTop ?? 0;
@@ -15845,11 +15984,12 @@ details[open] > summary { margin-bottom: 9px; }
         this.touch(false);
         redrawLoreList();
       };
+      const loreCount = lore ? list.filter((x) => !isLoreFolder(x)).length : list.length;
       if (lore) host.append(h(
         "div",
         { class: "card stack" },
-        h("strong", {}, `\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uD560 \uB85C\uC5B4\uBD81 \xB7 ${s.loreIncluded.filter(Boolean).length}/${list.length}\uAC1C`),
-        h("p", { class: "muted" }, "\uCCB4\uD06C\uD55C \uD604\uC7AC \uC6D0\uACE0 \uD56D\uBAA9\uB9CC \uC9C1\uC811\xB7\uD504\uB9AC\uC14B \uC694\uCCAD\uC5D0 \uD3EC\uD568\uD569\uB2C8\uB2E4. \uC6D0\uBCF8\uACFC \u2018\uD56D\uC0C1 \uD65C\uC131\uD654\u2019 \uC124\uC815\uC740 \uC720\uC9C0\uB429\uB2C8\uB2E4. \uC774\uC804 \uB300\uD654\uC5D0 \uC774\uBBF8 \uC801\uD78C \uB0B4\uC6A9\uC740 \uC720\uC9C0\uB418\uBA70, \uC124\uCE58 \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC740 \uD504\uB9AC\uC14B > \uBAA8\uB4C8\uC5D0\uC11C \uBCC4\uB3C4\uB85C \uC120\uD0DD\uD569\uB2C8\uB2E4."),
+        h("strong", {}, `\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\uD560 \uB85C\uC5B4\uBD81 \xB7 ${s.loreIncluded.filter((on, i) => on && !isLoreFolder(list[i])).length}/${loreCount}\uAC1C`),
+        h("p", { class: "muted" }, "\uCCB4\uD06C\uD55C \uD604\uC7AC \uC6D0\uACE0 \uD56D\uBAA9\uB9CC \uC9C1\uC811\xB7\uD504\uB9AC\uC14B \uC694\uCCAD\uC5D0 \uD3EC\uD568\uD569\uB2C8\uB2E4. \uD3F4\uB354\uC758 \uCCB4\uD06C\uB294 \uC548\uC758 \uD56D\uBAA9 \uC804\uCCB4\uB97C \uD55C \uBC88\uC5D0 \uBC14\uAFC9\uB2C8\uB2E4. \uC6D0\uBCF8\uACFC \u2018\uD56D\uC0C1 \uD65C\uC131\uD654\u2019 \uC124\uC815\uC740 \uC720\uC9C0\uB429\uB2C8\uB2E4. \uC774\uC804 \uB300\uD654\uC5D0 \uC774\uBBF8 \uC801\uD78C \uB0B4\uC6A9\uC740 \uC720\uC9C0\uB418\uBA70, \uC124\uCE58 \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC740 \uD504\uB9AC\uC14B > \uBAA8\uB4C8\uC5D0\uC11C \uBCC4\uB3C4\uB85C \uC120\uD0DD\uD569\uB2C8\uB2E4."),
         h("div", { class: "row" }, this.b("\uC804\uCCB4 \uD3EC\uD568", () => {
           s.loreIncluded = list.map(() => true);
           inclusionChanged();
@@ -15858,45 +15998,124 @@ details[open] > summary { margin-bottom: 9px; }
           inclusionChanged();
         }, "small"))
       ));
-      const nav = h("div", { class: "itemlist" + (lore ? " lore-request-list" : ""), "aria-label": lore ? "\uC694\uCCAD \uB85C\uC5B4\uBD81 \uBAA9\uB85D" : "\uD56D\uBAA9 \uBAA9\uB85D" }, list.map((x, i) => {
-        const title = x.comment || `\uD56D\uBAA9 ${i + 1}`;
-        const button = h("button", {
-          type: "button",
-          class: "listitem" + (i === selected ? " active" : ""),
-          title,
-          "aria-current": i === selected ? "true" : null,
-          onclick: () => {
-            s.selected[task] = i;
-            this.navigate();
-            if (lore) redrawLoreList();
-            else this.renderEditor();
-          }
-        }, lore ? `${i + 1}. ${title}` : title);
-        if (!lore) return button;
-        const toggle = this.check("\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568", s.loreIncluded[i], (included) => {
-          s.loreIncluded[i] = included;
+      const select = (i) => {
+        s.selected[task] = i;
+        this.navigate();
+        if (lore) redrawLoreList();
+        else this.renderEditor();
+      };
+      const itemButton = (x, i, label) => h("button", {
+        type: "button",
+        class: "listitem" + (i === selected ? " active" : ""),
+        title: label,
+        "aria-current": i === selected ? "true" : null,
+        onclick: () => select(i)
+      }, lore ? `${i + 1}. ${label}` : label);
+      const loreRow = (node) => {
+        const x = node.entry, i = node.index, title = x.comment || `\uD56D\uBAA9 ${i + 1}`;
+        if (!isLoreFolder(x)) {
+          const toggle = this.check("\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568", s.loreIncluded[i], (included) => {
+            s.loreIncluded[i] = included;
+            inclusionChanged();
+          });
+          toggle.className = "row muted lore-request-toggle";
+          toggle.setAttribute("title", `${i + 1}. ${title} \xB7 \uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568`);
+          return h("div", { class: "lore-request-item" + (i === selected ? " is-selected" : ""), style: `--depth:${node.depth}`, "data-index": i }, itemButton(x, i, title), toggle);
+        }
+        const inside = entries(i), on = inside.filter((k) => s.loreIncluded[k]).length, open = !this.loreFolderClosed.has(x.key);
+        const name = x.comment || `\uD3F4\uB354 ${i + 1}`;
+        const box = this.check(`\uD3F4\uB354 \uC804\uCCB4 \uD3EC\uD568 \xB7 ${on}/${inside.length}`, inside.length > 0 && on === inside.length, (included) => {
+          for (const k of inside) s.loreIncluded[k] = included;
           inclusionChanged();
         });
-        toggle.className = "row muted lore-request-toggle";
-        toggle.setAttribute("title", `${i + 1}. ${title} \xB7 \uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568`);
-        return h("div", { class: "lore-request-item" + (i === selected ? " is-selected" : "") }, button, toggle);
-      }));
+        box.className = "row muted lore-request-toggle lore-folder-toggle";
+        box.querySelector("input").indeterminate = on > 0 && on < inside.length;
+        box.querySelector("input").disabled = !inside.length;
+        box.setAttribute("title", `${name} \xB7 \uC548\uC758 \uD56D\uBAA9 ${inside.length}\uAC1C\uB97C \uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568`);
+        const disclosure = h("button", { type: "button", class: "lore-folder-disclosure", "aria-expanded": String(open), "aria-label": (open ? "\uD3F4\uB354 \uC811\uAE30 \xB7 " : "\uD3F4\uB354 \uD3BC\uCE58\uAE30 \xB7 ") + name, onclick: () => {
+          open ? this.loreFolderClosed.add(x.key) : this.loreFolderClosed.delete(x.key);
+          redrawLoreList();
+        } }, open ? "\u25BE" : "\u25B8");
+        const head = h("div", { class: "lore-folder-head" }, disclosure, itemButton(x, i, `\u{1F4C1} ${name}`), h("span", { class: "lore-folder-count muted" }, `${inside.length}\uAC1C`));
+        const children = open ? h("div", { class: "lore-folder-children", role: "group", "aria-label": name }, node.children.map(loreRow)) : null;
+        return h("div", { class: "lore-folder-item" + (i === selected ? " is-selected" : "") + (open ? " is-open" : ""), style: `--depth:${node.depth}`, "data-index": i, "data-folder": x.key }, head, box, children);
+      };
+      const nav = h("div", { class: "itemlist" + (lore ? " lore-request-list" : ""), "aria-label": lore ? "\uC694\uCCAD \uB85C\uC5B4\uBD81 \uBAA9\uB85D" : "\uD56D\uBAA9 \uBAA9\uB85D" }, lore ? tree2.roots.map(loreRow) : list.map((x, i) => itemButton(x, i, x.comment || `\uD56D\uBAA9 ${i + 1}`)));
       const edit = h("div", { class: "stack" }), item = list[selected];
-      host.append(h("div", { class: "row" }, this.b("\uFF0B \uD56D\uBAA9 \uCD94\uAC00", () => {
-        list.push(lore ? { key: "", secondkey: "", content: "", comment: "\uC0C8 \uB85C\uC5B4", insertorder: 100, mode: "normal", alwaysActive: false, selective: false } : { comment: "\uC0C8 \uADDC\uCE59", in: "", out: "", type: "editdisplay", flag: "g", ableFlag: true });
+      const targetFolder = () => {
+        if (!lore || !item) return null;
+        return isLoreFolder(item) ? item.key : tree2.nodes[selected].parent >= 0 ? item.folder : null;
+      };
+      const addEntry = (entry) => {
+        list.push(entry);
         if (lore) s.loreIncluded.push(true);
         s.selected[task] = list.length - 1;
         this.touch();
         this.renderEditor();
-      }, "small"), h("span", { class: "muted" }, `${list.length}\uAC1C \uD56D\uBAA9`)), h("div", { class: "list-editor" }, nav, edit));
+      };
+      const listPane = h("div", { class: "list-editor", "data-list": task }, nav, this.listSplitter(), edit);
+      host.append(h("div", { class: "row" }, this.b("\uFF0B \uD56D\uBAA9 \uCD94\uAC00", () => {
+        const folder = targetFolder();
+        addEntry(lore ? { key: "", secondkey: "", content: "", comment: "\uC0C8 \uB85C\uC5B4", insertorder: 100, mode: "normal", alwaysActive: false, selective: false, ...folder ? { folder } : {} } : { comment: "\uC0C8 \uADDC\uCE59", in: "", out: "", type: "editdisplay", flag: "g", ableFlag: true });
+      }, "small"), lore ? this.b("\uFF0B \uD3F4\uB354 \uCD94\uAC00", () => addEntry(newLoreFolder("\uC0C8 \uD3F4\uB354", targetFolder())), "small") : null, h("span", { class: "muted" }, lore ? `${loreCount}\uAC1C \uD56D\uBAA9 \xB7 \uD3F4\uB354 ${list.length - loreCount}\uAC1C` : `${list.length}\uAC1C \uD56D\uBAA9`), this.listCollapseButton(task, listPane)), listPane);
       if (!item) edit.append(h("div", { class: "empty" }, "\uD56D\uBAA9\uC744 \uCD94\uAC00\uD558\uAC70\uB098 LLM\uC5D0\uAC8C \uC791\uC131\uC744 \uC694\uCCAD\uD558\uC138\uC694."));
       else {
         const change = (key2, value) => {
           item[key2] = value;
           this.touch();
         };
-        edit.append(this.field("\uD56D\uBAA9 \uC774\uB984", item.comment, (v) => change("comment", v), { tag: "input" }));
-        if (lore) edit.append(this.field("\uD0A4\uC6CC\uB4DC \xB7 \uC27C\uD45C \uAD6C\uBD84", item.key, (v) => change("key", v), { tag: "input" }), this.field("\uBCF8\uBB38", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("\uC0BD\uC785 \uC21C\uC11C", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("\uD56D\uC0C1 \uD65C\uC131\uD654", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC \uC0AC\uC6A9", item.selective, (v) => change("selective", v)), this.check("\uD0A4\uC6CC\uB4DC\uB97C \uC815\uADDC\uC2DD\uC73C\uB85C", item.useRegex, (v) => change("useRegex", v))), h("label", { class: "field" }, h("span", {}, "\uBAA8\uB4DC"), this.select(item.mode, ["normal", "multiple", "constant", "child", "folder"].map((v) => [v, v]), (v) => change("mode", v), "\uB85C\uC5B4\uBD81 \uBAA8\uB4DC")));
+        const folderOptions = () => {
+          const blocked = new Set(isLoreFolder(item) ? [selected, ...descendants(selected)] : []);
+          return [["", "\uC5C6\uC74C \xB7 \uCD5C\uC0C1\uC704"], ...list.flatMap((x, i) => isLoreFolder(x) && !blocked.has(i) && x.key ? [[x.key, x.comment || `\uD3F4\uB354 ${i + 1}`]] : [])];
+        };
+        const folderField = () => h("label", { class: "field" }, h("span", {}, "\uD3F4\uB354"), this.select(typeof item.folder === "string" && list.some((x) => isLoreFolder(x) && x.key === item.folder) ? item.folder : "", folderOptions(), (v) => {
+          if (v) item.folder = v;
+          else delete item.folder;
+          this.touch();
+          this.renderEditor();
+        }, "\uD3F4\uB354"));
+        edit.append(this.field(isLoreFolder(item) ? "\uD3F4\uB354 \uC774\uB984" : "\uD56D\uBAA9 \uC774\uB984", item.comment, (v) => change("comment", v), { tag: "input" }));
+        if (lore && isLoreFolder(item)) {
+          const inside = entries(selected), folders = descendants(selected).length - inside.length;
+          const bulk = (label, getter, setter, hint) => {
+            const on = inside.filter((k) => getter(list[k])).length;
+            const box = this.check(`${label} \xB7 ${on}/${inside.length}`, inside.length > 0 && on === inside.length, (value) => {
+              for (const k of inside) setter(list[k], value);
+              if (label === "\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568") {
+                inclusionChanged();
+                return;
+              }
+              this.touch();
+              this.renderEditor();
+            });
+            box.querySelector("input").indeterminate = on > 0 && on < inside.length;
+            box.querySelector("input").disabled = !inside.length;
+            return h("div", { class: "stack", style: "gap:4px" }, box, h("p", { class: "muted" }, hint));
+          };
+          edit.append(
+            folderField(),
+            h("p", { class: "muted" }, `\uC548\uC758 \uD56D\uBAA9 ${inside.length}\uAC1C${folders ? ` \xB7 \uD558\uC704 \uD3F4\uB354 ${folders}\uAC1C` : ""}. \uD3F4\uB354\uB294 \uB9AC\uC2A4\uC758 \uB85C\uC5B4\uBD81 \uD3F4\uB354\uC640 \uAC19\uC740 \uAD6C\uC870\uB85C \uC800\uC7A5\uB418\uBA70 LLM \uC694\uCCAD\uC5D0\uB294 \uBCF4\uB0B4\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`),
+            h(
+              "div",
+              { class: "card stack" },
+              h("strong", {}, "\uD3F4\uB354 \uB2E8\uC704 \uC124\uC815"),
+              bulk("\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568", (x) => s.loreIncluded[list.indexOf(x)] !== false, (x, v) => {
+                s.loreIncluded[list.indexOf(x)] = v;
+              }, "\uBD07\uBE4C\uB354 \uC694\uCCAD\uC5D0 \uBCF4\uB0BC\uC9C0 \uC5EC\uBD80\uC785\uB2C8\uB2E4. \uC6D0\uBCF8\uC740 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+              bulk("\uB9AC\uC2A4\uC5D0\uC11C \uD65C\uC131\uD654", (x) => x.enabled !== false, (x, v) => {
+                if (v) delete x.enabled;
+                else x.enabled = false;
+              }, "\uB044\uBA74 \uB9AC\uC2A4\uAC00 \uC774 \uD56D\uBAA9\uC744 \uC228\uAE40(\uBE44\uD65C\uC131) \uC0C1\uD0DC\uB85C \uC800\uC7A5\uD574 \uCC44\uD305\uC5D0\uC11C \uC4F0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB9AC\uC2A4 \uB85C\uC5B4\uBD81\uC758 '\uC228\uAE40' \uC124\uC815\uACFC \uAC19\uC2B5\uB2C8\uB2E4."),
+              bulk("\uD56D\uC0C1 \uD65C\uC131\uD654", (x) => !!x.alwaysActive, (x, v) => {
+                x.alwaysActive = v;
+              }, "\uB9AC\uC2A4\uC758 \uD3F4\uB354 \uD56D\uC0C1 \uD65C\uC131\uD654 \uD1A0\uAE00\uACFC \uAC19\uC774 \uC548\uC758 \uD56D\uBAA9 \uC804\uCCB4\uC5D0 \uC801\uC6A9\uD569\uB2C8\uB2E4.")
+            )
+          );
+        } else if (lore) edit.append(this.field("\uD0A4\uC6CC\uB4DC \xB7 \uC27C\uD45C \uAD6C\uBD84", item.key, (v) => change("key", v), { tag: "input" }), this.field("\uBCF8\uBB38", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("\uC0BD\uC785 \uC21C\uC11C", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("\uD56D\uC0C1 \uD65C\uC131\uD654", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC \uC0AC\uC6A9", item.selective, (v) => change("selective", v)), this.check("\uD0A4\uC6CC\uB4DC\uB97C \uC815\uADDC\uC2DD\uC73C\uB85C", item.useRegex, (v) => change("useRegex", v)), this.check("\uB9AC\uC2A4\uC5D0\uC11C \uD65C\uC131\uD654 \xB7 \uB044\uBA74 \uC228\uAE40", item.enabled !== false, (v) => {
+          if (v) delete item.enabled;
+          else item.enabled = false;
+          this.touch();
+        })), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "\uBAA8\uB4DC"), this.select(item.mode, ["normal", "multiple", "constant", "child"].map((v) => [v, v]), (v) => change("mode", v), "\uB85C\uC5B4\uBD81 \uBAA8\uB4DC")), folderField()));
         else {
           edit.append(this.field("IN \xB7 \uCC3E\uC744 \uD328\uD134", item.in, (v) => change("in", v), { class: "code", style: "min-height:90px" }), this.field("OUT \xB7 \uCE58\uD658\uBB38 / HTML\xB7CSS \uC6D0\uBB38", item.out, (v) => change("out", v), { class: "code", style: "min-height:230px" }), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "\uC801\uC6A9 \uC720\uD615"), this.select(item.type, [["editinput", "\uC785\uB825"], ["editoutput", "\uCD9C\uB825"], ["editprocess", "\uCC98\uB9AC"], ["editdisplay", "\uD45C\uC2DC"]], (v) => change("type", v), "\uC815\uADDC\uC2DD \uC801\uC6A9 \uC720\uD615")), this.field("\uD50C\uB798\uADF8", item.flag, (v) => change("flag", v), { tag: "input" })), this.check("\uC9C0\uC815\uD55C \uD50C\uB798\uADF8 \uC0AC\uC6A9 \xB7 \uB044\uBA74 \uAE30\uBCF8 g", item.ableFlag, (v) => change("ableFlag", v)));
           const result = h("div", { class: "stack testresult", "aria-live": "polite" });
@@ -15927,32 +16146,101 @@ details[open] > summary { margin-bottom: 9px; }
             result
           );
         }
-        edit.append(h("div", { class: "row" }, this.b("\uC704\uB85C", () => {
-          if (selected > 0) {
-            [list[selected - 1], list[selected]] = [list[selected], list[selected - 1]];
-            if (lore) [s.loreIncluded[selected - 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected - 1]];
-            s.selected[task]--;
-            this.touch();
-            this.renderEditor();
-          }
-        }, "small"), this.b("\uC544\uB798\uB85C", () => {
-          if (selected + 1 < list.length) {
-            [list[selected + 1], list[selected]] = [list[selected], list[selected + 1]];
-            if (lore) [s.loreIncluded[selected + 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected + 1]];
-            s.selected[task]++;
-            this.touch();
-            this.renderEditor();
-          }
-        }, "small"), this.b("\uD56D\uBAA9 \uC0AD\uC81C", async () => {
-          if (await this.confirm("\uD56D\uBAA9\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?", item.comment || "\uC120\uD0DD \uD56D\uBAA9")) {
-            list.splice(selected, 1);
-            if (lore) s.loreIncluded.splice(selected, 1);
+        const siblings = lore ? (tree2.nodes[selected].parent >= 0 ? tree2.nodes[tree2.nodes[selected].parent].children : tree2.roots).map((n) => n.index) : list.map((_, i) => i);
+        const swapWith = (delta) => {
+          const at = siblings.indexOf(selected), other = siblings[at + delta];
+          if (other === void 0) return;
+          [list[other], list[selected]] = [list[selected], list[other]];
+          if (lore) [s.loreIncluded[other], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[other]];
+          s.selected[task] = other;
+          this.touch();
+          this.renderEditor();
+        };
+        edit.append(h("div", { class: "row" }, this.b("\uC704\uB85C", () => swapWith(-1), "small"), this.b("\uC544\uB798\uB85C", () => swapWith(1), "small"), this.b(lore && isLoreFolder(item) ? "\uD3F4\uB354 \uC0AD\uC81C" : "\uD56D\uBAA9 \uC0AD\uC81C", async () => {
+          const removing = lore && isLoreFolder(item) ? [selected, ...descendants(selected)] : [selected];
+          const inside = removing.length - 1;
+          if (await this.confirm(inside ? `\uD3F4\uB354\uC640 \uC548\uC758 \uD56D\uBAA9 ${inside}\uAC1C\uB97C \uD568\uAED8 \uC0AD\uC81C\uD560\uAE4C\uC694?` : lore && isLoreFolder(item) ? "\uD3F4\uB354\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?" : "\uD56D\uBAA9\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?", item.comment || "\uC120\uD0DD \uD56D\uBAA9")) {
+            const drop = new Set(removing);
+            s.draft[field] = list.filter((_, i) => !drop.has(i));
+            if (lore) s.loreIncluded = s.loreIncluded.filter((_, i) => !drop.has(i));
+            s.selected[task] = Math.max(0, Math.min(selected, s.draft[field].length - 1));
             this.touch();
             this.renderEditor();
           }
         }, "small danger")));
       }
       this.editorAction(host, task);
+    }
+    // Drag handle between a list and its editor. The width is shared by every list and kept in settings.
+    listSplitter() {
+      const h = this.h.bind(this);
+      const handle = h("div", { class: "list-splitter", role: "separator", "aria-orientation": "vertical", "aria-label": "\uBAA9\uB85D \uB108\uBE44 \uC870\uC808 \xB7 \uB04C\uAC70\uB098 \uBC29\uD5A5\uD0A4\uB85C \uC870\uC808, \uB354\uBE14\uD074\uB9AD\uC73C\uB85C \uCD08\uAE30\uD654", tabindex: "0", title: "\uBAA9\uB85D \uB108\uBE44 \uC870\uC808 \xB7 \uB04C\uAC70\uB098 \uBC29\uD5A5\uD0A4\uB85C \uC870\uC808, \uB354\uBE14\uD074\uB9AD\uC73C\uB85C \uCD08\uAE30\uD654" });
+      const pane = () => handle.parentElement;
+      const apply = (width) => {
+        const host = pane();
+        if (!host) return;
+        if (width === null) host.style.removeProperty("--list-nav");
+        else host.style.setProperty("--list-nav", `${width}px`);
+        handle.setAttribute("aria-valuenow", String(width ?? LIST_NAV_DEFAULT));
+      };
+      const clamp = (width) => {
+        const max2 = Math.max(LIST_NAV_MIN, Math.floor((pane()?.clientWidth || 800) * 0.7));
+        return Math.min(max2, Math.max(LIST_NAV_MIN, Math.round(width)));
+      };
+      const save = (width) => {
+        this.settings.listNavWidth = width;
+        this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
+      };
+      const current = () => this.settings.listNavWidth ?? LIST_NAV_DEFAULT;
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== void 0 && event.button !== 0) return;
+        const startX = event.clientX, startWidth = pane()?.querySelector(".itemlist")?.getBoundingClientRect().width || current();
+        let width = clamp(startWidth);
+        handle.setPointerCapture?.(event.pointerId);
+        handle.classList.add("is-dragging");
+        const move = (e) => {
+          width = clamp(startWidth + (e.clientX - startX));
+          apply(width);
+        };
+        const up = () => {
+          handle.classList.remove("is-dragging");
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          handle.removeEventListener("pointercancel", up);
+          save(width);
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
+        event.preventDefault();
+      });
+      handle.addEventListener("dblclick", () => {
+        apply(null);
+        save(null);
+      });
+      handle.addEventListener("keydown", (event) => {
+        const step = event.shiftKey ? 48 : 16;
+        let next = null;
+        if (event.key === "ArrowLeft") next = clamp(current() - step);
+        else if (event.key === "ArrowRight") next = clamp(current() + step);
+        else if (event.key === "Home") next = null;
+        else return;
+        event.preventDefault();
+        apply(next);
+        save(next);
+      });
+      queueMicrotask(() => apply(this.settings.listNavWidth ?? null));
+      return handle;
+    }
+    // Folds the list column so the editor takes the whole width; remembered per list in settings.
+    listCollapseButton(key2, pane) {
+      const collapsed = !!this.settings.collapsedLists?.[key2];
+      pane.dataset.collapsed = String(collapsed);
+      return this.b(collapsed ? "\uBAA9\uB85D \uD3BC\uCE58\uAE30" : "\uBAA9\uB85D \uC811\uAE30", () => {
+        this.settings.collapsedLists = { ...this.settings.collapsedLists, [key2]: !collapsed };
+        this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
+        this.renderEditor();
+      }, "small ghost list-collapse", { "aria-pressed": String(collapsed), "data-action": "toggle-list" });
     }
     renderLua(host) {
       const h = this.h.bind(this), s = this.s;
@@ -16444,7 +16732,13 @@ ${next.instruction}
         }
       } finally {
         if (this.job?.id === job.id) this.job = null;
-        this.render();
+        try {
+          this.render();
+        } catch (error) {
+          this.jobStatus();
+          this.lockRequestEditors();
+          this.toast("\uD654\uBA74 \uAC31\uC2E0 \uC2E4\uD328: " + error.message, true);
+        }
       }
     }
     // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error.

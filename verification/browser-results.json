@@ -1,6 +1,6 @@
 {
   "scope": "Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.",
-  "passed": 26,
+  "passed": 27,
   "results": [
     {
       "name": "desktop two-pane layout",
@@ -179,7 +179,7 @@
           "minTouch": 44
         },
         {
-          "width": 360,
+          "width": 320,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -187,7 +187,7 @@
           "minTouch": 44
         },
         {
-          "width": 360,
+          "width": 320,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -195,7 +195,7 @@
           "minTouch": 44
         },
         {
-          "width": 360,
+          "width": 320,
           "count": 75,
           "overlap": false,
           "overflow": false,
@@ -203,6 +203,14 @@
           "minTouch": 44
         }
       ]
+    },
+    {
+      "name": "lorebook folders group entries with one checkbox and fold; the list column resizes by drag, folds and resets",
+      "passed": true,
+      "widths": {
+        "before": 170,
+        "after": 290
+      }
     },
     {
       "name": "v2 compact patch is reviewed with line numbers on desktop/mobile and applies only its exact source span",

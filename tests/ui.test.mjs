@@ -662,3 +662,114 @@ test('restoring a saved session keeps global settings (timeout, input limit) and
     assert.equal(JSON.parse(x.store.get(PREFIX + 'settings')).timeout, 1800);
   } finally { x.close(); }
 });
+
+test('lorebook tab shows folders as a tree: folder checkbox covers its entries, new entries join the selected folder, folder delete removes the contents', async () => {
+  const x = await make();
+  try {
+    const { newLoreFolder } = await import('../src/core.js');
+    const folder = newLoreFolder('세계관');
+    x.app.s.draft.globalLore = [folder, { key: 'a', comment: 'A', content: 'A', folder: folder.key }, { key: 'b', comment: 'B', content: 'B', folder: folder.key }, { key: 'c', comment: 'C', content: 'C' }];
+    x.app.s.tab = 'lorebook'; x.app.task = 'lorebook'; x.app.render();
+    const doc = x.dom.window.document;
+    const folderRow = doc.querySelector('.lore-folder-item'); assert.ok(folderRow);
+    assert.equal(folderRow.querySelectorAll('.lore-folder-children .lore-request-item').length, 2);
+    assert.equal(doc.querySelectorAll('.lore-request-list > .lore-request-item').length, 1);
+    assert.match(doc.querySelector('.lore-request-list').textContent, /폴더 전체 포함 · 2\/2/);
+    // The folder checkbox clears both entries; a single entry back on makes the folder box indeterminate.
+    folderRow.querySelector('.lore-folder-toggle input').click(); await wait();
+    assert.deepEqual(x.app.s.loreIncluded, [true, false, false, true]);
+    doc.querySelector('.lore-folder-children .lore-request-toggle input').click(); await wait();
+    assert.deepEqual(x.app.s.loreIncluded, [true, true, false, true]);
+    assert.equal(doc.querySelector('.lore-folder-toggle input').indeterminate, true);
+    // Folders never reach the model; refs keep the original indexes.
+    assert.deepEqual(x.app.previewRequest('lorebook').messages[1].content.match(/"ref":"l\d+"/g), ['"ref":"l1"', '"ref":"l3"']);
+    // Collapsing hides the children without changing the data.
+    doc.querySelector('.lore-folder-disclosure').click(); await wait();
+    assert.equal(doc.querySelector('.lore-folder-children'), null); assert.equal(doc.querySelector('.lore-folder-disclosure').getAttribute('aria-expanded'), 'false');
+    doc.querySelector('.lore-folder-disclosure').click(); await wait();
+    assert.equal(doc.querySelectorAll('.lore-folder-children .lore-request-item').length, 2);
+    // Selecting the folder opens the folder editor with the bulk switches; adding an entry puts it inside.
+    button(x.dom, '1. 📁 세계관').click(); await wait();
+    assert.match(doc.querySelector('.editor').textContent, /폴더 단위 설정/);
+    const enable = [...doc.querySelectorAll('.editor label.row')].find(l => /리스에서 활성화/.test(l.textContent)).querySelector('input');
+    enable.click(); await wait();
+    assert.equal(x.app.s.draft.globalLore[1].enabled, false); assert.equal(x.app.s.draft.globalLore[2].enabled, false); assert.equal(x.app.s.draft.globalLore[3].enabled, undefined);
+    button(x.dom, '＋ 항목 추가').click(); await wait();
+    assert.equal(x.app.s.draft.globalLore.at(-1).folder, folder.key); assert.equal(x.app.s.loreIncluded.length, 5);
+    button(x.dom, '＋ 폴더 추가').click(); await wait();
+    assert.equal(x.app.s.draft.globalLore.at(-1).mode, 'folder'); assert.equal(x.app.s.draft.globalLore.at(-1).folder, folder.key);
+    // Moving acts among siblings: C (top level) moves above the folder even though they are not adjacent in the array.
+    button(x.dom, '4. C').click(); await wait(); button(x.dom, '위로').click(); await wait();
+    assert.equal(x.app.s.draft.globalLore[0].key, 'c'); assert.equal(x.app.s.draft.globalLore[3].mode, 'folder'); assert.equal(x.app.s.selected.lorebook, 0);
+    // Deleting the folder removes it with everything inside and keeps the selection array aligned.
+    x.app.confirm = async () => true;
+    button(x.dom, '4. 📁 세계관').click(); await wait(); button(x.dom, '폴더 삭제').click(); await wait();
+    assert.deepEqual(x.app.s.draft.globalLore.map(e => e.key), ['c']); assert.deepEqual(x.app.s.loreIncluded, [true]);
+  } finally { x.close(); }
+});
+
+test('the list splitter resizes the list column by keyboard and drag, persists in settings, and the list can be folded', async () => {
+  const x = await make();
+  try {
+    x.app.s.draft.globalLore = [{ key: 'a', comment: 'A', content: 'A' }];
+    x.app.s.tab = 'lorebook'; x.app.task = 'lorebook'; x.app.render(); await wait();
+    const doc = x.dom.window.document, handle = doc.querySelector('.list-splitter'), pane = doc.querySelector('.list-editor');
+    assert.ok(handle); assert.equal(handle.getAttribute('role'), 'separator');
+    handle.dispatchEvent(new x.dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await wait();
+    assert.equal(x.app.settings.listNavWidth, 186); assert.equal(pane.style.getPropertyValue('--list-nav'), '186px');
+    assert.equal(JSON.parse(x.store.get(PREFIX + 'settings')).listNavWidth, 186);
+    const down = new x.dom.window.Event('pointerdown', { bubbles: true }); down.clientX = 100; down.button = 0; handle.dispatchEvent(down);
+    const move = new x.dom.window.Event('pointermove', { bubbles: true }); move.clientX = 160; handle.dispatchEvent(move);
+    handle.dispatchEvent(new x.dom.window.Event('pointerup', { bubbles: true })); await wait();
+    assert.equal(x.app.settings.listNavWidth, 246);
+    handle.dispatchEvent(new x.dom.window.Event('dblclick', { bubbles: true })); await wait();
+    assert.equal(x.app.settings.listNavWidth, null); assert.equal(pane.style.getPropertyValue('--list-nav'), '');
+    button(x.dom, '목록 접기').click(); await wait();
+    assert.equal(doc.querySelector('.list-editor').dataset.collapsed, 'true'); assert.equal(x.app.settings.collapsedLists.lorebook, true);
+    assert.equal(JSON.parse(x.store.get(PREFIX + 'settings')).collapsedLists.lorebook, true);
+    button(x.dom, '목록 펼치기').click(); await wait();
+    assert.equal(doc.querySelector('.list-editor').dataset.collapsed, 'false');
+    x.app.s.tab = 'regex'; x.app.s.draft.customscript = [{ comment: 'R', in: 'a', out: 'b', type: 'editdisplay', flag: 'g', ableFlag: true }]; x.app.render(); await wait();
+    assert.ok(doc.querySelector('.list-editor[data-list=regex] .list-splitter'));
+  } finally { x.close(); }
+});
+
+test('the job marker clears after a response even when drawing the result fails', async () => {
+  const x = await make();
+  try {
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '의논';
+    x.app.api.runLLMModel = async () => { x.app.renderEditor = () => { throw new Error('그리기 실패'); }; return { type: 'success', result: JSON.stringify({ schemaVersion: 1, task: 'workshop', data: { reply: '답', changes: [] } }) }; };
+    await x.app.sendRequest();
+    assert.equal(x.app.job, null); assert.equal(x.app.root.getAttribute('aria-busy'), 'false');
+    assert.match(x.dom.window.document.body.textContent, /화면 갱신 실패/);
+    assert.equal(x.app.s.thread.at(-1).content, '답');
+  } finally { x.close(); }
+});
+
+test('preset block list has the splitter and fold button, module cards and preview messages fold', async () => {
+  const x = await make();
+  try {
+    await applyImportedPreset(x.app, new TextEncoder().encode(JSON.stringify(modulePreset())), 'p.json'); await wait();
+    const doc = x.dom.window.document;
+    assert.ok(doc.querySelector('.list-editor[data-list=preset] .list-splitter')); assert.ok(button(x.dom, '목록 접기'));
+    x.app.s.preset.modules = selectInstalledModules(x.app.s.preset, installedModules(), installedModules().map(m => m.id)).modules;
+    x.app.s.preset.pane = 'modules'; x.app.renderEditor(); await wait();
+    const cards = [...doc.querySelectorAll('details.module-card')]; assert.ok(cards.length >= 1); assert.ok(cards.every(c => c.open));
+    cards[0].open = false; cards[0].dispatchEvent(new x.dom.window.Event('toggle')); x.app.renderEditor(); await wait();
+    assert.equal(doc.querySelector('details.module-card').open, false);
+    x.app.s.preset.pane = 'preview'; x.app.renderEditor(); await wait();
+    const previews = [...doc.querySelectorAll('details.preview-message')]; assert.ok(previews.length >= 2); assert.match(previews[0].querySelector('summary').textContent, /^1\. system · [\d,]+자/);
+  } finally { x.close(); }
+});
+
+test('a saved prompt still in the old default order is upgraded to the cache-friendly order; an edited one is kept', async () => {
+  const { USER_TEMPLATE, LEGACY_USER_TEMPLATE, defaultPrompt } = await import('../src/core.js');
+  const x = await make({ [PREFIX + 'prompt:description']: JSON.stringify({ system: defaultPrompt('description').system, user: LEGACY_USER_TEMPLATE }), [PREFIX + 'prompt:greeting']: JSON.stringify({ system: 'custom', user: LEGACY_USER_TEMPLATE + '\n추가 지시' }) });
+  try {
+    assert.equal(x.app.prompts.description.user, USER_TEMPLATE);
+    assert.equal(JSON.parse(x.store.get(PREFIX + 'prompt:description')).user, USER_TEMPLATE);
+    assert.equal(x.app.prompts.greeting.user, LEGACY_USER_TEMPLATE + '\n추가 지시');
+    x.app.task = 'greeting'; x.app.s.requests.greeting = '요청';
+    assert.match(x.app.previewRequest('greeting').messages[1].content, /pendingProposalNote/);
+  } finally { x.close(); }
+});
