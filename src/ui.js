@@ -1,6 +1,6 @@
 import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX, candidatePackets, chunkOptions, CHUNK_MIN_TOKENS, CHUNK_MAX_TOKENS, CHUNK_HARD_MAX } from './core.js';
 import { CSS } from './style.js';
-import { VERSION, USER_TEMPLATE, LEGACY_USER_TEMPLATE, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, USER_TEMPLATE, LEGACY_USER_TEMPLATE, historyOptions, HISTORY_TURNS_MIN, HISTORY_TURNS_MAX, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
@@ -14,7 +14,7 @@ const SLOT_NAMES = { autosave: '자동 저장 · 최근', 'autosave-1': '자동 
 const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
 // What each request task may change; shown beside the input so the active task is never a guess.
 const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명·성격·시나리오 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
-const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system', chunking: true, chunkTokens: 5000, chunkMax: 8, listNavWidth: null, collapsedLists: {} };
+const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system', chunking: true, chunkTokens: 5000, chunkMax: 8, historyTurns: 12, listNavWidth: null, collapsedLists: {} };
 const LIST_NAV_MIN = 120, LIST_NAV_DEFAULT = 170;
 
 export class Workshop {
@@ -220,7 +220,7 @@ export class Workshop {
     if (!Number.isFinite(this.settings.timeout) || this.settings.timeout < 10 || this.settings.timeout > 3600) this.settings.timeout = 900;
     Object.assign(this.settings, migrateInputSettings(this.settings));
     if (!["system", "light", "dark"].includes(this.settings.theme)) this.settings.theme = "system";
-    Object.assign(this.settings, chunkOptions(this.settings));
+    Object.assign(this.settings, chunkOptions(this.settings), historyOptions(this.settings));
     this.themeMedia = this.doc.defaultView?.matchMedia?.("(prefers-color-scheme: dark)");
     this.themeListener = () => this.applyTheme();
     this.themeMedia?.addEventListener("change", this.themeListener);
@@ -838,6 +838,7 @@ export class Workshop {
       }
       this.render();
     }, "요청 구성");
+    const summaryOnly = this.task === "workshop" ? this.check("원고 전체 대신 요약만 보내기 · 설계 논의용, 기존 본문의 부분편집은 불가", s.workshopSummary === true, (v) => { s.workshopSummary = v; this.touch(false); }) : null;
     const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
     const toggleLabel = TASKS[this.task].label + " ▾";
     const settingsToggle = this.b(toggleLabel, () => {
@@ -848,7 +849,7 @@ export class Workshop {
     }, "request-settings-toggle", { "aria-expanded": "false", title: "요청 설정 · 종류·모델·구성을 바꿉니다." });
     const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
     const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "")));
-    requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
+    requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, summaryOnly, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
     panel.append(messages, h(
       "div",
       { class: "composer" },
@@ -939,7 +940,7 @@ export class Workshop {
   // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
   previewRequest(task = this.task, forcePreset = false, override = {}) {
     const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
-    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), cacheSplit: !usePreset });
+    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
     const report = usePreset ? assemblePreset(session.preset, session, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
     return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
   }
@@ -965,6 +966,13 @@ export class Workshop {
     const options = chunkOptions(this.settings), parts = [], replies = [], notes = [];
     let raw, staged = clone(before), stagedLore = loreSelection(s);
     const stagedSession = () => ({ ...s, draft: staged, loreIncluded: stagedLore });
+    // What the chain has changed so far: those fields and items go to the next step in full, the rest as sizes.
+    const focusOf = () => {
+      const fields = Object.entries({ desc: "description", personality: "personality", scenario: "scenario", firstMessage: "firstMessage" }).filter(([key]) => !equal(before[key] ?? "", staged[key] ?? "")).map(([, name]) => name);
+      const changed = (key) => (staged[key] ?? []).map((item, i) => i >= (before[key] ?? []).length || !equal(before[key][i], item) ? i : -1).filter((i) => i >= 0);
+      const was = luaEntries(before);
+      return { fields, lore: changed("globalLore"), regex: changed("customscript"), scripts: luaEntries(staged).filter((item) => !was.some((old) => old.ref === item.ref && old.code === item.code && old.comment === item.comment)).map((item) => item.ref) };
+    };
     const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
     let missing = [];
     const receive = async (text, draft) => {
@@ -1029,7 +1037,7 @@ export class Workshop {
         job.label = `${TASKS[task].label} · 구간 ${index}/${total}`; this.jobStatus();
         assert(!job.cancelled, "요청을 취소했습니다.");
         const stepText = `${requestText}\n\n[분할 작업 ${index}/${total}] 이번 구간: ${next.title}\n${next.instruction}\n이전 구간의 결과는 이미 현재안에 반영되어 있다. 이번 구간만 작성하고, 아직 남은 구간이 있으면 plan에 남은 것만 다시 적어라(이번 구간은 제외). 남은 구간이 없으면 plan을 생략하라.`;
-        const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [] });
+        const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf() });
         assert(!step.issues.length, "프리셋 조립 오류:\n" + step.issues.join("\n"));
         inputSize(step.messages, this.settings.maxInputChars);
         packet = await ask(step.messages, stepText);
@@ -1050,7 +1058,7 @@ export class Workshop {
             missing.length = 0;
             job.label = TASKS[task].label + " · 결손 보충"; this.jobStatus();
             const stepText = requestText + "\n\n" + hint;
-            const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [] });
+            const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf() });
             assert(!step.issues.length, "프리셋 조립 오류:\n" + step.issues.join("\n"));
             inputSize(step.messages, this.settings.maxInputChars);
             packet = await ask(step.messages, stepText);
@@ -1140,11 +1148,12 @@ export class Workshop {
     const next = clone(this.settings);
     const result = await this.dialog("작업 설정", (body) => {
       body.append(this.h("p", { class: "muted" }, "30만 입력 토큰 규모용: 기본 3,000,000자, 전체 32MiB까지 전송합니다. 글자 수는 토큰 수가 아닙니다. 사용하는 모델·API가 입력 300,000토큰과 응답 여유를 지원해야 합니다. 본체 컨텍스트 설정은 자동 변경하지 않습니다."));
-      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.h("h3", {}, "분할 작업"), this.check("긴 응답 나눠 받기 · 결과가 예산을 넘으면 모델이 구간 계획을 세우고 봇빌더가 자동으로 이어 요청합니다", next.chunking !== false, (v) => next.chunking = v), this.field("응답당 출력 예산 · 토큰 (사고 토큰 제외, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("최대 구간 수 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "구간마다 현재안을 다시 보내므로 입력 토큰은 구간 수에 비례해 늘어납니다. 구간 결과는 임시 원고에 쌓이고, 검토와 적용은 마지막에 한 번만 합니다. 중간에 취소하면 그때까지 완성된 구간만 수정안으로 남깁니다."), this.h("p", { class: "muted" }, "자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
+      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.field("대화 기록 전송 턴 수 · 최근 N턴만 보냄 (1~100, 기본 12)", next.historyTurns, (v) => next.historyTurns = Number(v), { tag: "input", type: "number", min: HISTORY_TURNS_MIN, max: HISTORY_TURNS_MAX }), this.h("h3", {}, "분할 작업"), this.check("긴 응답 나눠 받기 · 결과가 예산을 넘으면 모델이 구간 계획을 세우고 봇빌더가 자동으로 이어 요청합니다", next.chunking !== false, (v) => next.chunking = v), this.field("응답당 출력 예산 · 토큰 (사고 토큰 제외, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("최대 구간 수 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "구간마다 현재안을 다시 보내므로 입력 토큰은 구간 수에 비례해 늘어납니다. 구간 결과는 임시 원고에 쌓이고, 검토와 적용은 마지막에 한 번만 합니다. 중간에 취소하면 그때까지 완성된 구간만 수정안으로 남깁니다."), this.h("p", { class: "muted" }, "자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
     }, [{ label: "취소", value: false }, { label: "저장", value: true, kind: "primary" }]);
     if (result) {
       assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= MAX_INPUT_CHARS, "설정 범위를 확인하세요.");
       assert(Number.isInteger(next.chunkTokens) && next.chunkTokens >= CHUNK_MIN_TOKENS && next.chunkTokens <= CHUNK_MAX_TOKENS && Number.isInteger(next.chunkMax) && next.chunkMax >= 2 && next.chunkMax <= CHUNK_HARD_MAX, "분할 작업 설정 범위를 확인하세요.");
+      assert(Number.isInteger(next.historyTurns) && next.historyTurns >= HISTORY_TURNS_MIN && next.historyTurns <= HISTORY_TURNS_MAX, "대화 기록 전송 턴 수 범위를 확인하세요.");
       next.chunking = next.chunking !== false;
       next.inputLimitVersion = INPUT_LIMIT_VERSION;
       await this.store("settings", next);

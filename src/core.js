@@ -202,6 +202,51 @@ export function formatFor(task, session, options = {}) {
   const patchGuide = '\n\n[기존 원문 부분편집 예시 — 예시 전용 원문과 ref이며 실제 현재안으로 교체할 것]\n원문: ' + JSON.stringify(patchExample.source) + '\n응답: ' + exampleText(patchExample.packet);
   return jsonContract(task, options) + patchGuide + "\n\n[새로 작성할 때의 데이터 구조 — 기존 텍스트 수정은 공통 edits 형식 사용]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges의 각 task는 description/lorebook/regex/lua/greeting/choiceGreeting 중 하나이며 해당 data 형식은 다음과 같다:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n허용 필드: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. 삭제 목록에는 현재 원고의 ref만 사용할 것.";
 }
+export const HISTORY_TURNS_DEFAULT = 12, HISTORY_TURNS_MIN = 1, HISTORY_TURNS_MAX = 100;
+export function historyOptions(settings = {}) {
+  const turns = Number.isInteger(settings.historyTurns) && settings.historyTurns >= HISTORY_TURNS_MIN && settings.historyTurns <= HISTORY_TURNS_MAX ? settings.historyTurns : HISTORY_TURNS_DEFAULT;
+  return { historyTurns: turns };
+}
+// The conversation sent with a request: the most recent turns only (a turn is one user message and one answer).
+// Older messages are replaced by a one-line note; no summary is produced.
+export function recentConversation(thread, turns) {
+  const all = thread.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content }));
+  const keep = Math.max(1, turns) * 2;
+  if (all.length <= keep) return all;
+  const omitted = all.length - keep;
+  return [{ note: `이전 대화 ${omitted}개는 보내지 않았다. 요약은 제공하지 않는다. 이어지는 대화는 가장 최근 ${keep}개다.` }, ...all.slice(-keep)];
+}
+const SUMMARY_FIELDS = { description: 'desc', personality: 'personality', scenario: 'scenario', firstMessage: 'firstMessage', systemPrompt: 'systemPrompt', postHistoryInstructions: 'postHistoryInstructions', exampleMessage: 'exampleMessage', creatorNotes: 'creatorNotes', defaultVariables: 'defaultVariables' };
+const chars = (text) => (text ?? '').length;
+// Workshop summary mode: field names and sizes, an index of lorebook/regex/Lua, no bodies. For design talk only.
+export function draftSummary(session, context) {
+  const d = session.draft;
+  return {
+    summaryMode: true, name: d.name,
+    fields: Object.fromEntries(Object.entries(SUMMARY_FIELDS).map(([key, field]) => [key, { chars: chars(d[field]) }])),
+    lorebook: context.lorebook.map(({ ref, entry }) => ({ ref, comment: entry.comment, key: entry.key, chars: chars(entry.content) })),
+    regex: context.regex.map(({ ref, rule }) => ({ ref, comment: rule.comment, type: rule.type, chars: chars(rule.in) + chars(rule.out) })),
+    scripts: context.scripts.map((s) => ({ ref: s.ref, comment: s.comment, chars: chars(s.code) })),
+    assets: context.assets.length,
+    note: '요약 모드: 원고 본문은 보내지 않았다(필드마다 글자 수만). 기존 본문의 부분편집(edits)은 쓸 수 없고 기존 항목의 수정·삭제도 제안하지 마라. 설계 논의는 reply로 답하고, 새 항목(ref:null)의 완성 본문은 제안할 수 있다. 기존 본문을 고쳐야 하면 reply에서 사용자에게 요약 모드를 끄고 다시 요청하라고 안내하라.',
+  };
+}
+// Focused context for a chunk step: fields and items the chain has already changed are sent whole, the rest as sizes.
+const omittedText = (text) => ({ omitted: true, chars: chars(text) });
+export function focusContext(task, context, taskRef, focus) {
+  const fields = new Set(focus.fields ?? []), lore = new Set(focus.lore ?? []), regex = new Set(focus.regex ?? []), scripts = new Set(focus.scripts ?? []);
+  const loreList = context.lorebook.map((item) => lore.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.entry.comment, key: item.entry.key, chars: chars(item.entry.content) } });
+  const regexList = context.regex.map((item) => regex.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.rule.comment, type: item.rule.type, chars: chars(item.rule.in) + chars(item.rule.out) } });
+  const scriptList = context.scripts.map((item) => scripts.has(item.ref) ? item : { ref: item.ref, summary: { comment: item.comment, chars: chars(item.code) } });
+  const text = (key, value) => fields.has(key) ? value : omittedText(value);
+  const note = '분할 작업 구간 요청: 이전 구간에서 바뀐 필드·항목만 본문을 보냈고, 나머지는 길이만 적었다(omitted·summary). 본문을 보내지 않은 필드·항목은 이번 구간에서 edits로 수정하거나 삭제하지 마라. 그 수정이 꼭 필요하면 plan에 남기고 reply에 적어라.';
+  if (task === 'workshop') return { ...context, description: text('description', context.description), personality: text('personality', context.personality), scenario: text('scenario', context.scenario), firstMessage: text('firstMessage', context.firstMessage), lorebook: loreList, regex: regexList, scripts: scriptList, focusNote: note };
+  if (task === 'lorebook') return { entries: loreList, focusNote: note };
+  if (task === 'regex') return { rules: regexList, focusNote: note };
+  if (task === 'lua') return { scripts: scriptList, variables: context.defaultVariables, focusNote: note };
+  if (task === 'choiceGreeting') return { text: context.firstMessage, scripts: scriptList, variables: context.defaultVariables, regex: regexList, focusNote: note };
+  return taskRef;
+}
 export function composeMessages(session, task, request, prompt, options = {}) {
   assert(TASKS[task], "알 수 없는 요청입니다.");
   str(prompt.system, "시스템 프롬프트");
@@ -210,11 +255,15 @@ export function composeMessages(session, task, request, prompt, options = {}) {
   const context = contextOf(session.draft);
   context.lorebook = requestLorebook(session);
   const refs = { description: context.description, lorebook: context.lorebook, regex: context.regex, lua: { scripts: context.scripts, variables: context.defaultVariables }, greeting: context.firstMessage, choiceGreeting: { text: context.firstMessage, scripts: context.scripts, variables: context.defaultVariables, regex: context.regex } };
-  const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(task === "workshop" ? context : refs[task]), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character: context, conversation: session.thread.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content })), compatibility: "RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn=\"키\">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다." }), OUTPUT_FORMAT: formatFor(task, session, options) };
+  const focus = options.focus && typeof options.focus === 'object' ? options.focus : null;
+  const summary = options.draftSummary === true && task === "workshop" && !focus;
+  const current = summary ? draftSummary(session, context) : focus ? focusContext(task, context, refs[task], focus) : task === "workshop" ? context : refs[task];
+  const character = focus ? focusContext('workshop', context, null, focus) : context;
+  const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: "RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn=\"키\">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다." }), OUTPUT_FORMAT: formatFor(task, session, options) };
   const reference = JSON.parse(values.REFERENCE_CONTEXT);
   if (task === "workshop") {
     delete reference.character;
-    reference.currentDraftNote = "현재 원고 전체는 [현재안]에 한 번만 제공했다.";
+    reference.currentDraftNote = summary ? "현재 원고는 [현재안]에 요약(필드 길이와 항목 색인)으로만 제공했다." : "현재 원고 전체는 [현재안]에 한 번만 제공했다.";
   } else if (task === "lorebook") {
     delete reference.character.lorebook;
     reference.currentDraftNote = "현재 로어북과 ref는 [현재안]에 한 번만 제공했다. 변경·추가 항목만 반환하라.";
