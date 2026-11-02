@@ -104,3 +104,23 @@ test('a response that ends right after a block while the JSON still references a
   const trailing = cut + '\n설명이 더 이어집니다. 블록은 없습니다.';
   assert.throws(() => parseResponse(trailing, 'lorebook', c), (error) => !(error instanceof TruncatedResponseError) && /참조한 블록이 응답에 없습니다/.test(error.message));
 });
+
+test('a string that is exactly the block tag is accepted as a reference; a bare name is not; reference mistakes are retried once', async () => {
+  const c = blankCharacter(); c.customscript = [{ comment: '규칙', in: 'a', out: 'old out', type: 'editdisplay', flag: 'g', ableFlag: true }];
+  const env = JSON.stringify({ schemaVersion: 2, task: 'regex', data: { upsert: [{ ref: 'r0', rule: { out: { edits: [{ before: '<<<r0_before>>>', after: ' <<<r0_after>>> ' }] } } }], remove: [] } });
+  const raw = env + '\n' + block('r0_before', 'old out') + '\n' + block('r0_after', 'new out');
+  const packet = parseResponse(raw, 'regex', c);
+  assert.equal(applyPacket(c, packet).customscript[0].out, 'new out');
+  const bare = JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: 'x' } }) + '\n' + block('x', 'body');
+  assert.throws(() => parseResponse(bare, 'description', c), e => e.blocks === true && /JSON이 참조하지 않는 블록이 있습니다: <<<x>>>. 블록을 쓸 자리에는 \{"block":"이름"\} 객체/.test(e.message));
+  const x = await make([
+    () => bare,
+    options => { const text = userText(options); assert.match(text, /\[주의\] 직전 응답의 블록 참조가 잘못됐다\(/); assert.match(text, /\{"block":"이름"\} 객체/); return JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: { block: 'x' } } }) + '\n' + block('x', '완성 본문'); }
+  ]);
+  try {
+    await x.app.sendRequest(); await wait();
+    assert.equal(x.calls.length, 2); assert.equal(x.app.s.candidates.length, 1);
+    assert.match(x.app.s.thread.at(-1).content, /블록 참조 형식이 잘못돼 한 번 다시 요청/);
+    await x.app.applyCandidate(x.app.s.candidates[0]); assert.equal(x.app.s.draft.desc, '완성 본문');
+  } finally { x.close(); }
+});

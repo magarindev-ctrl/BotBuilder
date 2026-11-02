@@ -878,6 +878,7 @@ export class Workshop {
         let hint;
         if (error.truncated && options.chunking) { notes.push("응답이 끊겨 더 작은 구간으로 다시 요청했습니다."); hint = "[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라."; }
         else if (error.syntax) { notes.push("응답의 JSON 문법이 깨져 한 번 다시 요청했습니다."); hint = `[주의] 직전 응답의 JSON 문법이 깨졌다(${error.detail}). 문자열 안의 큰따옴표는 \\", 줄바꿈은 \\n, 역슬래시는 \\\\로 이스케이프하고, 코드·긴 본문은 JSON 뒤의 <<<이름>>> 블록으로 보내라.`; }
+        else if (error.blocks) { notes.push("블록 참조 형식이 잘못돼 한 번 다시 요청했습니다."); hint = `[주의] 직전 응답의 블록 참조가 잘못됐다(${error.message}). 블록을 쓸 자리에는 반드시 {"block":"이름"} 객체를 넣고, 블록 이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라. 보낸 블록은 모두 JSON에서 참조해야 하며, JSON이 참조한 블록은 모두 보내야 한다.`; }
         else throw error;
         const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint, images: [] });
         assert(!retry.issues.length, "프리셋 조립 오류:\n" + retry.issues.join("\n"));

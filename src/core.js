@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.5';
+export const VERSION = '1.1.6';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -381,6 +381,7 @@ export function validatePlan(response) {
   }
 }
 export class TruncatedResponseError extends Error { constructor(message) { super(message); this.name = 'TruncatedResponseError'; this.truncated = true; } }
+export class BlockReferenceError extends Error { constructor(message, names) { super(message); this.name = 'BlockReferenceError'; this.blocks = true; this.blockNames = names; } }
 export class JsonSyntaxError extends Error { constructor(message, detail) { super(message); this.name = 'JsonSyntaxError'; this.syntax = true; this.detail = detail; } }
 // Raw blocks: long code or prose sent outside the JSON object as
 //   <<<name>>>  …raw text, no escaping…  <<</name>>>
@@ -406,31 +407,37 @@ export function extractBlocks(raw) {
   parts.push(raw.slice(cursor));
   return { text: parts.join(''), blocks };
 }
+// A reference is {"block":"name"}; a bare string that is exactly the tag "<<<name>>>" of a block that did arrive is
+// accepted too, because models often write the tag where the object belongs. A block name alone is not a reference.
+const blockName = (value) => typeof value === 'string' ? value.trim().replace(/^<<<(.+?)>>>$/, '$1') : null;
+const tagString = (value, blocks) => typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value) && blocks.has(blockName(value));
 function resolveBlocks(value, blocks, used) {
   if (Array.isArray(value)) return value.map((v) => resolveBlocks(v, blocks, used));
   if (value && typeof value === 'object') {
     const names = Object.keys(value);
     if (names.length === 1 && names[0] === 'block') {
-      assert(typeof value.block === 'string' && blocks.has(value.block), '참조한 블록이 응답에 없습니다: <<<' + value.block + '>>>');
-      used.add(value.block); return blocks.get(value.block);
+      const name = blockName(value.block);
+      if (name === null || !blocks.has(name)) throw new BlockReferenceError('참조한 블록이 응답에 없습니다: <<<' + value.block + '>>>', [...blocks.keys()]);
+      used.add(name); return blocks.get(name);
     }
     return Object.fromEntries(names.map((k) => [k, resolveBlocks(value[k], blocks, used)]));
   }
+  if (tagString(value, blocks)) { const name = blockName(value); used.add(name); return blocks.get(name); }
   return value;
 }
 function blockReferences(value, out = new Set()) {
   if (Array.isArray(value)) value.forEach((v) => blockReferences(v, out));
   else if (value && typeof value === 'object') {
     const names = Object.keys(value);
-    if (names.length === 1 && names[0] === 'block' && typeof value.block === 'string') out.add(value.block);
+    if (names.length === 1 && names[0] === 'block' && typeof value.block === 'string') out.add(blockName(value.block));
     else names.forEach((k) => blockReferences(value[k], out));
-  }
+  } else if (typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value)) out.add(blockName(value));
   return out;
 }
 export function applyBlocks(response, blocks) {
   const used = new Set(), out = resolveBlocks(response, blocks, used);
   const unused = [...blocks.keys()].filter((k) => !used.has(k));
-  assert(!unused.length, 'JSON이 참조하지 않는 블록이 있습니다: ' + unused.map((k) => '<<<' + k + '>>>').join(', '));
+  if (unused.length) throw new BlockReferenceError('JSON이 참조하지 않는 블록이 있습니다: ' + unused.map((k) => '<<<' + k + '>>>').join(', ') + '. 블록을 쓸 자리에는 {"block":"이름"} 객체를 넣어야 합니다.', unused);
   return out;
 }
 // Why the JSON did not parse: the parser's own message plus the text around the reported position.
@@ -858,7 +865,7 @@ export function jsonContract(task, options = {}) {
 "schemaVersion"은 숫자 2, "task"는 정확히 "${task}", "data"는 해당 작업의 객체다. 이전 템플릿의 schemaVersion:1·완성 본문 지시보다 이 출력 계약을 우선한다.
 JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
 모든 키와 문자열은 큰따옴표를 사용한다. 문자열 내부의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다.
-[원문 블록] Lua·HTML·CSS·정규식·긴 본문처럼 이스케이프가 많이 필요한 값은 JSON 문자열 대신 블록으로 보내라. JSON 안의 그 자리에는 {"block":"이름"}을 쓰고, JSON 객체가 끝난 뒤 새 줄에 <<<이름>>> 한 줄, 원문 그대로, <<</이름>>> 한 줄을 쓴다. 블록 안은 이스케이프하지 않고 코드 펜스도 쓰지 않는다. 이름은 영문·숫자·_만 쓰고 응답 안에서 유일해야 하며, 모든 문자열 필드(code, text, content, comment, before, after, 변수 값 등)에 쓸 수 있다. 블록은 JSON이 참조하는 것만 쓰고, 짧은 값은 지금처럼 문자열로 써도 된다. 예:
+[원문 블록] Lua·HTML·CSS·정규식·긴 본문처럼 이스케이프가 많이 필요한 값은 JSON 문자열 대신 블록으로 보내라. JSON 안의 그 자리에는 반드시 {"block":"이름"} 객체를 쓰고(이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라. edits의 before/after, content, out, code 어디든 가능), JSON 객체가 끝난 뒤 새 줄에 <<<이름>>> 한 줄, 원문 그대로, <<</이름>>> 한 줄을 쓴다. 블록 안은 이스케이프하지 않고 코드 펜스도 쓰지 않는다. 이름은 영문·숫자·_만 쓰고 응답 안에서 유일해야 하며, 모든 문자열 필드(code, text, content, comment, before, after, 변수 값 등)에 쓸 수 있다. 블록은 JSON이 참조하는 것만 쓰고, 짧은 값은 지금처럼 문자열로 써도 된다. 예:
 {"schemaVersion":2,"task":"lua","data":{"scripts":[{"ref":null,"comment":"시작","code":{"block":"lua1"}}],"removeScripts":[],"variables":{},"removeVariables":[]}}
 <<<lua1>>>
 function onStart(accessKey)
