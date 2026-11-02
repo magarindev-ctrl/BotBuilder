@@ -396,10 +396,13 @@ try {
   const after=await frame.evaluate(()=>document.querySelector('.lore-request-list').getBoundingClientRect().width);
   assert.ok(after>before+100,`list column grew by drag: ${before} -> ${after}`);
   await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:settings'))?.listNavWidth>200);
+  // Buttons run their action after a tick, so wait for the re-render instead of reading the style right after the click.
   await frame.getByRole('button',{name:'목록 접기',exact:true}).click();
+  await frame.locator('.list-editor[data-list="lorebook"][data-collapsed="true"]').waitFor();
   assert.equal(await frame.evaluate(()=>getComputedStyle(document.querySelector('.lore-request-list')).display),'none');
   await frame.getByRole('button',{name:'목록 펼치기',exact:true}).click();
-  await handle.dblclick();
+  await frame.locator('.list-editor[data-list="lorebook"][data-collapsed="false"] .list-splitter').waitFor();
+  await frame.locator('.list-editor[data-list="lorebook"] .list-splitter').dblclick();
   assert.ok(Math.abs(await frame.evaluate(()=>document.querySelector('.lore-request-list').getBoundingClientRect().width)-before)<2,'double-click restores the default width');
   results.push({name:'lorebook folders group entries with one checkbox and fold; the list column resizes by drag, folds and resets',passed:true,widths:{before,after}});
   await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');
