@@ -71,6 +71,25 @@ test('templates expand only once and include complete working context + conversa
   assert.equal(messages.length, 2); assert.match(messages[1].content, /<<USER_REQUEST>>/); assert.match(messages[1].content, /earlier idea/);
   assert.throws(() => composeMessages(s, 'description', 'x', { system: '', user: '<<USER_REQUEST>>' }), /누락/);
 });
+test('prompt examples are rendered with prose and code in raw blocks, parse back to the same packets, and the contract makes blocks the default', async () => {
+  const { exampleText, textEditExample, jsonContract } = await import('../src/core.js');
+  for (const task of Object.keys(TASKS)) {
+    for (const example of responseExamples(task)) assert.deepEqual(parseResponse(exampleText(example), task, blankCharacter()), example);
+    const patch = textEditExample(task), text = exampleText(patch.packet);
+    const draft = blankCharacter();
+    if (task === 'description' || task === 'workshop') draft.desc = patch.source; else if (task === 'greeting' || task === 'choiceGreeting') draft.firstMessage = patch.source;
+    else if (task === 'lorebook') draft.globalLore = [{ comment: 'x', key: 'k', content: patch.source }];
+    else if (task === 'regex') draft.customscript = [{ comment: 'x', in: 'a', out: patch.source, type: 'editdisplay', flag: 'g', ableFlag: true }];
+    else draft.triggerscript = [{ comment: 'x', type: 'start', conditions: [], effect: [{ type: 'triggerlua', code: patch.source }] }];
+    assert.doesNotThrow(() => parseResponse(text, task, draft), task + ' patch example');
+  }
+  const lua = exampleText(responseExamples('lua')[0]);
+  assert.match(lua, /"code": \{\s*"block": "code1"\s*\}/); assert.match(lua, /<<<code1>>>\nfunction onStart/); assert.doesNotMatch(lua, /\\n  setChatVar/);
+  assert.match(exampleText(responseExamples('description')[0]), /"text": "유나는/, 'a short one-line value stays inline');
+  const contract = jsonContract('description');
+  assert.match(contract, /\[원문 블록 — 기본 규칙\]/); assert.match(contract, /가장 짧은 유일 구간/); assert.match(contract, /\{"before":\{"block":"b1"\}/);
+  assert.match(defaultPrompt('lua').system, /JSON에는 ref·comment·key·설정값·plan 같은 짧은 값만/);
+});
 test('responses retain strict key, task, range and prototype validation after wrapper cleanup', () => {
   const c = blankCharacter();
   for (const raw of [envelope('greeting', { text: 'x' }), envelope('description', { text: 'x', chats: [{ id: 'c' }] }), '{"schemaVersion":1,"task":"description","data":{"text":"x","__proto__":{}}}']) assert.throws(() => parseResponse(raw, 'description', c));

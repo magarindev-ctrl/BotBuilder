@@ -58,7 +58,7 @@ test('a syntactically broken answer reports the position and surrounding text an
 test('the output contract explains raw blocks with an example and no longer demands a closing brace as the last character', () => {
   for (const task of ['lua', 'description', 'workshop']) {
     const text = composeMessages(newSession(), task, '요청', defaultPrompt(task)).map(m => m.content).join('\n');
-    assert.match(text, /\[원문 블록\]/); assert.match(text, /\{"block":"이름"\}/); assert.match(text, /<<<lua1>>>\nfunction onStart/);
+    assert.match(text, /\[원문 블록 — 기본 규칙\]/); assert.match(text, /\{"block":"이름"\}/); assert.match(text, /<<<lua1>>>\nfunction onStart/);
     assert.doesNotMatch(text, /마지막 문자는 \}여야 한다/);
   }
 });
