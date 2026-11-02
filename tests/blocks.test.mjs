@@ -40,7 +40,7 @@ test('block errors: unclosed is truncation; unknown reference, unreferenced bloc
   assert.throws(() => parseResponse(env({ text: 'plain' }) + '\n' + block('x', 'a'), 'description', c), /JSON이 참조하지 않는 블록이 있습니다: <<<x>>>/);
   assert.throws(() => parseResponse(env({ text: { block: 'x' } }) + '\n' + block('x', 'a') + '\n' + block('x', 'b'), 'description', c), /블록 이름이 중복됩니다/);
   assert.throws(() => parseResponse(env({ text: { block: 'bad name' } }) + '\n' + block('bad name', 'a'), 'description', c), /블록 이름은 영문·숫자·_/);
-  assert.throws(() => parseResponse(env({ text: { block: 'x' } }), 'description', c), /참조한 블록이 응답에 없습니다/);
+  assert.throws(() => parseResponse(env({ text: { block: 'x' } }), 'description', c), e => e instanceof TruncatedResponseError && /참조한 블록이 응답에 없습니다: <<<x>>>/.test(e.message), 'JSON closed but its block never arrived: truncation');
 });
 
 test('a syntactically broken answer reports the position and surrounding text and is marked as a syntax error', () => {
@@ -94,4 +94,13 @@ test('a broken-JSON answer is retried once with the position in the instruction;
     assert.equal(y.calls.length, 2); assert.equal(y.app.s.candidates.length, 0);
     assert.equal(y.app.s.thread.at(-1).error, true); assert.match(y.app.s.thread.at(-1).content, /JSON 문법이 깨졌습니다/);
   } finally { y.close(); }
+});
+
+test('a response that ends right after a block while the JSON still references another block is classified as truncation', () => {
+  const c = blankCharacter(); c.globalLore = [{ key: 'k', content: 'old', comment: 'rules' }];
+  const env = JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: 'l0', entry: { content: { block: 'lore_after_1' } } }, { ref: null, entry: { comment: '새', key: 'a', content: { block: 'lore_after_2' } } }], remove: [] } });
+  const cut = env + '\n' + block('lore_after_1', '첫 구간 본문') + '\n';
+  assert.throws(() => parseResponse(cut, 'lorebook', c), (error) => error instanceof TruncatedResponseError && /참조한 블록이 오기 전에 응답이 끝났습니다\. 참조한 블록이 응답에 없습니다: <<<lore_after_2>>>/.test(error.message));
+  const trailing = cut + '\n설명이 더 이어집니다. 블록은 없습니다.';
+  assert.throws(() => parseResponse(trailing, 'lorebook', c), (error) => !(error instanceof TruncatedResponseError) && /참조한 블록이 응답에 없습니다/.test(error.message));
 });

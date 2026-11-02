@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.4
+//@version 1.1.5
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.5 treats an answer that stops at a block edge while the JSON still references a block that never arrived as a truncated response (so the chunked-request retry applies), and restoring a saved session no longer overwrites the global timeout and input-limit settings; only the model choice, task and scope come back with the session.
 Modified 2026-11-02: v1.1.4 adds RisuAI CBS syntax guidance to the prompts ({{#if}}…{{:else}}…{{/if}}, never {{else}}) and a text-only CBS check in proposal review that warns about unsupported else spellings and unbalanced condition blocks before a proposal is applied.
 Modified 2026-11-02: v1.1.3 adds a per-module "relax conditions" option for preset requests: @@ decorator lines are dropped, CBS conditions the workshop cannot evaluate become false and unknown macros become empty, so module lore entries are kept instead of blocked; relaxed handling is listed per entry in the module trace. Default off.
 Modified 2026-11-02: v1.1.2 adds raw blocks (long code or prose sent after the JSON object as <<<name>>> … <<</name>>> and referenced as {"block":"name"}, cut out before JSON parsing so no escaping is needed), reports the position and surrounding text of a JSON syntax error instead of a generic message, and retries such an answer once with that detail in the instruction.
@@ -9921,7 +9922,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.4";
+  var VERSION = "1.1.5";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10440,6 +10441,15 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return value;
   }
+  function blockReferences(value, out = /* @__PURE__ */ new Set()) {
+    if (Array.isArray(value)) value.forEach((v) => blockReferences(v, out));
+    else if (value && typeof value === "object") {
+      const names = Object.keys(value);
+      if (names.length === 1 && names[0] === "block" && typeof value.block === "string") out.add(value.block);
+      else names.forEach((k) => blockReferences(value[k], out));
+    }
+    return out;
+  }
   function applyBlocks(response, blocks) {
     const used = /* @__PURE__ */ new Set(), out = resolveBlocks(response, blocks, used);
     const unused = [...blocks.keys()].filter((k) => !used.has(k));
@@ -10497,8 +10507,17 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   function parseResponse(raw, task, draft, review = false) {
     assert(typeof raw === "string" && bytes(raw) <= 1048576, "\uC751\uB2F5\uC774 \uC5C6\uAC70\uB098 1MiB \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
     const { text, blocks } = extractBlocks(raw);
+    const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
     const validate = (parsedResponse) => {
-      const response2 = applyBlocks(parsedResponse, blocks);
+      let response2;
+      try {
+        response2 = applyBlocks(parsedResponse, blocks);
+      } catch (error) {
+        const referenced = blockReferences(parsedResponse);
+        const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
+        if (endsAtBlockEdge && !straggler && /참조한 블록이 응답에 없습니다/.test(error.message)) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0. JSON\uC774 \uCC38\uC870\uD55C \uBE14\uB85D\uC774 \uC624\uAE30 \uC804\uC5D0 \uC751\uB2F5\uC774 \uB05D\uB0AC\uC2B5\uB2C8\uB2E4. ${error.message}. \uBAA8\uB378\uC758 \uCD9C\uB825 \uC0C1\uD55C\uC774\uB098 \uC911\uACC4 \uC11C\uBE44\uC2A4\uC758 \uC81C\uD55C\uC5D0 \uAC78\uB838\uAC70\uB098 \uC2A4\uD2B8\uB9AC\uBC0D \uC911 \uC5F0\uACB0\uC774 \uB04A\uAE34 \uACBD\uC6B0\uC785\uB2C8\uB2E4. \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+        throw error;
+      }
       keys(response2, ["schemaVersion", "task", "data"], ["plan"]);
       assert([1, 2].includes(response2.schemaVersion) && response2.task === task, "\uC751\uB2F5 \uBC84\uC804 \uB610\uB294 \uC791\uC5C5 \uC885\uB958\uAC00 \uC694\uCCAD\uACFC \uB2E4\uB985\uB2C8\uB2E4.");
       validatePacketVersion(response2);
@@ -16428,9 +16447,6 @@ ${next.instruction}
       if (session.requestSettings) {
         const p = session.requestSettings;
         if (["model", "submodel"].includes(p.model)) this.settings.model = p.model;
-        if (Number.isInteger(p.timeout) && p.timeout >= 10 && p.timeout <= 3600) this.settings.timeout = p.timeout;
-        Object.assign(this.settings, migrateInputSettings(p));
-        if (p.inputLimitVersion !== INPUT_LIMIT_VERSION && p.timeout === 300) this.settings.timeout = 900;
         if (TASKS[p.task]) this.task = p.task;
         this.scopeOnly = !!p.scopeOnly;
       } else {

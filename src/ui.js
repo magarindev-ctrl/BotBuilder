@@ -1019,11 +1019,10 @@ export class Workshop {
     this.s = session;
     this.s.preset = preset;
     if (session.requestSettings) {
+      // A saved session restores only its request context (model choice, task, scope).
+      // Timeout, input limit, theme and chunking are global settings and stay as the user last saved them.
       const p = session.requestSettings;
       if (["model", "submodel"].includes(p.model)) this.settings.model = p.model;
-      if (Number.isInteger(p.timeout) && p.timeout >= 10 && p.timeout <= 3600) this.settings.timeout = p.timeout;
-      Object.assign(this.settings, migrateInputSettings(p));
-      if (p.inputLimitVersion !== INPUT_LIMIT_VERSION && p.timeout === 300) this.settings.timeout = 900;
       if (TASKS[p.task]) this.task = p.task;
       this.scopeOnly = !!p.scopeOnly;
     } else {
