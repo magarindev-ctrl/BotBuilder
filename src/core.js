@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.9';
+export const VERSION = '1.1.10';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -390,18 +390,20 @@ export class JsonSyntaxError extends Error { constructor(message, detail) { supe
 const BLOCK_NAME = /^[A-Za-z0-9_.-]{1,40}$/;
 export function extractBlocks(raw) {
   const blocks = new Map(), parts = [];
-  const open = /^<<<([^<>\r\n]{1,60})>>>[ \t\r]*$/gm;
+  // The opening tag sits on its own line (indentation allowed). The closing tag is accepted anywhere after it,
+  // including glued to the last code line or indented, because models often skip the newline before it.
+  const open = /^[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
   let cursor = 0, m;
   while ((m = open.exec(raw))) {
     const name = m[1];
     assert(BLOCK_NAME.test(name), '블록 이름은 영문·숫자·_ 1~40자여야 합니다: ' + name);
     assert(!blocks.has(name), '블록 이름이 중복됩니다: <<<' + name + '>>>');
     const bodyStart = m.index + m[0].length;
-    const close = new RegExp('^<<</' + name.replace(/[.-]/g, '\\$&') + '>>>[ \\t\\r]*$', 'gm');
+    const close = new RegExp('<<<\\s*/\\s*' + name.replace(/[.-]/g, '\\$&') + '\\s*>>>', 'g');
     close.lastIndex = bodyStart;
     const c = close.exec(raw);
-    if (!c) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${name}>>>이 닫히지 않았습니다. 잘린 응답은 복구하지 않습니다.`);
-    blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, '').replace(/\r?\n$/, ''));
+    if (!c) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${name}>>>이 닫히지 않았습니다(<<</${name}>>>를 찾지 못함 · ${raw.length.toLocaleString('ko-KR')}자 수신). 잘린 응답은 복구하지 않습니다.`);
+    blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, '').replace(/\r?\n[ \t]*$/, '').replace(/[ \t]+$/, ''));
     parts.push(raw.slice(cursor, m.index)); cursor = c.index + c[0].length; open.lastIndex = cursor;
   }
   parts.push(raw.slice(cursor));
