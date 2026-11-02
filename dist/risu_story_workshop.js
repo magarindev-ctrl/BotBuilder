@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.7
+//@version 1.1.8
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.8 asks the user before every automatic re-request (truncated answer, broken JSON, wrong block reference): the dialog shows the failure, the purpose and the instruction the retry adds, and declining keeps the original error without sending anything.
 Modified 2026-11-02: v1.1.7 stops treating inner task/data objects as the answer when the envelope itself does not parse: such answers now report the JSON syntax position (and get the one-time syntax retry) instead of a misleading "schemaVersion missing" error.
 Modified 2026-11-02: v1.1.6 accepts a string that is exactly a block tag ("<<<name>>>") as a block reference, retries once with a pointed instruction when the JSON references blocks wrongly (unknown reference or unreferenced block), and states in the output contract that a reference must be the {"block":"name"} object.
 Modified 2026-11-02: v1.1.5 treats an answer that stops at a block edge while the JSON still references a block that never arrived as a truncated response (so the chunked-request retry applies), and restoring a saved session no longer overwrites the global timeout and input-limit settings; only the model choice, task and scope come back with the session.
@@ -9924,7 +9925,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.7";
+  var VERSION = "1.1.8";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -16274,17 +16275,26 @@ details[open] > summary { margin-bottom: 9px; }
         try {
           return await receive(raw, staged);
         } catch (error) {
-          let hint;
+          let hint, purpose, note;
           if (error.truncated && options.chunking) {
-            notes.push("\uC751\uB2F5\uC774 \uB04A\uACA8 \uB354 \uC791\uC740 \uAD6C\uAC04\uC73C\uB85C \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
+            purpose = "\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4";
+            note = "\uC751\uB2F5\uC774 \uB04A\uACA8 \uB354 \uC791\uC740 \uAD6C\uAC04\uC73C\uB85C \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.";
             hint = "[\uC8FC\uC758] \uC9C1\uC804 \uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uB2E4. \uC774\uBC88\uC5D0\uB294 \uD6E8\uC52C \uC791\uC740 \uC790\uB9BD \uAD6C\uAC04 \uD558\uB098\uB9CC data\uC5D0 \uC644\uC131\uD558\uACE0 \uB098\uBA38\uC9C0\uB294 \uBAA8\uB450 plan\uC73C\uB85C \uB118\uACA8\uB77C.";
           } else if (error.syntax) {
-            notes.push("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC838 \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
+            purpose = "\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uC2B5\uB2C8\uB2E4";
+            note = "\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC838 \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.";
             hint = `[\uC8FC\uC758] \uC9C1\uC804 \uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uB2E4(${error.detail}). \uBB38\uC790\uC5F4 \uC548\uC758 \uD070\uB530\uC634\uD45C\uB294 \\", \uC904\uBC14\uAFC8\uC740 \\n, \uC5ED\uC2AC\uB798\uC2DC\uB294 \\\\\uB85C \uC774\uC2A4\uCF00\uC774\uD504\uD558\uACE0, \uCF54\uB4DC\xB7\uAE34 \uBCF8\uBB38\uC740 JSON \uB4A4\uC758 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uB77C.`;
           } else if (error.blocks) {
-            notes.push("\uBE14\uB85D \uCC38\uC870 \uD615\uC2DD\uC774 \uC798\uBABB\uB3FC \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
+            purpose = "\uC751\uB2F5\uC758 \uBE14\uB85D \uCC38\uC870 \uD615\uC2DD\uC774 \uC798\uBABB\uB410\uC2B5\uB2C8\uB2E4";
+            note = "\uBE14\uB85D \uCC38\uC870 \uD615\uC2DD\uC774 \uC798\uBABB\uB3FC \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.";
             hint = `[\uC8FC\uC758] \uC9C1\uC804 \uC751\uB2F5\uC758 \uBE14\uB85D \uCC38\uC870\uAC00 \uC798\uBABB\uB410\uB2E4(${error.message}). \uBE14\uB85D\uC744 \uC4F8 \uC790\uB9AC\uC5D0\uB294 \uBC18\uB4DC\uC2DC {"block":"\uC774\uB984"} \uAC1D\uCCB4\uB97C \uB123\uACE0, \uBE14\uB85D \uC774\uB984\uB9CC \uC4F0\uAC70\uB098 "<<<\uC774\uB984>>>" \uBB38\uC790\uC5F4\uB85C \uC4F0\uC9C0 \uB9C8\uB77C. \uBCF4\uB0B8 \uBE14\uB85D\uC740 \uBAA8\uB450 JSON\uC5D0\uC11C \uCC38\uC870\uD574\uC57C \uD558\uBA70, JSON\uC774 \uCC38\uC870\uD55C \uBE14\uB85D\uC740 \uBAA8\uB450 \uBCF4\uB0B4\uC57C \uD55C\uB2E4.`;
           } else throw error;
+          if (!await this.confirmRetry(purpose, error, hint)) {
+            error.message += " (\uC7AC\uC694\uCCAD\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4)";
+            throw error;
+          }
+          guard("\uC694\uCCAD \uC774\uD6C4 \uC791\uC5C5 \uB300\uC0C1\xB7\uC6D0\uACE0\xB7\uD504\uB86C\uD504\uD2B8\uAC00 \uBC14\uB00C\uC5B4 \uC751\uB2F5\uC744 \uD3D0\uAE30\uD588\uC2B5\uB2C8\uB2E4.");
+          notes.push(note);
           const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint, images: [] });
           assert(!retry.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + retry.issues.join("\n"));
           inputSize(retry.messages, this.settings.maxInputChars);
@@ -16361,6 +16371,21 @@ ${next.instruction}
         if (this.job?.id === job.id) this.job = null;
         this.render();
       }
+    }
+    // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error.
+    async confirmRetry(purpose, error, hint) {
+      const h = this.h.bind(this);
+      return this.dialog("LLM\uC5D0 \uB2E4\uC2DC \uC694\uCCAD\uD560\uAE4C\uC694?", (body) => {
+        body.append(
+          h("p", { class: "warn" }, `${purpose}. \uC774\uB300\uB85C \uB450\uBA74 \uC774\uBC88 \uC751\uB2F5\uC740 \uD3D0\uAE30\uB429\uB2C8\uB2E4.`),
+          h("h4", {}, "\uC2E4\uD328 \uC6D0\uC778"),
+          h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:200px;overflow:auto" }, error.message),
+          h("h4", {}, "\uC7AC\uC694\uCCAD \uBAA9\uC801"),
+          h("p", {}, "\uAC19\uC740 \uC694\uCCAD\uC5D0 \uC544\uB798 \uC9C0\uC2DC\uB97C \uB367\uBD99\uC5EC \uD55C \uBC88 \uB354 \uBCF4\uB0C5\uB2C8\uB2E4. \uD604\uC7AC\uC548\uACFC \uCC38\uACE0\uC790\uB8CC\uB97C \uB2E4\uC2DC \uBCF4\uB0B4\uBBC0\uB85C \uC785\uB825 \uD1A0\uD070\uC774 \uD55C \uBC88 \uB354 \uB4E4\uACE0, \uC7AC\uC694\uCCAD\uC740 \uC774 \uC790\uB9AC\uC5D0\uC11C \uD55C \uBC88\uB9CC \uD569\uB2C8\uB2E4."),
+          h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:160px;overflow:auto" }, hint),
+          h("p", { class: "muted" }, "\uC911\uB2E8\uD558\uBA74 \uC2E4\uD328 \uC6D0\uC778\uC774 \uB300\uD654\uC5D0 \uB0A8\uACE0 \uC6D0\uACE0\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uB098\uB204\uAC70\uB098 \uBD80\uBD84\uD3B8\uC9D1\uC73C\uB85C \uC9C1\uC811 \uB2E4\uC2DC \uC694\uCCAD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")
+        );
+      }, [{ label: "\uC911\uB2E8", value: false }, { label: "\uB2E4\uC2DC \uC694\uCCAD", value: true, kind: "primary" }]).then((value) => value === true);
     }
     async chooseTextRange({ source, edit, label, candidates }) {
       const h = this.h.bind(this);

@@ -875,11 +875,15 @@ export class Workshop {
       raw = await callModel(this.api, stepMessages, this.settings.model, this.settings.timeout, job);
       guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
       try { return await receive(raw, staged); } catch (error) {
-        let hint;
-        if (error.truncated && options.chunking) { notes.push("응답이 끊겨 더 작은 구간으로 다시 요청했습니다."); hint = "[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라."; }
-        else if (error.syntax) { notes.push("응답의 JSON 문법이 깨져 한 번 다시 요청했습니다."); hint = `[주의] 직전 응답의 JSON 문법이 깨졌다(${error.detail}). 문자열 안의 큰따옴표는 \\", 줄바꿈은 \\n, 역슬래시는 \\\\로 이스케이프하고, 코드·긴 본문은 JSON 뒤의 <<<이름>>> 블록으로 보내라.`; }
-        else if (error.blocks) { notes.push("블록 참조 형식이 잘못돼 한 번 다시 요청했습니다."); hint = `[주의] 직전 응답의 블록 참조가 잘못됐다(${error.message}). 블록을 쓸 자리에는 반드시 {"block":"이름"} 객체를 넣고, 블록 이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라. 보낸 블록은 모두 JSON에서 참조해야 하며, JSON이 참조한 블록은 모두 보내야 한다.`; }
+        let hint, purpose, note;
+        if (error.truncated && options.chunking) { purpose = "응답이 중간에 끊겼습니다"; note = "응답이 끊겨 더 작은 구간으로 다시 요청했습니다."; hint = "[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라."; }
+        else if (error.syntax) { purpose = "응답의 JSON 문법이 깨졌습니다"; note = "응답의 JSON 문법이 깨져 한 번 다시 요청했습니다."; hint = `[주의] 직전 응답의 JSON 문법이 깨졌다(${error.detail}). 문자열 안의 큰따옴표는 \\", 줄바꿈은 \\n, 역슬래시는 \\\\로 이스케이프하고, 코드·긴 본문은 JSON 뒤의 <<<이름>>> 블록으로 보내라.`; }
+        else if (error.blocks) { purpose = "응답의 블록 참조 형식이 잘못됐습니다"; note = "블록 참조 형식이 잘못돼 한 번 다시 요청했습니다."; hint = `[주의] 직전 응답의 블록 참조가 잘못됐다(${error.message}). 블록을 쓸 자리에는 반드시 {"block":"이름"} 객체를 넣고, 블록 이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라. 보낸 블록은 모두 JSON에서 참조해야 하며, JSON이 참조한 블록은 모두 보내야 한다.`; }
         else throw error;
+        // The user decides whether to spend another request: show why it failed and what the retry adds.
+        if (!await this.confirmRetry(purpose, error, hint)) { error.message += " (재요청하지 않았습니다)"; throw error; }
+        guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+        notes.push(note);
         const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint, images: [] });
         assert(!retry.issues.length, "프리셋 조립 오류:\n" + retry.issues.join("\n"));
         inputSize(retry.messages, this.settings.maxInputChars);
@@ -938,6 +942,19 @@ export class Workshop {
       if (this.job?.id === job.id) this.job = null;
       this.render();
     }
+  }
+  // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error.
+  async confirmRetry(purpose, error, hint) {
+    const h = this.h.bind(this);
+    return this.dialog("LLM에 다시 요청할까요?", (body) => {
+      body.append(
+        h("p", { class: "warn" }, `${purpose}. 이대로 두면 이번 응답은 폐기됩니다.`),
+        h("h4", {}, "실패 원인"), h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:200px;overflow:auto" }, error.message),
+        h("h4", {}, "재요청 목적"), h("p", {}, "같은 요청에 아래 지시를 덧붙여 한 번 더 보냅니다. 현재안과 참고자료를 다시 보내므로 입력 토큰이 한 번 더 들고, 재요청은 이 자리에서 한 번만 합니다."),
+        h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:160px;overflow:auto" }, hint),
+        h("p", { class: "muted" }, "중단하면 실패 원인이 대화에 남고 원고는 바뀌지 않습니다. 요청을 나누거나 부분편집으로 직접 다시 요청할 수 있습니다.")
+      );
+    }, [{ label: "중단", value: false }, { label: "다시 요청", value: true, kind: "primary" }]).then((value) => value === true);
   }
   async chooseTextRange({ source, edit, label, candidates }) {
     const h = this.h.bind(this);

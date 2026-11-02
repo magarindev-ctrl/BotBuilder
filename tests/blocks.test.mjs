@@ -71,6 +71,7 @@ async function make(handlers) {
   const store = new Map(), calls = [];
   const api = { pluginStorage: { getItem: async k => store.get(k) ?? null, setItem: async (k, v) => { store.set(k, v); }, removeItem: async k => store.delete(k) }, registerSetting: async () => {}, registerButton: async () => ({}), onUnload: async () => {}, showContainer: async () => {}, hideContainer: async () => {}, runLLMModel: async options => { calls.push(options); const handler = handlers[calls.length - 1]; assert.ok(handler, 'unexpected model call #' + calls.length); const out = await handler(options, app); return typeof out === 'string' ? { type: 'success', result: out } : out; } };
   const app = new Workshop(api, dom.window.document); await app.init();
+  app.confirmRetry = async () => true; // tests exercise the retry itself; the dialog is covered separately
   app.task = 'description'; app.s.draft.desc = '서론.'; app.s.requests.description = '설명을 써 줘'; app.touch();
   return { app, dom, calls, close: () => { app.destroy(); dom.window.close(); } };
 }
@@ -141,4 +142,26 @@ test('when the envelope itself does not parse, inner task/data objects are not m
     assert.equal(x.calls.length, 2); assert.match(x.app.s.thread.at(-1).content, /진행 절차/); assert.equal(x.app.s.thread.at(-1).error, undefined);
   } finally { x.close(); }
   assert.throws(() => parseResponse(JSON.stringify({ task: 'description', data: { text: 'x' } }), 'description', c), /필수 필드 누락: schemaVersion/, 'a real envelope without schemaVersion still says so');
+});
+
+test('an automatic re-request first asks the user, showing the cause and the added instruction; declining stops with the original error', async () => {
+  const broken = '{"schemaVersion":2,"task":"description","data":{"text":"say "hi" now"}}';
+  const x = await make([() => broken, () => JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: '완성' } })]);
+  try {
+    let seen = null;
+    x.app.confirmRetry = async (purpose, error, hint) => { seen = { purpose, message: error.message, hint }; return false; };
+    await x.app.sendRequest(); await wait();
+    assert.equal(x.calls.length, 1, 'declining must not send a second request');
+    assert.match(seen.purpose, /JSON 문법이 깨졌습니다/); assert.match(seen.message, /JSON 문법이 깨졌습니다/); assert.match(seen.hint, /\[주의\] 직전 응답의 JSON 문법이 깨졌다/);
+    assert.equal(x.app.s.thread.at(-1).error, true); assert.match(x.app.s.thread.at(-1).content, /재요청하지 않았습니다/);
+    assert.equal(x.app.s.candidates.length, 0); assert.equal(x.app.job, null);
+    // The real dialog: open it, check its content, choose "다시 요청".
+    const p = x.app.confirmRetry = undefined, real = Object.getPrototypeOf(x.app).confirmRetry.bind(x.app);
+    const pending = real('응답의 JSON 문법이 깨졌습니다', new Error('원인 문구'), '[주의] 지시');
+    await wait();
+    const doc = x.dom.window.document, modal = doc.querySelector('.modal');
+    assert.match(modal.textContent, /LLM에 다시 요청할까요\?/); assert.match(modal.textContent, /실패 원인/); assert.match(modal.textContent, /원인 문구/); assert.match(modal.textContent, /\[주의\] 지시/); assert.match(modal.textContent, /입력 토큰이 한 번 더/);
+    [...modal.querySelectorAll('button')].find(b => b.textContent === '다시 요청').click();
+    assert.equal(await pending, true);
+  } finally { x.close(); }
 });
