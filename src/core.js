@@ -410,8 +410,9 @@ export class JsonSyntaxError extends Error { constructor(message, detail) { supe
 // (each tag on its own line) and referenced inside the JSON as {"block":"name"}.
 // Blocks are cut out before the JSON is scanned, so braces and quotes inside code never reach the JSON parser.
 const BLOCK_NAME = /^[A-Za-z0-9_.-]{1,40}$/;
-export function extractBlocks(raw) {
+export function extractBlocks(raw, options = {}) {
   const blocks = new Map(), parts = [];
+  let unclosed = null;
   // The opening tag sits on its own line (indentation allowed). The closing tag is accepted anywhere after it,
   // including glued to the last code line or indented, because models often skip the newline before it.
   const open = /^[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
@@ -424,27 +425,36 @@ export function extractBlocks(raw) {
     const close = new RegExp('<<<\\s*/\\s*' + name.replace(/[.-]/g, '\\$&') + '\\s*>>>', 'g');
     close.lastIndex = bodyStart;
     const c = close.exec(raw);
-    if (!c) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${name}>>>이 닫히지 않았습니다(<<</${name}>>>를 찾지 못함 · ${raw.length.toLocaleString('ko-KR')}자 수신). 잘린 응답은 복구하지 않습니다.`);
+    if (!c) {
+      // Salvage: the body after this opening tag is the cut-off tail; the block is simply absent.
+      if (options.lenient) { unclosed = name; parts.push(raw.slice(cursor, m.index)); cursor = raw.length; break; }
+      throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${name}>>>이 닫히지 않았습니다(<<</${name}>>>를 찾지 못함 · ${raw.length.toLocaleString('ko-KR')}자 수신). 잘린 응답은 복구하지 않습니다.`);
+    }
     blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, '').replace(/\r?\n[ \t]*$/, '').replace(/[ \t]+$/, ''));
     parts.push(raw.slice(cursor, m.index)); cursor = c.index + c[0].length; open.lastIndex = cursor;
   }
   parts.push(raw.slice(cursor));
-  return { text: parts.join(''), blocks };
+  return { text: parts.join(''), blocks, unclosed };
 }
 // A reference is {"block":"name"}; a bare string that is exactly the tag "<<<name>>>" of a block that did arrive is
 // accepted too, because models often write the tag where the object belongs. A block name alone is not a reference.
 const blockName = (value) => typeof value === 'string' ? value.trim().replace(/^<<<(.+?)>>>$/, '$1') : null;
 const tagString = (value, blocks) => typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value) && blocks.has(blockName(value));
-function resolveBlocks(value, blocks, used) {
-  if (Array.isArray(value)) return value.map((v) => resolveBlocks(v, blocks, used));
+const MISSING = '\u0000missing';
+const isMissing = (value) => !!value && typeof value === 'object' && Object.hasOwn(value, MISSING);
+function resolveBlocks(value, blocks, used, lenient = false) {
+  if (Array.isArray(value)) return value.map((v) => resolveBlocks(v, blocks, used, lenient));
   if (value && typeof value === 'object') {
     const names = Object.keys(value);
     if (names.length === 1 && names[0] === 'block') {
       const name = blockName(value.block);
-      if (name === null || !blocks.has(name)) throw new BlockReferenceError('참조한 블록이 응답에 없습니다: <<<' + value.block + '>>>', [...blocks.keys()]);
+      if (name === null || !blocks.has(name)) {
+        if (lenient && name !== null) return { [MISSING]: name };
+        throw new BlockReferenceError('참조한 블록이 응답에 없습니다: <<<' + value.block + '>>>', [...blocks.keys()]);
+      }
       used.add(name); return blocks.get(name);
     }
-    return Object.fromEntries(names.map((k) => [k, resolveBlocks(value[k], blocks, used)]));
+    return Object.fromEntries(names.map((k) => [k, resolveBlocks(value[k], blocks, used, lenient)]));
   }
   if (tagString(value, blocks)) { const name = blockName(value); used.add(name); return blocks.get(name); }
   return value;
@@ -458,11 +468,97 @@ function blockReferences(value, out = new Set()) {
   } else if (typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value)) out.add(blockName(value));
   return out;
 }
-export function applyBlocks(response, blocks) {
-  const used = new Set(), out = resolveBlocks(response, blocks, used);
+export function applyBlocks(response, blocks, lenient = false) {
+  const used = new Set(), out = resolveBlocks(response, blocks, used, lenient);
   const unused = [...blocks.keys()].filter((k) => !used.has(k));
   if (unused.length) throw new BlockReferenceError('JSON이 참조하지 않는 블록이 있습니다: ' + unused.map((k) => '<<<' + k + '>>>').join(', ') + '. 블록을 쓸 자리에는 {"block":"이름"} 객체를 넣어야 합니다.', unused);
   return out;
+}
+// Block-level salvage: items whose block never arrived are dropped and listed, the rest of the answer is kept.
+// Granularity: one lorebook/regex/Lua item, one edit, one variable, one workshop change. A field that is itself
+// missing on a new item (content, code, out) makes that item unusable; on an existing item the field is just left out.
+function textFieldStatus(value, label, missing) {
+  if (isMissing(value)) { missing.push({ label, block: value[MISSING] }); return null; }
+  if (value && typeof value === 'object' && Array.isArray(value.edits)) {
+    const kept = value.edits.filter((edit, i) => {
+      const gone = [edit?.before, edit?.after].filter(isMissing);
+      if (!gone.length) return true;
+      missing.push({ label: label + ' 부분편집 ' + (i + 1), block: gone.map((v) => v[MISSING]).join(', ') });
+      return false;
+    });
+    if (!kept.length) return null;
+    return { ...value, edits: kept };
+  }
+  return value;
+}
+function salvageItems(list, fields, required, label, missing) {
+  if (!Array.isArray(list)) return list;
+  return list.flatMap((item, i) => {
+    if (!item || typeof item !== 'object') return [item];
+    const holder = item.entry ?? item.rule ?? item, isNew = item.ref === null, name = label + ' ' + (isNew ? '새 항목 ' + (i + 1) : item.ref ?? i + 1);
+    const out = { ...holder };
+    let lost = false;
+    for (const key of fields) if (Object.hasOwn(out, key)) { const value = textFieldStatus(out[key], name + ' ' + key, missing); if (value === null) { delete out[key]; if (isNew && required.includes(key)) lost = true; } else out[key] = value; }
+    const remaining = Object.keys(out).filter((k) => !['ref'].includes(k));
+    if (lost || (!isNew && !remaining.length && (item.entry || item.rule))) return [];
+    if (item.entry) return [{ ...item, entry: out }];
+    if (item.rule) return [{ ...item, rule: out }];
+    if (lost || (!isNew && !Object.keys(out).filter((k) => k !== 'ref').length)) return [];
+    return [out];
+  });
+}
+function salvageData(task, data, missing) {
+  if (!data || typeof data !== 'object') return data;
+  if (task === 'workshop') {
+    const reply = isMissing(data.reply) ? (missing.push({ label: '설계 대화 답변', block: data.reply[MISSING] }), '') : data.reply;
+    const changes = (Array.isArray(data.changes) ? data.changes : []).flatMap((change) => {
+      if (!change || typeof change !== 'object' || change.task === 'workshop') return [change];
+      const inner = salvageData(change.task, change.data, missing);
+      return inner === null ? [] : [{ ...change, data: inner }];
+    });
+    return { ...data, reply, changes };
+  }
+  if (task === 'description' || task === 'greeting') {
+    const text = textFieldStatus(data.text, TASKS[task].label + ' 본문', missing);
+    return text === null ? null : { ...data, text };
+  }
+  if (task === 'lorebook') {
+    const upsert = salvageItems(data.upsert, ['comment', 'key', 'secondkey', 'content'], ['key', 'content'], '로어북', missing);
+    return upsert.length || (Array.isArray(data.remove) && data.remove.length) ? { ...data, upsert } : null;
+  }
+  if (task === 'regex') {
+    const upsert = salvageItems(data.upsert, ['comment', 'in', 'out'], ['in', 'out'], '정규식', missing);
+    return upsert.length || (Array.isArray(data.remove) && data.remove.length) ? { ...data, upsert } : null;
+  }
+  if (task === 'lua') {
+    const scripts = salvageItems(data.scripts, ['comment', 'code'], ['code'], 'Lua', missing);
+    const variables = data.variables && typeof data.variables === 'object' ? Object.fromEntries(Object.entries(data.variables).flatMap(([k, v]) => { const value = textFieldStatus(v, '변수 ' + k, missing); return value === null ? [] : [[k, value]]; })) : data.variables;
+    const left = scripts.length || Object.keys(variables ?? {}).length || (Array.isArray(data.removeScripts) && data.removeScripts.length) || (Array.isArray(data.removeVariables) && data.removeVariables.length);
+    return left ? { ...data, scripts, variables } : null;
+  }
+  if (task === 'choiceGreeting') {
+    // The greeting, its choices and scripts form one unit; a hole anywhere makes the unit unusable.
+    const probe = [];
+    const text = textFieldStatus(data.text, '시작 상황 본문', probe);
+    const scripts = salvageItems(data.scripts, ['comment', 'code'], ['code'], 'Lua', probe);
+    const choices = Array.isArray(data.choices) ? data.choices.filter((c) => !isMissing(c?.content)) : data.choices;
+    if (text === null || probe.length || (Array.isArray(data.choices) && choices.length !== data.choices.length)) { missing.push({ label: '시작 상황 선택 묶음', block: [...new Set(probe.map((p) => p.block))].join(', ') || '본문' }); return null; }
+    return { ...data, text, scripts };
+  }
+  return data;
+}
+function salvagePlan(plan, missing) {
+  if (!Array.isArray(plan)) return plan;
+  const kept = plan.filter((item, i) => { const gone = item && typeof item === 'object' ? [item.title, item.instruction].filter(isMissing) : []; if (gone.length) missing.push({ label: '분할 계획 ' + (i + 1), block: gone.map((v) => v[MISSING]).join(', ') }); return !gone.length; });
+  return kept.length ? kept : undefined;
+}
+export function salvageResponse(response, blocks) {
+  const missing = [];
+  const resolved = applyBlocks(response, blocks, true);
+  const data = salvageData(resolved.task, resolved.data, missing);
+  const out = { ...resolved, data };
+  if ('plan' in out) { const plan = salvagePlan(out.plan, missing); if (plan === undefined) delete out.plan; else out.plan = plan; }
+  return { response: out, missing };
 }
 // Why the JSON did not parse: the parser's own message plus the text around the reported position.
 // Two mechanical slips that models make at the very end of an otherwise valid JSON: a trailing comma before
@@ -532,28 +628,37 @@ export async function reviewPacket(packet, draft, choose) {
   return compactLorePacket(result, draft);
 }
 
-export function parseResponse(raw, task, draft, review = false) {
+export function parseResponse(raw, task, draft, review = false, options = {}) {
   assert(typeof raw === 'string' && bytes(raw) <= 1048576, '응답이 없거나 1MiB 상한을 초과했습니다.');
-  const { text, blocks } = extractBlocks(raw);
+  const salvage = options.salvage === true;
+  const { text, blocks, unclosed } = extractBlocks(raw, { lenient: salvage });
   // The answer stops right after a block close (or after the JSON) while the JSON still points at a block that never came.
   const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
   const validate=parsedResponse=>{
-    let response;
+    let response, missing = [];
     try { response = applyBlocks(parsedResponse, blocks); } catch (error) {
       // Every block that did arrive is referenced and the text stops at a block edge: the rest never came.
       const referenced = blockReferences(parsedResponse);
       const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
-      if (endsAtBlockEdge && !straggler && /참조한 블록이 응답에 없습니다/.test(error.message)) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · ${raw.length.toLocaleString('ko-KR')}자 수신. JSON이 참조한 블록이 오기 전에 응답이 끝났습니다. ${error.message}. 모델의 출력 상한이나 중계 서비스의 제한에 걸렸거나 스트리밍 중 연결이 끊긴 경우입니다. 잘린 응답은 복구하지 않습니다.`);
-      throw error;
+      const cut = (endsAtBlockEdge || unclosed !== null) && !straggler && /참조한 블록이 응답에 없습니다/.test(error.message);
+      const strict = cut ? new TruncatedResponseError(`응답이 중간에 끊겼습니다 · ${raw.length.toLocaleString('ko-KR')}자 수신. JSON이 참조한 블록이 오기 전에 응답이 끝났습니다. ${error.message}. 모델의 출력 상한이나 중계 서비스의 제한에 걸렸거나 스트리밍 중 연결이 끊긴 경우입니다. 잘린 응답은 복구하지 않습니다.`) : error;
+      // Salvage keeps every item whose blocks did arrive; only when nothing usable remains does the strict error stand.
+      if (!salvage || !/참조한 블록이 응답에 없습니다/.test(error.message)) throw strict;
+      const partial = salvageResponse(parsedResponse, blocks);
+      const usable = partial.response.data !== null && partial.response.data !== undefined && (partial.response.task !== 'workshop' || partial.response.data.changes.length || partial.response.data.reply);
+      if (!usable) throw strict;
+      response = partial.response; missing = partial.missing;
+      if (unclosed !== null) missing.push({ label: '응답 끝', block: unclosed + ' (닫히지 않음, 이후 내용 없음)' });
     }
+    const finish = (out) => { if (missing.length) out.missing = missing; return out; };
     keys(response,['schemaVersion','task','data'],['plan']);
     assert([1,2].includes(response.schemaVersion)&&response.task===task,'응답 버전 또는 작업 종류가 요청과 다릅니다.');
     validatePacketVersion(response);
     validatePlan(response);
-    if (response.data===null) { assert(response.plan?.length,'data가 null이면 plan이 필요합니다.'); return response; }
-    if (review) return response;
+    if (response.data===null) { assert(response.plan?.length,'data가 null이면 plan이 필요합니다.'); return finish(response); }
+    if (review) return finish(response);
     validateData(task,response.data,draft);
-    const out=compactLorePacket(response,draft); if(response.plan) out.plan=response.plan; return out;
+    const out=compactLorePacket(response,draft); if(response.plan) out.plan=response.plan; return finish(out);
   };
   let exact,parsed=false;
   try{exact=JSON.parse(text);parsed=true;}catch{/* Headers, fences and trailing prose are handled below. */}

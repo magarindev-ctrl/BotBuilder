@@ -787,6 +787,7 @@ export class Workshop {
         { class: "candidate" },
         h("div", { class: "row between" }, h("strong", {}, "원고 수정안"), h("span", { class: "pill" }, stale ? "원고가 변경됨" : "검토 대기")),
         h("p", { class: "muted" }, candidate.label),
+        candidate.missing?.length ? h("p", { class: "warn" }, `빠진 항목 ${candidate.missing.length}개 · 본문 블록이 오지 않아 이 수정안에 없습니다: ` + candidate.missing.join(", ")) : null,
         this.diffView(candidate),
         h("div", { class: "row" }, this.b("원고에 적용", () => this.applyCandidate(candidate), "primary small", { disabled: stale, "data-action": "apply-candidate" }), this.b("폐기", () => {
           candidate.status = "discarded";
@@ -965,9 +966,11 @@ export class Workshop {
     let raw, staged = clone(before), stagedLore = loreSelection(s);
     const stagedSession = () => ({ ...s, draft: staged, loreIncluded: stagedLore });
     const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
+    let missing = [];
     const receive = async (text, draft) => {
-      const parsed = parseResponse(text, task, draft, true);
+      const parsed = parseResponse(text, task, draft, true, { salvage: true });
       if (parsed.repairs?.length) { notes.push("응답 JSON의 " + parsed.repairs.join(", ") + ". 구조 검증을 통과해 그대로 읽었습니다."); delete parsed.repairs; }
+      if (parsed.missing?.length) { missing.push(...parsed.missing); delete parsed.missing; }
       if (parsed.data === null) return parsed;
       return reviewPacket(parsed, draft, (item) => { assert(!job.cancelled, "요청을 취소했습니다."); return this.chooseTextRange(item); });
     };
@@ -1010,8 +1013,9 @@ export class Workshop {
       const time = (/* @__PURE__ */ new Date()).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
       const summary = replies.length ? replies.join("\n\n") : parts.length ? TASKS[task].label + " 수정안을 작성했습니다. 아래에서 변경 내용을 검토하세요." : "원고에 적용할 변경 사항이 없습니다.";
       const chain = parts.length > 1 || partial ? `\n\n${partial ? "일부만 완성했습니다 · " : ""}${parts.length}개 구간${partial ? " 보관" : "으로 나눠 작성"}` : "";
+      if (missing.length) notes.push(`빠진 항목 ${missing.length}개(본문 블록이 오지 않음): ` + missing.map((m) => m.label).join(', ') + ". 받은 항목만 수정안에 담았습니다.");
       s.thread.push({ id: uid(), role: "assistant", task, content: summary + chain + (notes.length ? "\n\n" + notes.join("\n") : "") });
-      if (parts.length) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + time + (parts.length > 1 || partial ? ` · ${parts.length}구간${partial ? " (일부)" : ""}` : ""), before, ...parts.length === 1 && !partial ? { packet: parts[0].packet } : { packets: parts.map((p) => p.packet), partLabels: parts.map((p) => p.label) } });
+      if (parts.length) s.candidates.push({ ...meta, id: uid(), label: TASKS[task].label + " · " + time + (parts.length > 1 || partial ? ` · ${parts.length}구간${partial ? " (일부)" : ""}` : ""), before, ...missing.length ? { missing: missing.map((m) => m.label) } : {}, ...parts.length === 1 && !partial ? { packet: parts[0].packet } : { packets: parts.map((p) => p.packet), partLabels: parts.map((p) => p.label) } });
       this.touch(false);
     };
     try {
@@ -1032,6 +1036,28 @@ export class Workshop {
         const planned = packet.plan ?? remaining.slice(1);
         absorb(packet, `구간 ${index} · ${next.title}`);
         remaining = packet.data === null && !packet.plan ? [] : planned;
+      }
+      // Items whose blocks never arrived: offer one follow-up request for just those items, within the part budget.
+      if (missing.length) {
+        const lost = missing.slice();
+        const listing = lost.map((m) => m.label + ' (블록 ' + m.block + ')').join('\n');
+        if (parts.length >= options.chunkMax) notes.push(`빠진 항목 ${lost.length}개는 최대 구간 수(${options.chunkMax})에 도달해 다시 요청하지 않았습니다: ` + lost.map((m) => m.label).join(', '));
+        else {
+          const hint = `[결손 보충] 직전 응답에서 아래 항목의 본문 블록이 오지 않아 그 항목만 비어 있다. 이미 받은 항목은 현재안에 반영되어 있으니 반복하지 말고, 아래 항목만 작성하라. 기존 항목은 현재안 기준 edits로, 새 항목은 완성 본문으로 보내라.\n` + listing;
+          const cause = new Error(`본문 블록이 오지 않은 항목 ${lost.length}개:\n` + listing);
+          if (await this.confirmRetry(`응답에서 블록 ${lost.length}개가 오지 않았습니다`, cause, hint)) {
+            guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+            missing.length = 0;
+            job.label = TASKS[task].label + " · 결손 보충"; this.jobStatus();
+            const stepText = requestText + "\n\n" + hint;
+            const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [] });
+            assert(!step.issues.length, "프리셋 조립 오류:\n" + step.issues.join("\n"));
+            inputSize(step.messages, this.settings.maxInputChars);
+            packet = await ask(step.messages, stepText);
+            absorb(packet, "결손 보충");
+            notes.push(`빠진 항목 ${lost.length}개를 다시 요청해 받았습니다.`);
+          } else notes.push(`빠진 항목 ${lost.length}개는 다시 요청하지 않았습니다: ` + lost.map((m) => m.label).join(', '));
+        }
       }
       finish(false);
     } catch (error) {
