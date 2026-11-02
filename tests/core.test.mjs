@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ReadableStream } from 'node:stream/web';
-import { blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, defaultPrompt, responseExamples, TASKS, composeMessages, parseResponse, applyPacket, mergeCharacter, saveExisting, callModel, regexTest, clone, editable } from '../src/core.js';
+import { blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, defaultPrompt, responseExamples, TASKS, composeMessages, parseResponse, applyPacket, mergeCharacter, saveExisting, callModel, regexTest, clone, editable, cbsIssues } from '../src/core.js';
 import { characterToCard, cardToCharacter, encodeModule, decodeModule, exportCharx, importCharx, unpack } from '../src/charx.js';
 import { DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, PROMPT_BYTES_LIMIT, inputSize, migrateInputSettings, loreSelection, requestLorebook, validateLoreSelection, loreSelectionAfterPacket, reconcileLoreSelection } from '../src/core.js';
 
@@ -249,4 +249,17 @@ test('the prompt forbids structured variable values and no longer quotes an OOC 
     assert.doesNotMatch(text, /OOC Response/);
     assert.match(text, /잘못된 출력 예시/);
   }
+});
+
+test('cbsIssues flags {{else}} spellings and unbalanced condition blocks, and accepts valid CBS', () => {
+  assert.deepEqual(cbsIssues('{{#if {{equal::{{getvar::z1}}::1}}}}선택됨{{:else}}선택하기{{/if}}'), []);
+  assert.deepEqual(cbsIssues('그냥 문장'), []);
+  const bad = cbsIssues('{{#if {{equal::{{getvar::z1}}::1}}}}선택됨{{else}}선택하기{{/if}} {{#if 1}}열림');
+  assert.equal(bad.length, 2);
+  assert.match(bad[0], /1곳의 \{\{else\}\}: 리스 CBS의 else는 \{\{:else\}\}/);
+  assert.match(bad[1], /짝이 맞지 않습니다: \{\{#if\}\} 계열 2개, \{\{\/if\}\} 계열 1개/);
+  assert.match(cbsIssues('{{#else}}a{{/if}}{{ else }}')[0], /2곳의/);
+  assert.match(cbsIssues('a{{:else}}b')[0], /\{\{:else\}\}가 1개로 조건 블록 0개보다/);
+  assert.match(defaultPrompt('greeting').system, /else는 반드시 \{\{:else\}\}/);
+  assert.match(composeMessages(newSession(), 'greeting', '요청', defaultPrompt('greeting'))[1].content, /\{\{:else\}\}/);
 });
