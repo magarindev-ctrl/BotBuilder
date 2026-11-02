@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.8';
+export const VERSION = '1.1.9';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -441,16 +441,49 @@ export function applyBlocks(response, blocks) {
   return out;
 }
 // Why the JSON did not parse: the parser's own message plus the text around the reported position.
+// Two mechanical slips that models make at the very end of an otherwise valid JSON: a trailing comma before
+// a closer, and one closing brace/bracket too many. Both are removed only when the result parses and validates,
+// and every removal is reported to the user. Nothing inside strings is ever touched.
+function stripTrailingCommas(text) {
+  let out = '', quoted = false, escaped = false, removed = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) { out += ch; if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false; continue; }
+    if (ch === '"') { quoted = true; out += ch; continue; }
+    if (ch === ',') { let j = i + 1; while (j < text.length && /\s/.test(text[j])) j++; if (text[j] === '}' || text[j] === ']') { removed++; continue; } }
+    out += ch;
+  }
+  return { text: out, removed };
+}
+export function repairJson(text) {
+  const fixes = [];
+  const commas = stripTrailingCommas(text);
+  let current = commas.text;
+  if (commas.removed) fixes.push(`후행 쉼표 ${commas.removed}개 제거`);
+  for (let i = 0; i < 3; i++) {
+    let message;
+    try { JSON.parse(current); return { text: current, fixes }; } catch (error) { message = error.message; }
+    const at = /position (\d+)/.exec(message); if (!at) return null;
+    const pos = Number(at[1]), ch = current[pos];
+    if ((ch === '}' || ch === ']') && /after array element|after property value/.test(message)) {
+      current = current.slice(0, pos) + current.slice(pos + 1);
+      fixes.push(`여분 닫는 괄호 '${ch}' 1개 제거(${pos.toLocaleString('ko-KR')}자 부근)`);
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
 function jsonSyntaxError(text) {
   const broken = [...responseJsonChunks(text)].filter((chunk) => { try { JSON.parse(chunk); return false; } catch { return true; } });
   const first = text.indexOf('{');
   const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
-  if (candidate === null) return new Error('완성된 JSON 응답 객체를 찾지 못했습니다. JSON 내부 문법은 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
+  if (candidate === null) return new Error('완성된 JSON 응답 객체를 찾지 못했습니다. 후행 쉼표와 여분 닫는 괄호 외에는 JSON 문법을 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
   let reason = ''; try { JSON.parse(candidate); } catch (error) { reason = error.message; }
   const at = /position (\d+)/.exec(reason), pos = at ? Number(at[1]) : -1;
   const snippet = pos >= 0 ? candidate.slice(Math.max(0, pos - 40), pos + 40) : (/\.\.\."([\s\S]*?)"\.\.\./.exec(reason)?.[1] ?? '');
   const detail = (pos >= 0 ? pos.toLocaleString('ko-KR') + '자 부근' : '위치 불명') + (snippet ? ' ' + JSON.stringify(snippet) : '') + (reason ? ' · ' + reason.replace(/ in JSON at position \d+.*$/, '') : '');
-  return new JsonSyntaxError('응답의 JSON 문법이 깨졌습니다 · ' + detail + '. 흔한 원인은 문자열 안의 이스케이프되지 않은 큰따옴표·줄바꿈·역슬래시, 후행 쉼표, 주석입니다. 긴 코드·본문은 <<<이름>>> 블록으로 보내면 이스케이프가 필요 없습니다. JSON 내부 문법은 자동 수정하지 않습니다.', detail);
+  return new JsonSyntaxError('응답의 JSON 문법이 깨졌습니다 · ' + detail + '. 흔한 원인은 문자열 안의 이스케이프되지 않은 큰따옴표·줄바꿈·역슬래시, 후행 쉼표, 주석입니다. 긴 코드·본문은 <<<이름>>> 블록으로 보내면 이스케이프가 필요 없습니다. 후행 쉼표와 여분 닫는 괄호는 자동으로 걷어내지만 그 밖의 문법은 고치지 않습니다.', detail);
 }
 export async function reviewPacket(packet, draft, choose) {
   const result = clone(packet);
@@ -516,6 +549,14 @@ export function parseResponse(raw, task, draft, review = false) {
   }
   if(response!==null)return response;
   if(validationError)throw validationError;
+  // Before giving up: fix the two mechanical slips above, and accept only a validated envelope.
+  if(!jsonTruncated(text)) {
+    const repaired=repairJson(text);
+    if(repaired&&repaired.fixes.length) {
+      let fixed=null;try{fixed=JSON.parse(repaired.text);}catch{fixed=null;}
+      if(fixed&&typeof fixed==='object'&&!Array.isArray(fixed)&&Object.hasOwn(fixed,'schemaVersion')) { const out=validate(fixed); out.repairs=repaired.fixes; return out; }
+    }
+  }
   if(jsonTruncated(text))throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · ${raw.length.toLocaleString('ko-KR')}자 수신. JSON이 닫히지 않은 채 끝났습니다. 모델의 출력 상한이나 중계 서비스의 제한에 걸렸거나, 스트리밍 중 연결이 끊긴 경우(모바일 화면 꺼짐·앱 전환)입니다. 요청을 탭별로 나누거나 부분편집(edits)으로 다시 요청하세요. 잘린 응답은 복구하지 않습니다.`);
   throw jsonSyntaxError(text);
 }

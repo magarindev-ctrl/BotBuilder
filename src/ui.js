@@ -867,6 +867,7 @@ export class Workshop {
     const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
     const receive = async (text, draft) => {
       const parsed = parseResponse(text, task, draft, true);
+      if (parsed.repairs?.length) { notes.push("응답 JSON의 " + parsed.repairs.join(", ") + ". 구조 검증을 통과해 그대로 읽었습니다."); delete parsed.repairs; }
       if (parsed.data === null) return parsed;
       return reviewPacket(parsed, draft, (item) => { assert(!job.cancelled, "요청을 취소했습니다."); return this.chooseTextRange(item); });
     };
