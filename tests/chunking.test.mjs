@@ -14,6 +14,7 @@ async function make(handlers, settings = {}) {
   if (Object.keys(settings).length) store.set('risu-character-editor:v1:settings', JSON.stringify({ model: 'submodel', timeout: 900, theme: 'system', ...settings }));
   const api = { pluginStorage: { getItem: async k => store.get(k) ?? null, setItem: async (k, v) => { store.set(k, v); }, removeItem: async k => store.delete(k) }, registerSetting: async () => {}, registerButton: async () => ({}), onUnload: async () => {}, showContainer: async () => {}, hideContainer: async () => {}, runLLMModel: async options => { calls.push(options); const handler = handlers[calls.length - 1]; assert.ok(handler, 'unexpected model call #' + calls.length); const out = await handler(options, app); return typeof out === 'string' ? { type: 'success', result: out } : out; } };
   const app = new Workshop(api, dom.window.document); await app.init();
+  app.confirmRetry = async () => true; // tests exercise the retry itself; the dialog is covered separately
   app.task = 'description'; app.s.draft.desc = '서론.'; app.s.requests.description = '긴 설명을 써 줘'; app.touch();
   return { app, dom, store, calls, close: () => { app.destroy(); dom.window.close(); } };
 }
