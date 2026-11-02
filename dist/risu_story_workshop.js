@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.5
+//@version 1.1.6
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.6 accepts a string that is exactly a block tag ("<<<name>>>") as a block reference, retries once with a pointed instruction when the JSON references blocks wrongly (unknown reference or unreferenced block), and states in the output contract that a reference must be the {"block":"name"} object.
 Modified 2026-11-02: v1.1.5 treats an answer that stops at a block edge while the JSON still references a block that never arrived as a truncated response (so the chunked-request retry applies), and restoring a saved session no longer overwrites the global timeout and input-limit settings; only the model choice, task and scope come back with the session.
 Modified 2026-11-02: v1.1.4 adds RisuAI CBS syntax guidance to the prompts ({{#if}}…{{:else}}…{{/if}}, never {{else}}) and a text-only CBS check in proposal review that warns about unsupported else spellings and unbalanced condition blocks before a proposal is applied.
 Modified 2026-11-02: v1.1.3 adds a per-module "relax conditions" option for preset requests: @@ decorator lines are dropped, CBS conditions the workshop cannot evaluate become false and unknown macros become empty, so module lore entries are kept instead of blocked; relaxed handling is listed per entry in the module trace. Default off.
@@ -9922,7 +9923,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.5";
+  var VERSION = "1.1.6";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10398,6 +10399,14 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       this.truncated = true;
     }
   };
+  var BlockReferenceError = class extends Error {
+    constructor(message, names) {
+      super(message);
+      this.name = "BlockReferenceError";
+      this.blocks = true;
+      this.blockNames = names;
+    }
+  };
   var JsonSyntaxError = class extends Error {
     constructor(message, detail) {
       super(message);
@@ -10428,16 +10437,24 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     parts.push(raw.slice(cursor));
     return { text: parts.join(""), blocks };
   }
+  var blockName = (value) => typeof value === "string" ? value.trim().replace(/^<<<(.+?)>>>$/, "$1") : null;
+  var tagString = (value, blocks) => typeof value === "string" && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value) && blocks.has(blockName(value));
   function resolveBlocks(value, blocks, used) {
     if (Array.isArray(value)) return value.map((v) => resolveBlocks(v, blocks, used));
     if (value && typeof value === "object") {
       const names = Object.keys(value);
       if (names.length === 1 && names[0] === "block") {
-        assert(typeof value.block === "string" && blocks.has(value.block), "\uCC38\uC870\uD55C \uBE14\uB85D\uC774 \uC751\uB2F5\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4: <<<" + value.block + ">>>");
-        used.add(value.block);
-        return blocks.get(value.block);
+        const name = blockName(value.block);
+        if (name === null || !blocks.has(name)) throw new BlockReferenceError("\uCC38\uC870\uD55C \uBE14\uB85D\uC774 \uC751\uB2F5\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4: <<<" + value.block + ">>>", [...blocks.keys()]);
+        used.add(name);
+        return blocks.get(name);
       }
       return Object.fromEntries(names.map((k) => [k, resolveBlocks(value[k], blocks, used)]));
+    }
+    if (tagString(value, blocks)) {
+      const name = blockName(value);
+      used.add(name);
+      return blocks.get(name);
     }
     return value;
   }
@@ -10445,15 +10462,15 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if (Array.isArray(value)) value.forEach((v) => blockReferences(v, out));
     else if (value && typeof value === "object") {
       const names = Object.keys(value);
-      if (names.length === 1 && names[0] === "block" && typeof value.block === "string") out.add(value.block);
+      if (names.length === 1 && names[0] === "block" && typeof value.block === "string") out.add(blockName(value.block));
       else names.forEach((k) => blockReferences(value[k], out));
-    }
+    } else if (typeof value === "string" && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value)) out.add(blockName(value));
     return out;
   }
   function applyBlocks(response, blocks) {
     const used = /* @__PURE__ */ new Set(), out = resolveBlocks(response, blocks, used);
     const unused = [...blocks.keys()].filter((k) => !used.has(k));
-    assert(!unused.length, "JSON\uC774 \uCC38\uC870\uD558\uC9C0 \uC54A\uB294 \uBE14\uB85D\uC774 \uC788\uC2B5\uB2C8\uB2E4: " + unused.map((k) => "<<<" + k + ">>>").join(", "));
+    if (unused.length) throw new BlockReferenceError("JSON\uC774 \uCC38\uC870\uD558\uC9C0 \uC54A\uB294 \uBE14\uB85D\uC774 \uC788\uC2B5\uB2C8\uB2E4: " + unused.map((k) => "<<<" + k + ">>>").join(", ") + '. \uBE14\uB85D\uC744 \uC4F8 \uC790\uB9AC\uC5D0\uB294 {"block":"\uC774\uB984"} \uAC1D\uCCB4\uB97C \uB123\uC5B4\uC57C \uD569\uB2C8\uB2E4.', unused);
     return out;
   }
   function jsonSyntaxError(text) {
@@ -11022,7 +11039,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
 "schemaVersion"은 숫자 2, "task"는 정확히 "${task}", "data"는 해당 작업의 객체다. 이전 템플릿의 schemaVersion:1·완성 본문 지시보다 이 출력 계약을 우선한다.
 JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
 모든 키와 문자열은 큰따옴표를 사용한다. 문자열 내부의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다.
-[원문 블록] Lua·HTML·CSS·정규식·긴 본문처럼 이스케이프가 많이 필요한 값은 JSON 문자열 대신 블록으로 보내라. JSON 안의 그 자리에는 {"block":"이름"}을 쓰고, JSON 객체가 끝난 뒤 새 줄에 <<<이름>>> 한 줄, 원문 그대로, <<</이름>>> 한 줄을 쓴다. 블록 안은 이스케이프하지 않고 코드 펜스도 쓰지 않는다. 이름은 영문·숫자·_만 쓰고 응답 안에서 유일해야 하며, 모든 문자열 필드(code, text, content, comment, before, after, 변수 값 등)에 쓸 수 있다. 블록은 JSON이 참조하는 것만 쓰고, 짧은 값은 지금처럼 문자열로 써도 된다. 예:
+[원문 블록] Lua·HTML·CSS·정규식·긴 본문처럼 이스케이프가 많이 필요한 값은 JSON 문자열 대신 블록으로 보내라. JSON 안의 그 자리에는 반드시 {"block":"이름"} 객체를 쓰고(이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라. edits의 before/after, content, out, code 어디든 가능), JSON 객체가 끝난 뒤 새 줄에 <<<이름>>> 한 줄, 원문 그대로, <<</이름>>> 한 줄을 쓴다. 블록 안은 이스케이프하지 않고 코드 펜스도 쓰지 않는다. 이름은 영문·숫자·_만 쓰고 응답 안에서 유일해야 하며, 모든 문자열 필드(code, text, content, comment, before, after, 변수 값 등)에 쓸 수 있다. 블록은 JSON이 참조하는 것만 쓰고, 짧은 값은 지금처럼 문자열로 써도 된다. 예:
 {"schemaVersion":2,"task":"lua","data":{"scripts":[{"ref":null,"comment":"시작","code":{"block":"lua1"}}],"removeScripts":[],"variables":{},"removeVariables":[]}}
 <<<lua1>>>
 function onStart(accessKey)
@@ -16261,6 +16278,9 @@ details[open] > summary { margin-bottom: 9px; }
           } else if (error.syntax) {
             notes.push("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC838 \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
             hint = `[\uC8FC\uC758] \uC9C1\uC804 \uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uB2E4(${error.detail}). \uBB38\uC790\uC5F4 \uC548\uC758 \uD070\uB530\uC634\uD45C\uB294 \\", \uC904\uBC14\uAFC8\uC740 \\n, \uC5ED\uC2AC\uB798\uC2DC\uB294 \\\\\uB85C \uC774\uC2A4\uCF00\uC774\uD504\uD558\uACE0, \uCF54\uB4DC\xB7\uAE34 \uBCF8\uBB38\uC740 JSON \uB4A4\uC758 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uB77C.`;
+          } else if (error.blocks) {
+            notes.push("\uBE14\uB85D \uCC38\uC870 \uD615\uC2DD\uC774 \uC798\uBABB\uB3FC \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
+            hint = `[\uC8FC\uC758] \uC9C1\uC804 \uC751\uB2F5\uC758 \uBE14\uB85D \uCC38\uC870\uAC00 \uC798\uBABB\uB410\uB2E4(${error.message}). \uBE14\uB85D\uC744 \uC4F8 \uC790\uB9AC\uC5D0\uB294 \uBC18\uB4DC\uC2DC {"block":"\uC774\uB984"} \uAC1D\uCCB4\uB97C \uB123\uACE0, \uBE14\uB85D \uC774\uB984\uB9CC \uC4F0\uAC70\uB098 "<<<\uC774\uB984>>>" \uBB38\uC790\uC5F4\uB85C \uC4F0\uC9C0 \uB9C8\uB77C. \uBCF4\uB0B8 \uBE14\uB85D\uC740 \uBAA8\uB450 JSON\uC5D0\uC11C \uCC38\uC870\uD574\uC57C \uD558\uBA70, JSON\uC774 \uCC38\uC870\uD55C \uBE14\uB85D\uC740 \uBAA8\uB450 \uBCF4\uB0B4\uC57C \uD55C\uB2E4.`;
           } else throw error;
           const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint, images: [] });
           assert(!retry.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + retry.issues.join("\n"));
