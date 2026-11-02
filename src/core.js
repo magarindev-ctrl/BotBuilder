@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.10';
+export const VERSION = '1.2.0';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -203,7 +203,7 @@ export function composeMessages(session, task, request, prompt, options = {}) {
   }
   reference.pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => { const packets = candidatePackets(c); return packets.map((p, i) => ({ id: packets.length > 1 ? c.id + "#" + (i + 1) : c.id, task: p.task, data: filterLoreProposal(p, session).data })); });
   reference.pendingProposalNote = "미적용 제안이다. 현재 원고와 구분하고, 새 수정안의 참조는 현재 원고 기준으로 작성하라.";
-  reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).length, note: "현재 원고의 로어북은 체크한 항목만 제공했다. ref는 원본 인덱스이며 빠진 번호를 재정렬하거나 누락 항목을 추측해 수정·삭제하지 마라. 이전 대화에 남아 있는 자료는 현재 포함 상태를 의미하지 않는다." };
+  reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length, note: "현재 원고의 로어북은 체크한 항목만 제공했다. ref는 원본 인덱스이며 빠진 번호를 재정렬하거나 누락 항목을 추측해 수정·삭제하지 마라. 이전 대화에 남아 있는 자료는 현재 포함 상태를 의미하지 않는다." };
   values.REFERENCE_CONTEXT = JSON.stringify(reference);
   return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key2) => values[key2]) }];
 }
@@ -754,19 +754,26 @@ export async function responseText(result, job) {
   const stream = result.result?.getReader ? result.result : result.getReader ? result : null;
   assert(stream, '지원하지 않는 모델 응답 형식입니다.');
   const reader = stream.getReader(); job.reader = reader;
-  let current = '', decoder = new TextDecoder(), cumulative = false;
+  let current = '', decoder = new TextDecoder(), cumulative = false, size = 0;
+  // Size is tracked incrementally: re-encoding the whole text on every chunk made a long
+  // streamed answer cost O(n²) after the model had already finished (the UI stayed "작업 중").
+  const limit = (count) => assert(count <= 1048576, '응답이 1MiB를 초과했습니다.');
   try {
     while (true) {
       assert(!job.cancelled, '대기를 중단했습니다.');
       const { value, done } = await reader.read(); if (done) break;
-      if (typeof value === 'string') current += value;
-      else if (value instanceof Uint8Array) current += decoder.decode(value, { stream: true });
-      else if (value && typeof value === 'object' && typeof value['0'] === 'string') { current = value['0']; cumulative = true; }
+      if (typeof value === 'string') { current += value; size += bytes(value); }
+      else if (value instanceof Uint8Array) { const text = decoder.decode(value, { stream: true }); current += text; size += bytes(text); }
+      else if (value && typeof value === 'object' && typeof value['0'] === 'string') {
+        // Cumulative chunks repeat the whole text; a UTF-8 string is never shorter than its length in bytes,
+        // so bytes are only measured once the character count alone can exceed the limit.
+        current = value['0']; cumulative = true; size = current.length > 1048576 / 4 ? bytes(current) : current.length;
+      }
       else throw new Error('지원하지 않는 스트림 조각 형식입니다.');
-      assert(bytes(current) <= 1048576, '응답이 1MiB를 초과했습니다.');
+      limit(size);
     }
-    if (!cumulative) current += decoder.decode();
-    assert(bytes(current) <= 1048576, '응답이 1MiB를 초과했습니다.');
+    if (!cumulative) { const tail = decoder.decode(); current += tail; size += bytes(tail); }
+    limit(size);
     return current;
   } finally { if (job.cancelled) reader.cancel().catch(() => {}); reader.releaseLock(); job.reader = null; }
 }
@@ -849,9 +856,46 @@ export function loreSelection(session) {
   return (session.draft.globalLore ?? []).map((_, i) => session.loreIncluded?.[i] !== false);
 }
 
+// Risu marks a lorebook folder as an entry with mode 'folder' whose key is '\uf000folder:<id>';
+// entries inside it carry that key in their 'folder' field. Folders never reach the model.
+export const LORE_FOLDER_PREFIX = '\uf000folder:';
+export const isLoreFolder = (entry) => !!entry && entry.mode === 'folder';
+export function newLoreFolder(comment = '새 폴더', folder) {
+  return { key: LORE_FOLDER_PREFIX + uid(), secondkey: '', content: '', comment, insertorder: 100, mode: 'folder', alwaysActive: false, selective: false, ...folder ? { folder } : {} };
+}
+// Tree of a lorebook list: roots in array order, each node { index, entry, children, depth }.
+// An entry whose folder key matches no folder, or sits in a folder cycle, is shown at the top level.
+export function loreTree(list = []) {
+  const folders = new Map();
+  list.forEach((entry, index) => { if (isLoreFolder(entry) && typeof entry.key === 'string' && entry.key && !folders.has(entry.key)) folders.set(entry.key, index); });
+  const up = (index) => { const key = list[index]?.folder; return typeof key === 'string' && key && folders.has(key) && folders.get(key) !== index ? folders.get(key) : -1; };
+  // A folder that is its own ancestor surfaces at the top level; entries below it keep their place.
+  const parentOf = (index) => {
+    const parent = up(index);
+    if (parent < 0) return -1;
+    const seen = new Set();
+    for (let cursor = parent; cursor >= 0; cursor = up(cursor)) { if (cursor === index) return -1; if (seen.has(cursor)) break; seen.add(cursor); }
+    return parent;
+  };
+  const nodes = list.map((entry, index) => ({ index, entry, children: [], depth: 0, parent: -1 }));
+  for (const node of nodes) node.parent = parentOf(node.index);
+  const roots = [];
+  for (const node of nodes) { if (node.parent < 0) roots.push(node); else nodes[node.parent].children.push(node); }
+  const walk = (items, depth) => { for (const node of items) { node.depth = depth; walk(node.children, depth + 1); } };
+  walk(roots, 0);
+  return { roots, nodes };
+}
+// Indices of every entry below a folder (nested folders included), in list order.
+export function loreDescendants(list, index) {
+  const { nodes } = loreTree(list), out = [];
+  const walk = (node) => { for (const child of node.children) { out.push(child.index); walk(child); } };
+  if (nodes[index]) walk(nodes[index]);
+  return out.sort((a, b) => a - b);
+}
 export function requestLorebook(session) {
   const included = loreSelection(session);
-  return (session.draft.globalLore ?? []).flatMap((entry, i) => included[i] ? [{ ref: "l" + i, entry }] : []);
+  // The folder key and the hidden flag are Risu bookkeeping the model must not echo back (they are not allowed fields).
+  return (session.draft.globalLore ?? []).flatMap((entry, i) => { if (!included[i] || isLoreFolder(entry)) return []; const { folder, enabled, ...rest } = entry; return [{ ref: "l" + i, entry: rest }]; });
 }
 
 export function filterLoreProposal(packet, session) {

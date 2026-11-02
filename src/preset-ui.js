@@ -94,7 +94,7 @@ export function renderPresetEditor(app,host) {
           h('details',{},h('summary',{},'블록별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.trace,null,2))),
           h('details',{},h('summary',{},'모듈별 포함·제외 결과'),h('pre',{class:'diff'},JSON.stringify(report.moduleTrace??[],null,2))),
           h('details',{},h('summary',{},'프리셋 정규식 처리 결과'),h('pre',{class:'diff'},JSON.stringify(report.presetRegexTrace??[],null,2))),
-          ...report.messages.map((m,i)=>h('section',{class:'card stack'},h('h3',{},`${i+1}. ${m.role}`),m.cachePoint?h('span',{class:'pill'},'캐시 지점'):null,h('pre',{class:'diff'},m.content))),
+          ...report.messages.map((m,i)=>h('details',{class:'card preview-message',open:''},h('summary',{},`${i+1}. ${m.role} · ${m.content.length.toLocaleString()}자`+(m.cachePoint?' · 캐시 지점':'')),h('pre',{class:'diff'},m.content))),
           h('p',{class:'muted'},report.notes.join('\n')));
       }catch(error){output.replaceChildren(h('p',{class:'warn'},error.message));}
     };
@@ -114,7 +114,8 @@ function renderBlocks(app,host) {
   },'small')));
   const i=Math.min(Math.max(Number(state.selected)||0,0),Math.max(0,list.length-1));state.selected=i;
   const nav=h('div',{class:'itemlist preset-block-list'},list.map((b,index)=>app.b((b.enabled===false?'○ ':'● ')+(index+1)+'. '+(b.name||b.type),()=>{state.selected=index;app.touch(false);redraw();},'listitem'+(i===index?' active':''))));
-  const edit=h('div',{class:'stack'});host.append(h('div',{class:'list-editor'},nav,edit));
+  const edit=h('div',{class:'stack'}),pane=h('div',{class:'list-editor','data-list':'preset'},nav,app.listSplitter(),edit);
+  host.append(h('div',{class:'row'},h('span',{class:'muted'},list.length+'개 블록'),app.listCollapseButton('preset',pane)),pane);
   const b=list[i];if(!b){edit.append(h('div',{class:'empty'},'블록을 추가하세요. 이번 요청을 포함하는 제작 대화 블록이 필요합니다.'));return;}
   edit.append(app.field('블록 이름',b.name??'',v=>{b.name=v;change();},{tag:'input'}),h('div',{class:'row'},app.check('이 블록 사용',b.enabled!==false,v=>{b.enabled=v;change();}),h('span',{class:'pill'},b.type)));
   const move=delta=>{if(i+delta<0||i+delta>=list.length)return;[list[i],list[i+delta]]=[list[i+delta],list[i]];state.selected+=delta;change();redraw();};

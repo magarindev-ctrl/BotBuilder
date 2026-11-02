@@ -124,7 +124,15 @@ h3 { font-size: 14px; font-weight: 650; }
 .hero p { max-width: 620px; margin-top: 13px; line-height: 1.8; font-size: 13px; color: var(--hero-ink); }
 .steps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .step { border: 1px solid var(--step-line); border-radius: 20px; padding: 5px 10px; color: var(--hero-ink); font-size: 11px; }
-.list-editor { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; min-width: 0; }
+.list-editor { display: grid; grid-template-columns: var(--list-nav, 170px) 14px minmax(0, 1fr); gap: 0 8px; min-width: 0; }
+.list-editor[data-collapsed=true] { grid-template-columns: minmax(0, 1fr); }
+.list-editor[data-collapsed=true] > .itemlist, .list-editor[data-collapsed=true] > .list-splitter { display: none; }
+/* Drag handle between the list and its editor; the bar shows on hover, focus and while dragging. */
+.list-splitter { position: relative; cursor: col-resize; touch-action: none; border-radius: 6px; min-height: 48px; align-self: stretch; }
+.list-splitter::before { content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 4px; border-radius: 4px; background: var(--line); transition: background .15s; }
+.list-splitter:hover::before, .list-splitter:focus-visible::before, .list-splitter.is-dragging::before { background: var(--accent); }
+.list-splitter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.list-collapse { margin-left: auto; }
 .preset-block-list { max-height: 560px; overflow: auto; }
 .itemlist { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .listitem { padding: 10px; text-align: left; overflow-wrap: anywhere; min-height: 42px; }
@@ -142,6 +150,20 @@ h3 { font-size: 14px; font-weight: 650; }
   border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
 }
 .lore-request-item.is-selected { border-color: var(--brand-line); background: var(--accent-bg); }
+/* Folder rows: a disclosure, the folder name, a count, one checkbox for everything inside, then the children indented. */
+.lore-folder-item { display: flex; flex-direction: column; flex: 0 0 auto; width: 100%; min-width: 0; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.lore-folder-item.is-selected { border-color: var(--brand-line); }
+.lore-folder-item.is-selected > .lore-folder-head { background: var(--accent-bg); border-radius: 8px; }
+.lore-folder-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.lore-folder-head .listitem { flex: 1 1 auto; font-weight: 650; }
+.lore-folder-disclosure { flex: 0 0 32px; width: 32px; min-height: 44px; padding: 0; border: 0; background: transparent; font-size: 14px; color: var(--muted); }
+.lore-folder-count { flex: 0 0 auto; font-size: 11px; padding-right: 6px; }
+.lore-folder-children { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px 10px; padding-left: 8px; border-left: 2px solid var(--line); min-width: 0; }
+.lore-folder-children:empty { display: none; }
+.lore-folder-toggle input[type=checkbox]:indeterminate { opacity: .8; }
+.module-card > summary { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 14px; color: var(--ink); }
+.module-card > summary h3 { font-size: 15px; }
+.preview-message > summary { font-size: 13px; color: var(--ink); font-weight: 650; }
 .lore-request-list .listitem {
   display: block; width: 100%; min-width: 0; max-width: none;
   min-height: 44px; height: auto; padding: 10px; line-height: 1.5;
@@ -229,7 +251,8 @@ details[open] > summary { margin-bottom: 9px; }
   .editor { padding: 22px 20px; }
   .sidebar { padding: 20px 7px; }
   .navitem { gap: 7px; padding: 12px 7px; font-size: 13px; }
-  .list-editor { grid-template-columns: minmax(0, 1fr); }
+  .list-editor { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .list-splitter { display: none; }
   .itemlist { flex-direction: row; overflow-x: auto; }
   .preset-block-list { max-height: 140px; }
   .itemlist.lore-request-list { flex-direction: column; max-height: 42vh; max-height: min(42dvh, 420px); }

@@ -1,6 +1,6 @@
 import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX, candidatePackets, chunkOptions, CHUNK_MIN_TOKENS, CHUNK_MAX_TOKENS, CHUNK_HARD_MAX } from './core.js';
 import { CSS } from './style.js';
-import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
@@ -14,7 +14,8 @@ const SLOT_NAMES = { autosave: '자동 저장 · 최근', 'autosave-1': '자동 
 const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
 // What each request task may change; shown beside the input so the active task is never a guess.
 const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명·성격·시나리오 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
-const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system', chunking: true, chunkTokens: 5000, chunkMax: 8 };
+const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system', chunking: true, chunkTokens: 5000, chunkMax: 8, listNavWidth: null, collapsedLists: {} };
+const LIST_NAV_MIN = 120, LIST_NAV_DEFAULT = 170;
 
 export class Workshop {
   fitRequestInput() {
@@ -123,7 +124,7 @@ export class Workshop {
     }, [{ label: "취소 · 원고 유지", value: null }]);
   }
   constructor(api, doc) {
-    this.api = api; this.doc = doc; this.s = newSession(); this.prompts = {}; this.settings = { ...SETTINGS };
+    this.api = api; this.doc = doc; this.s = newSession(); this.prompts = {}; this.settings = { ...SETTINGS }; this.loreFolderClosed = new Set(); this.moduleFolded = new Set();
     this.s.preset = newPresetState(); this.savedPreset = null;
     this.started = false; this.serial = 0; this.autoSerial = 0; this.slots = {}; this.slotRaw = {}; this.ioBusy = false; this.job = null;
     this.view = 'editor'; this.task = 'workshop'; this.scopeOnly = false; this.storageQueue = Promise.resolve();
@@ -209,6 +210,8 @@ export class Workshop {
       if (setting) {
         const saved = JSON.parse(setting);
         this.settings = { ...SETTINGS, ...saved, ...migrateInputSettings(saved) };
+        if (!Number.isFinite(this.settings.listNavWidth) || this.settings.listNavWidth < LIST_NAV_MIN) this.settings.listNavWidth = null;
+        if (!this.settings.collapsedLists || typeof this.settings.collapsedLists !== 'object') this.settings.collapsedLists = {};
         if (saved.inputLimitVersion !== INPUT_LIMIT_VERSION && saved.timeout === 300) this.settings.timeout = 900;
       }
     } catch {
@@ -455,6 +458,9 @@ export class Workshop {
     const selected = Math.min(Math.max(s.selected[task] ?? 0, 0), Math.max(list.length - 1, 0));
     s.selected[task] = selected;
     if (lore) s.loreIncluded = loreSelection(s);
+    const tree = lore ? loreTree(list) : null;
+    const descendants = (index) => lore ? loreDescendants(list, index) : [];
+    const entries = (index) => descendants(index).filter((i) => !isLoreFolder(list[i]));
     const redrawLoreList = () => {
       const scrollTop = nav.scrollTop;
       const editorScrollTop = this.editor?.scrollTop ?? 0;
@@ -468,48 +474,88 @@ export class Workshop {
       this.touch(false);
       redrawLoreList();
     };
+    const loreCount = lore ? list.filter((x) => !isLoreFolder(x)).length : list.length;
     if (lore) host.append(h("div", { class: "card stack" },
-      h("strong", {}, `이번 요청에 포함할 로어북 · ${s.loreIncluded.filter(Boolean).length}/${list.length}개`),
-      h("p", { class: "muted" }, "체크한 현재 원고 항목만 직접·프리셋 요청에 포함합니다. 원본과 ‘항상 활성화’ 설정은 유지됩니다. 이전 대화에 이미 적힌 내용은 유지되며, 설치 모듈의 로어북은 프리셋 > 모듈에서 별도로 선택합니다."),
+      h("strong", {}, `이번 요청에 포함할 로어북 · ${s.loreIncluded.filter((on, i) => on && !isLoreFolder(list[i])).length}/${loreCount}개`),
+      h("p", { class: "muted" }, "체크한 현재 원고 항목만 직접·프리셋 요청에 포함합니다. 폴더의 체크는 안의 항목 전체를 한 번에 바꿉니다. 원본과 ‘항상 활성화’ 설정은 유지됩니다. 이전 대화에 이미 적힌 내용은 유지되며, 설치 모듈의 로어북은 프리셋 > 모듈에서 별도로 선택합니다."),
       h("div", { class: "row" }, this.b("전체 포함", () => { s.loreIncluded = list.map(() => true); inclusionChanged(); }, "small"), this.b("전체 제외", () => { s.loreIncluded = list.map(() => false); inclusionChanged(); }, "small"))
     ));
-    const nav = h("div", { class: "itemlist" + (lore ? " lore-request-list" : ""), "aria-label": lore ? "요청 로어북 목록" : "항목 목록" }, list.map((x, i) => {
-      const title = x.comment || `항목 ${i + 1}`;
-      const button = h("button", {
-        type: "button", class: "listitem" + (i === selected ? " active" : ""), title,
-        "aria-current": i === selected ? "true" : null,
-        onclick: () => {
-          s.selected[task] = i;
-          this.navigate();
-          if (lore) redrawLoreList();
-          else this.renderEditor();
-        }
-      }, lore ? `${i + 1}. ${title}` : title);
-      if (!lore) return button;
-      const toggle = this.check("이번 요청에 포함", s.loreIncluded[i], (included) => {
-        s.loreIncluded[i] = included;
-        inclusionChanged();
-      });
-      toggle.className = "row muted lore-request-toggle";
-      toggle.setAttribute("title", `${i + 1}. ${title} · 이번 요청에 포함`);
-      return h("div", { class: "lore-request-item" + (i === selected ? " is-selected" : "") }, button, toggle);
-    }));
+    const select = (i) => {
+      s.selected[task] = i;
+      this.navigate();
+      if (lore) redrawLoreList();
+      else this.renderEditor();
+    };
+    const itemButton = (x, i, label) => h("button", {
+      type: "button", class: "listitem" + (i === selected ? " active" : ""), title: label,
+      "aria-current": i === selected ? "true" : null,
+      onclick: () => select(i)
+    }, lore ? `${i + 1}. ${label}` : label);
+    const loreRow = (node) => {
+      const x = node.entry, i = node.index, title = x.comment || `항목 ${i + 1}`;
+      if (!isLoreFolder(x)) {
+        const toggle = this.check("이번 요청에 포함", s.loreIncluded[i], (included) => { s.loreIncluded[i] = included; inclusionChanged(); });
+        toggle.className = "row muted lore-request-toggle";
+        toggle.setAttribute("title", `${i + 1}. ${title} · 이번 요청에 포함`);
+        return h("div", { class: "lore-request-item" + (i === selected ? " is-selected" : ""), style: `--depth:${node.depth}`, "data-index": i }, itemButton(x, i, title), toggle);
+      }
+      // A folder row: disclosure, name, and one checkbox that covers every entry inside it.
+      const inside = entries(i), on = inside.filter((k) => s.loreIncluded[k]).length, open = !this.loreFolderClosed.has(x.key);
+      const name = x.comment || `폴더 ${i + 1}`;
+      const box = this.check(`폴더 전체 포함 · ${on}/${inside.length}`, inside.length > 0 && on === inside.length, (included) => { for (const k of inside) s.loreIncluded[k] = included; inclusionChanged(); });
+      box.className = "row muted lore-request-toggle lore-folder-toggle";
+      box.querySelector("input").indeterminate = on > 0 && on < inside.length;
+      box.querySelector("input").disabled = !inside.length;
+      box.setAttribute("title", `${name} · 안의 항목 ${inside.length}개를 이번 요청에 포함`);
+      const disclosure = h("button", { type: "button", class: "lore-folder-disclosure", "aria-expanded": String(open), "aria-label": (open ? "폴더 접기 · " : "폴더 펼치기 · ") + name, onclick: () => { open ? this.loreFolderClosed.add(x.key) : this.loreFolderClosed.delete(x.key); redrawLoreList(); } }, open ? "▾" : "▸");
+      const head = h("div", { class: "lore-folder-head" }, disclosure, itemButton(x, i, `📁 ${name}`), h("span", { class: "lore-folder-count muted" }, `${inside.length}개`));
+      const children = open ? h("div", { class: "lore-folder-children", role: "group", "aria-label": name }, node.children.map(loreRow)) : null;
+      return h("div", { class: "lore-folder-item" + (i === selected ? " is-selected" : "") + (open ? " is-open" : ""), style: `--depth:${node.depth}`, "data-index": i, "data-folder": x.key }, head, box, children);
+    };
+    const nav = h("div", { class: "itemlist" + (lore ? " lore-request-list" : ""), "aria-label": lore ? "요청 로어북 목록" : "항목 목록" }, lore ? tree.roots.map(loreRow) : list.map((x, i) => itemButton(x, i, x.comment || `항목 ${i + 1}`)));
     const edit = h("div", { class: "stack" }), item = list[selected];
-    host.append(h("div", { class: "row" }, this.b("＋ 항목 추가", () => {
-      list.push(lore ? { key: "", secondkey: "", content: "", comment: "새 로어", insertorder: 100, mode: "normal", alwaysActive: false, selective: false } : { comment: "새 규칙", in: "", out: "", type: "editdisplay", flag: "g", ableFlag: true });
+    // A new entry lands next to the selected one: inside the same folder, or inside the selected folder.
+    const targetFolder = () => { if (!lore || !item) return null; return isLoreFolder(item) ? item.key : tree.nodes[selected].parent >= 0 ? item.folder : null; };
+    const addEntry = (entry) => {
+      list.push(entry);
       if (lore) s.loreIncluded.push(true);
       s.selected[task] = list.length - 1;
       this.touch();
       this.renderEditor();
-    }, "small"), h("span", { class: "muted" }, `${list.length}개 항목`)), h("div", { class: "list-editor" }, nav, edit));
+    };
+    const listPane = h("div", { class: "list-editor", "data-list": task }, nav, this.listSplitter(), edit);
+    host.append(h("div", { class: "row" }, this.b("＋ 항목 추가", () => {
+      const folder = targetFolder();
+      addEntry(lore ? { key: "", secondkey: "", content: "", comment: "새 로어", insertorder: 100, mode: "normal", alwaysActive: false, selective: false, ...folder ? { folder } : {} } : { comment: "새 규칙", in: "", out: "", type: "editdisplay", flag: "g", ableFlag: true });
+    }, "small"), lore ? this.b("＋ 폴더 추가", () => addEntry(newLoreFolder("새 폴더", targetFolder())), "small") : null, h("span", { class: "muted" }, lore ? `${loreCount}개 항목 · 폴더 ${list.length - loreCount}개` : `${list.length}개 항목`), this.listCollapseButton(task, listPane)), listPane);
     if (!item) edit.append(h("div", { class: "empty" }, "항목을 추가하거나 LLM에게 작성을 요청하세요."));
     else {
       const change = (key2, value) => {
         item[key2] = value;
         this.touch();
       };
-      edit.append(this.field("항목 이름", item.comment, (v) => change("comment", v), { tag: "input" }));
-      if (lore) edit.append(this.field("키워드 · 쉼표 구분", item.key, (v) => change("key", v), { tag: "input" }), this.field("본문", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("보조 키워드", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("삽입 순서", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("항상 활성화", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("보조 키워드 사용", item.selective, (v) => change("selective", v)), this.check("키워드를 정규식으로", item.useRegex, (v) => change("useRegex", v))), h("label", { class: "field" }, h("span", {}, "모드"), this.select(item.mode, ["normal", "multiple", "constant", "child", "folder"].map((v) => [v, v]), (v) => change("mode", v), "로어북 모드")));
+      const folderOptions = () => {
+        const blocked = new Set(isLoreFolder(item) ? [selected, ...descendants(selected)] : []);
+        return [["", "없음 · 최상위"], ...list.flatMap((x, i) => isLoreFolder(x) && !blocked.has(i) && x.key ? [[x.key, x.comment || `폴더 ${i + 1}`]] : [])];
+      };
+      const folderField = () => h("label", { class: "field" }, h("span", {}, "폴더"), this.select(typeof item.folder === "string" && list.some((x) => isLoreFolder(x) && x.key === item.folder) ? item.folder : "", folderOptions(), (v) => { if (v) item.folder = v; else delete item.folder; this.touch(); this.renderEditor(); }, "폴더"));
+      edit.append(this.field(isLoreFolder(item) ? "폴더 이름" : "항목 이름", item.comment, (v) => change("comment", v), { tag: "input" }));
+      if (lore && isLoreFolder(item)) {
+        // Folder editor: the name, where it sits, and three switches that apply to everything inside.
+        const inside = entries(selected), folders = descendants(selected).length - inside.length;
+        const bulk = (label, getter, setter, hint) => {
+          const on = inside.filter((k) => getter(list[k])).length;
+          const box = this.check(`${label} · ${on}/${inside.length}`, inside.length > 0 && on === inside.length, (value) => { for (const k of inside) setter(list[k], value); if (label === "이번 요청에 포함") { inclusionChanged(); return; } this.touch(); this.renderEditor(); });
+          box.querySelector("input").indeterminate = on > 0 && on < inside.length;
+          box.querySelector("input").disabled = !inside.length;
+          return h("div", { class: "stack", style: "gap:4px" }, box, h("p", { class: "muted" }, hint));
+        };
+        edit.append(folderField(), h("p", { class: "muted" }, `안의 항목 ${inside.length}개${folders ? ` · 하위 폴더 ${folders}개` : ""}. 폴더는 리스의 로어북 폴더와 같은 구조로 저장되며 LLM 요청에는 보내지 않습니다.`),
+          h("div", { class: "card stack" }, h("strong", {}, "폴더 단위 설정"),
+            bulk("이번 요청에 포함", (x) => s.loreIncluded[list.indexOf(x)] !== false, (x, v) => { s.loreIncluded[list.indexOf(x)] = v; }, "봇빌더 요청에 보낼지 여부입니다. 원본은 바꾸지 않습니다."),
+            bulk("리스에서 활성화", (x) => x.enabled !== false, (x, v) => { if (v) delete x.enabled; else x.enabled = false; }, "끄면 리스가 이 항목을 숨김(비활성) 상태로 저장해 채팅에서 쓰지 않습니다. 리스 로어북의 '숨김' 설정과 같습니다."),
+            bulk("항상 활성화", (x) => !!x.alwaysActive, (x, v) => { x.alwaysActive = v; }, "리스의 폴더 항상 활성화 토글과 같이 안의 항목 전체에 적용합니다.")));
+      } else if (lore) edit.append(this.field("키워드 · 쉼표 구분", item.key, (v) => change("key", v), { tag: "input" }), this.field("본문", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("보조 키워드", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("삽입 순서", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("항상 활성화", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("보조 키워드 사용", item.selective, (v) => change("selective", v)), this.check("키워드를 정규식으로", item.useRegex, (v) => change("useRegex", v)), this.check("리스에서 활성화 · 끄면 숨김", item.enabled !== false, (v) => { if (v) delete item.enabled; else item.enabled = false; this.touch(); })), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "모드"), this.select(item.mode, ["normal", "multiple", "constant", "child"].map((v) => [v, v]), (v) => change("mode", v), "로어북 모드")), folderField()));
       else {
         edit.append(this.field("IN · 찾을 패턴", item.in, (v) => change("in", v), { class: "code", style: "min-height:90px" }), this.field("OUT · 치환문 / HTML·CSS 원문", item.out, (v) => change("out", v), { class: "code", style: "min-height:230px" }), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "적용 유형"), this.select(item.type, [["editinput", "입력"], ["editoutput", "출력"], ["editprocess", "처리"], ["editdisplay", "표시"]], (v) => change("type", v), "정규식 적용 유형")), this.field("플래그", item.flag, (v) => change("flag", v), { tag: "input" })), this.check("지정한 플래그 사용 · 끄면 기본 g", item.ableFlag, (v) => change("ableFlag", v)));
         const result = h("div", { class: "stack testresult", "aria-live": "polite" });
@@ -540,32 +586,82 @@ export class Workshop {
           result
         );
       }
-      edit.append(h("div", { class: "row" }, this.b("위로", () => {
-        if (selected > 0) {
-          [list[selected - 1], list[selected]] = [list[selected], list[selected - 1]];
-          if (lore) [s.loreIncluded[selected - 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected - 1]];
-          s.selected[task]--;
-          this.touch();
-          this.renderEditor();
-        }
-      }, "small"), this.b("아래로", () => {
-        if (selected + 1 < list.length) {
-          [list[selected + 1], list[selected]] = [list[selected], list[selected + 1]];
-          if (lore) [s.loreIncluded[selected + 1], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[selected + 1]];
-          s.selected[task]++;
-          this.touch();
-          this.renderEditor();
-        }
-      }, "small"), this.b("항목 삭제", async () => {
-        if (await this.confirm("항목을 삭제할까요?", item.comment || "선택 항목")) {
-          list.splice(selected, 1);
-          if (lore) s.loreIncluded.splice(selected, 1);
+      // Moving swaps the entry with its neighbour among the items shown at the same level (inside the same folder).
+      const siblings = lore ? (tree.nodes[selected].parent >= 0 ? tree.nodes[tree.nodes[selected].parent].children : tree.roots).map((n) => n.index) : list.map((_, i) => i);
+      const swapWith = (delta) => {
+        const at = siblings.indexOf(selected), other = siblings[at + delta];
+        if (other === undefined) return;
+        [list[other], list[selected]] = [list[selected], list[other]];
+        if (lore) [s.loreIncluded[other], s.loreIncluded[selected]] = [s.loreIncluded[selected], s.loreIncluded[other]];
+        s.selected[task] = other;
+        this.touch();
+        this.renderEditor();
+      };
+      edit.append(h("div", { class: "row" }, this.b("위로", () => swapWith(-1), "small"), this.b("아래로", () => swapWith(1), "small"), this.b(lore && isLoreFolder(item) ? "폴더 삭제" : "항목 삭제", async () => {
+        const removing = lore && isLoreFolder(item) ? [selected, ...descendants(selected)] : [selected];
+        const inside = removing.length - 1;
+        if (await this.confirm(inside ? `폴더와 안의 항목 ${inside}개를 함께 삭제할까요?` : lore && isLoreFolder(item) ? "폴더를 삭제할까요?" : "항목을 삭제할까요?", item.comment || "선택 항목")) {
+          const drop = new Set(removing);
+          s.draft[field] = list.filter((_, i) => !drop.has(i));
+          if (lore) s.loreIncluded = s.loreIncluded.filter((_, i) => !drop.has(i));
+          s.selected[task] = Math.max(0, Math.min(selected, s.draft[field].length - 1));
           this.touch();
           this.renderEditor();
         }
       }, "small danger")));
     }
     this.editorAction(host, task);
+  }
+  // Drag handle between a list and its editor. The width is shared by every list and kept in settings.
+  listSplitter() {
+    const h = this.h.bind(this);
+    const handle = h("div", { class: "list-splitter", role: "separator", "aria-orientation": "vertical", "aria-label": "목록 너비 조절 · 끌거나 방향키로 조절, 더블클릭으로 초기화", tabindex: "0", title: "목록 너비 조절 · 끌거나 방향키로 조절, 더블클릭으로 초기화" });
+    const pane = () => handle.parentElement;
+    const apply = (width) => {
+      const host = pane(); if (!host) return;
+      if (width === null) host.style.removeProperty("--list-nav");
+      else host.style.setProperty("--list-nav", `${width}px`);
+      handle.setAttribute("aria-valuenow", String(width ?? LIST_NAV_DEFAULT));
+    };
+    const clamp = (width) => { const max = Math.max(LIST_NAV_MIN, Math.floor((pane()?.clientWidth || 800) * 0.7)); return Math.min(max, Math.max(LIST_NAV_MIN, Math.round(width))); };
+    const save = (width) => {
+      this.settings.listNavWidth = width;
+      this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
+    };
+    const current = () => this.settings.listNavWidth ?? LIST_NAV_DEFAULT;
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      const startX = event.clientX, startWidth = pane()?.querySelector(".itemlist")?.getBoundingClientRect().width || current();
+      let width = clamp(startWidth);
+      handle.setPointerCapture?.(event.pointerId);
+      handle.classList.add("is-dragging");
+      const move = (e) => { width = clamp(startWidth + (e.clientX - startX)); apply(width); };
+      const up = () => { handle.classList.remove("is-dragging"); handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up); save(width); };
+      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up); handle.addEventListener("pointercancel", up);
+      event.preventDefault();
+    });
+    handle.addEventListener("dblclick", () => { apply(null); save(null); });
+    handle.addEventListener("keydown", (event) => {
+      const step = event.shiftKey ? 48 : 16;
+      let next = null;
+      if (event.key === "ArrowLeft") next = clamp(current() - step);
+      else if (event.key === "ArrowRight") next = clamp(current() + step);
+      else if (event.key === "Home") next = null;
+      else return;
+      event.preventDefault(); apply(next); save(next);
+    });
+    queueMicrotask(() => apply(this.settings.listNavWidth ?? null));
+    return handle;
+  }
+  // Folds the list column so the editor takes the whole width; remembered per list in settings.
+  listCollapseButton(key, pane) {
+    const collapsed = !!this.settings.collapsedLists?.[key];
+    pane.dataset.collapsed = String(collapsed);
+    return this.b(collapsed ? "목록 펼치기" : "목록 접기", () => {
+      this.settings.collapsedLists = { ...this.settings.collapsedLists, [key]: !collapsed };
+      this.store("settings", this.settings).catch((error) => this.toast(error.message, true));
+      this.renderEditor();
+    }, "small ghost list-collapse", { "aria-pressed": String(collapsed), "data-action": "toggle-list" });
   }
   renderLua(host) {
     const h = this.h.bind(this), s = this.s;
@@ -941,7 +1037,8 @@ export class Workshop {
       }
     } finally {
       if (this.job?.id === job.id) this.job = null;
-      this.render();
+      // The job marker must clear even when drawing the result fails; otherwise the UI stays "작업 중".
+      try { this.render(); } catch (error) { this.jobStatus(); this.lockRequestEditors(); this.toast("화면 갱신 실패: " + error.message, true); }
     }
   }
   // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error.
