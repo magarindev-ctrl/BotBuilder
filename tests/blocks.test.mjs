@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { Workshop } from '../src/ui.js';
-import { parseResponse, applyPacket, blankCharacter, extractBlocks, applyBlocks, JsonSyntaxError, TruncatedResponseError, composeMessages, newSession, defaultPrompt } from '../src/core.js';
+import { parseResponse, applyPacket, blankCharacter, extractBlocks, applyBlocks, JsonSyntaxError, TruncatedResponseError, composeMessages, newSession, defaultPrompt, repairJson } from '../src/core.js';
 
 const LUA = 'function onStart(accessKey)\n  -- braces { } and quotes "day" and a backslash \\ and {"schemaVersion":2}\n  setChatVar(accessKey, "day", "1")\nend';
 const block = (name, body) => `<<<${name}>>>\n${body}\n<<</${name}>>>`;
@@ -128,7 +128,8 @@ test('a string that is exactly the block tag is accepted as a reference; a bare 
 
 test('when the envelope itself does not parse, inner task/data objects are not mistaken for the answer', async () => {
   const c = blankCharacter();
-  const broken = '{"schemaVersion":2,"task":"workshop","data":{"reply":"진행 절차","changes":[{"task":"description","data":{"text":"x"}}],}}';
+  // An unescaped quote inside a string: not one of the two mechanical slips the repair step removes.
+  const broken = '{"schemaVersion":2,"task":"workshop","data":{"reply":"진행 "절차" 안내","changes":[{"task":"description","data":{"text":"x"}}]}}';
   const err = (() => { try { parseResponse(broken, 'workshop', c); } catch (e) { return e; } })();
   assert.ok(err instanceof JsonSyntaxError, 'syntax error, not 필수 필드 누락: ' + err.message);
   assert.doesNotMatch(err.message, /필수 필드 누락/);
@@ -163,5 +164,29 @@ test('an automatic re-request first asks the user, showing the cause and the add
     assert.match(modal.textContent, /LLM에 다시 요청할까요\?/); assert.match(modal.textContent, /실패 원인/); assert.match(modal.textContent, /원인 문구/); assert.match(modal.textContent, /\[주의\] 지시/); assert.match(modal.textContent, /입력 토큰이 한 번 더/);
     [...modal.querySelectorAll('button')].find(b => b.textContent === '다시 요청').click();
     assert.equal(await pending, true);
+  } finally { x.close(); }
+});
+
+test('one stray closing brace or a trailing comma is removed, reported, and needs no re-request; other syntax errors still fail', async () => {
+  const c = blankCharacter(); c.customscript = [{ comment: '규칙', in: 'a', out: 'old out', type: 'editdisplay', flag: 'g', ableFlag: true }];
+  // The exact shape the user hit: an extra "}" before "]" closing the edits array.
+  const stray = '{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":"r0","rule":{"out":{"edits":[{"before":{"block":"out_before"},"after":{"block":"out_after"}}}]}}}],"remove":[]}}\n\n' + block('out_before', 'old out') + '\n' + block('out_after', 'new out');
+  const packet = parseResponse(stray, 'regex', c);
+  assert.deepEqual(packet.repairs, ["여분 닫는 괄호 '}' 1개 제거(151자 부근)"]);
+  assert.equal(applyPacket(c, packet).customscript[0].out, 'new out');
+  const trailing = '{"schemaVersion":2,"task":"description","data":{"text":"본문",},}';
+  const fixed = parseResponse(trailing, 'description', c);
+  assert.deepEqual(fixed.repairs, ['후행 쉼표 2개 제거']); assert.equal(fixed.data.text, '본문');
+  assert.equal(repairJson('{"a":[{"b":1}}]}').text, '{"a":[{"b":1}]}');
+  assert.equal(repairJson('{"a":"x, }"}').fixes.length, 0, 'commas inside strings are untouched');
+  assert.equal(repairJson('{"schemaVersion":2,"task":"description","data":{"text":"say "hi" now"}}'), null, 'an unescaped quote is not repaired');
+  assert.throws(() => parseResponse('{"schemaVersion":2,"task":"description","data":{"text":"say "hi" now"}}', 'description', c), e => e instanceof JsonSyntaxError);
+  const x = await make([() => trailing]);
+  try {
+    let asked = false; x.app.confirmRetry = async () => { asked = true; return true; };
+    await x.app.sendRequest(); await wait();
+    assert.equal(x.calls.length, 1); assert.equal(asked, false, 'a repaired answer needs no re-request');
+    assert.equal(x.app.s.candidates.length, 1); assert.match(x.app.s.thread.at(-1).content, /후행 쉼표 2개 제거.*그대로 읽었습니다/);
+    assert.equal(x.app.s.candidates[0].packet.repairs, undefined, 'the note is not stored in the proposal');
   } finally { x.close(); }
 });

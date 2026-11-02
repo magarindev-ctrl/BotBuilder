@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.8
+//@version 1.1.9
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.9 removes two mechanical JSON slips before giving up on an answer: trailing commas before a closer and one closing brace or bracket too many. Each removal is validated against the response schema and reported to the user; nothing inside strings is touched and no other syntax is corrected.
 Modified 2026-11-02: v1.1.8 asks the user before every automatic re-request (truncated answer, broken JSON, wrong block reference): the dialog shows the failure, the purpose and the instruction the retry adds, and declining keeps the original error without sending anything.
 Modified 2026-11-02: v1.1.7 stops treating inner task/data objects as the answer when the envelope itself does not parse: such answers now report the JSON syntax position (and get the one-time syntax retry) instead of a misleading "schemaVersion missing" error.
 Modified 2026-11-02: v1.1.6 accepts a string that is exactly a block tag ("<<<name>>>") as a block reference, retries once with a pointed instruction when the JSON references blocks wrongly (unknown reference or unreferenced block), and states in the output contract that a reference must be the {"block":"name"} object.
@@ -9925,7 +9926,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.8";
+  var VERSION = "1.1.9";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10475,6 +10476,59 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if (unused.length) throw new BlockReferenceError("JSON\uC774 \uCC38\uC870\uD558\uC9C0 \uC54A\uB294 \uBE14\uB85D\uC774 \uC788\uC2B5\uB2C8\uB2E4: " + unused.map((k) => "<<<" + k + ">>>").join(", ") + '. \uBE14\uB85D\uC744 \uC4F8 \uC790\uB9AC\uC5D0\uB294 {"block":"\uC774\uB984"} \uAC1D\uCCB4\uB97C \uB123\uC5B4\uC57C \uD569\uB2C8\uB2E4.', unused);
     return out;
   }
+  function stripTrailingCommas(text) {
+    let out = "", quoted = false, escaped = false, removed = 0;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        out += ch;
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') quoted = false;
+        continue;
+      }
+      if (ch === '"') {
+        quoted = true;
+        out += ch;
+        continue;
+      }
+      if (ch === ",") {
+        let j = i + 1;
+        while (j < text.length && /\s/.test(text[j])) j++;
+        if (text[j] === "}" || text[j] === "]") {
+          removed++;
+          continue;
+        }
+      }
+      out += ch;
+    }
+    return { text: out, removed };
+  }
+  function repairJson(text) {
+    const fixes = [];
+    const commas = stripTrailingCommas(text);
+    let current = commas.text;
+    if (commas.removed) fixes.push(`\uD6C4\uD589 \uC27C\uD45C ${commas.removed}\uAC1C \uC81C\uAC70`);
+    for (let i = 0; i < 3; i++) {
+      let message;
+      try {
+        JSON.parse(current);
+        return { text: current, fixes };
+      } catch (error) {
+        message = error.message;
+      }
+      const at = /position (\d+)/.exec(message);
+      if (!at) return null;
+      const pos = Number(at[1]), ch = current[pos];
+      if ((ch === "}" || ch === "]") && /after array element|after property value/.test(message)) {
+        current = current.slice(0, pos) + current.slice(pos + 1);
+        fixes.push(`\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638 '${ch}' 1\uAC1C \uC81C\uAC70(${pos.toLocaleString("ko-KR")}\uC790 \uBD80\uADFC)`);
+        continue;
+      }
+      return null;
+    }
+    return null;
+  }
   function jsonSyntaxError(text) {
     const broken = [...responseJsonChunks(text)].filter((chunk) => {
       try {
@@ -10486,7 +10540,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     });
     const first = text.indexOf("{");
     const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
-    if (candidate === null) return new Error("\uC644\uC131\uB41C JSON \uC751\uB2F5 \uAC1D\uCCB4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. JSON \uB0B4\uBD80 \uBB38\uBC95\uC740 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8\uC640 \uC751\uB2F5 \uC6D0\uBB38\uC744 \uD655\uC778\uD558\uC138\uC694.");
+    if (candidate === null) return new Error("\uC644\uC131\uB41C JSON \uC751\uB2F5 \uAC1D\uCCB4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\uC640 \uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638 \uC678\uC5D0\uB294 JSON \uBB38\uBC95\uC744 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8\uC640 \uC751\uB2F5 \uC6D0\uBB38\uC744 \uD655\uC778\uD558\uC138\uC694.");
     let reason = "";
     try {
       JSON.parse(candidate);
@@ -10496,7 +10550,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const at = /position (\d+)/.exec(reason), pos = at ? Number(at[1]) : -1;
     const snippet = pos >= 0 ? candidate.slice(Math.max(0, pos - 40), pos + 40) : /\.\.\."([\s\S]*?)"\.\.\./.exec(reason)?.[1] ?? "";
     const detail = (pos >= 0 ? pos.toLocaleString("ko-KR") + "\uC790 \uBD80\uADFC" : "\uC704\uCE58 \uBD88\uBA85") + (snippet ? " " + JSON.stringify(snippet) : "") + (reason ? " \xB7 " + reason.replace(/ in JSON at position \d+.*$/, "") : "");
-    return new JsonSyntaxError("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uC2B5\uB2C8\uB2E4 \xB7 " + detail + ". \uD754\uD55C \uC6D0\uC778\uC740 \uBB38\uC790\uC5F4 \uC548\uC758 \uC774\uC2A4\uCF00\uC774\uD504\uB418\uC9C0 \uC54A\uC740 \uD070\uB530\uC634\uD45C\xB7\uC904\uBC14\uAFC8\xB7\uC5ED\uC2AC\uB798\uC2DC, \uD6C4\uD589 \uC27C\uD45C, \uC8FC\uC11D\uC785\uB2C8\uB2E4. \uAE34 \uCF54\uB4DC\xB7\uBCF8\uBB38\uC740 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uBA74 \uC774\uC2A4\uCF00\uC774\uD504\uAC00 \uD544\uC694 \uC5C6\uC2B5\uB2C8\uB2E4. JSON \uB0B4\uBD80 \uBB38\uBC95\uC740 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", detail);
+    return new JsonSyntaxError("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uC2B5\uB2C8\uB2E4 \xB7 " + detail + ". \uD754\uD55C \uC6D0\uC778\uC740 \uBB38\uC790\uC5F4 \uC548\uC758 \uC774\uC2A4\uCF00\uC774\uD504\uB418\uC9C0 \uC54A\uC740 \uD070\uB530\uC634\uD45C\xB7\uC904\uBC14\uAFC8\xB7\uC5ED\uC2AC\uB798\uC2DC, \uD6C4\uD589 \uC27C\uD45C, \uC8FC\uC11D\uC785\uB2C8\uB2E4. \uAE34 \uCF54\uB4DC\xB7\uBCF8\uBB38\uC740 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uBA74 \uC774\uC2A4\uCF00\uC774\uD504\uAC00 \uD544\uC694 \uC5C6\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\uC640 \uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\uB294 \uC790\uB3D9\uC73C\uB85C \uAC77\uC5B4\uB0B4\uC9C0\uB9CC \uADF8 \uBC16\uC758 \uBB38\uBC95\uC740 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", detail);
   }
   async function reviewPacket(packet, draft, choose) {
     const result = clone(packet);
@@ -10580,6 +10634,22 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     if (response !== null) return response;
     if (validationError) throw validationError;
+    if (!jsonTruncated(text)) {
+      const repaired = repairJson(text);
+      if (repaired && repaired.fixes.length) {
+        let fixed = null;
+        try {
+          fixed = JSON.parse(repaired.text);
+        } catch {
+          fixed = null;
+        }
+        if (fixed && typeof fixed === "object" && !Array.isArray(fixed) && Object.hasOwn(fixed, "schemaVersion")) {
+          const out = validate(fixed);
+          out.repairs = repaired.fixes;
+          return out;
+        }
+      }
+    }
     if (jsonTruncated(text)) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0. JSON\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC740 \uCC44 \uB05D\uB0AC\uC2B5\uB2C8\uB2E4. \uBAA8\uB378\uC758 \uCD9C\uB825 \uC0C1\uD55C\uC774\uB098 \uC911\uACC4 \uC11C\uBE44\uC2A4\uC758 \uC81C\uD55C\uC5D0 \uAC78\uB838\uAC70\uB098, \uC2A4\uD2B8\uB9AC\uBC0D \uC911 \uC5F0\uACB0\uC774 \uB04A\uAE34 \uACBD\uC6B0(\uBAA8\uBC14\uC77C \uD654\uBA74 \uAEBC\uC9D0\xB7\uC571 \uC804\uD658)\uC785\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uD0ED\uBCC4\uB85C \uB098\uB204\uAC70\uB098 \uBD80\uBD84\uD3B8\uC9D1(edits)\uC73C\uB85C \uB2E4\uC2DC \uC694\uCCAD\uD558\uC138\uC694. \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     throw jsonSyntaxError(text);
   }
@@ -16263,6 +16333,10 @@ details[open] > summary { margin-bottom: 9px; }
       const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
       const receive = async (text, draft) => {
         const parsed = parseResponse(text, task, draft, true);
+        if (parsed.repairs?.length) {
+          notes.push("\uC751\uB2F5 JSON\uC758 " + parsed.repairs.join(", ") + ". \uAD6C\uC870 \uAC80\uC99D\uC744 \uD1B5\uACFC\uD574 \uADF8\uB300\uB85C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4.");
+          delete parsed.repairs;
+        }
         if (parsed.data === null) return parsed;
         return reviewPacket(parsed, draft, (item) => {
           assert(!job.cancelled, "\uC694\uCCAD\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.");
