@@ -5,7 +5,7 @@
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
-Modified 2026-11-02: v1.2.0 adds lorebook folders in the Risu layout (folder entries with mode 'folder' and children keyed by the folder key) with folder-level request inclusion, Risu enable/hide and always-active switches; a drag handle between every item list and its editor plus list folding (both remembered in settings); foldable module and preview cards; and linear-time assembly of long streamed answers so the plugin no longer stays busy after the model has finished.
+Modified 2026-11-02: v1.2.0 adds lorebook folders in the Risu layout (folder entries with mode 'folder' and children keyed by the folder key) with folder-level request inclusion, Risu enable/hide and always-active switches; a drag handle between every item list and its editor plus list folding (both remembered in settings); foldable module and preview cards; and linear-time assembly of long streamed answers so the plugin no longer stays busy after the model has finished; the user template now puts stable material (draft, reference, format) before the conversation, pending proposals and request so provider prefix caches can reuse it, with new CONVERSATION and PENDING_PROPOSALS slots and in-place upgrade of a saved default template.
 Modified 2026-11-02: v1.1.10 accepts a closing block tag that is glued to the last code line, indented, or spaced inside (<<< /name >>>), and allows an indented opening tag; a genuinely missing closer is still reported as a truncated answer, now with the received length.
 Modified 2026-11-02: v1.1.9 removes two mechanical JSON slips before giving up on an answer: trailing commas before a closer and one closing brace or bracket too many. Each removal is validated against the response schema and reported to the user; nothing inside strings is touched and no other syntax is corrected.
 Modified 2026-11-02: v1.1.8 asks the user before every automatic re-request (truncated answer, broken JSON, wrong block reference): the dialog shows the failure, the purpose and the instruction the retry adds, and declining keeps the original error without sending anything.
@@ -10107,6 +10107,26 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
 [\uD604\uC7AC\uC548]
 <<CURRENT_DRAFT>>
 
+[\uCC38\uACE0\uC790\uB8CC]
+<<REFERENCE_CONTEXT>>
+
+[\uCD9C\uB825 \uD615\uC2DD]
+<<OUTPUT_FORMAT>>
+
+[\uC124\uACC4 \uB300\uD654 \uAE30\uB85D]
+<<CONVERSATION>>
+
+[\uBBF8\uC801\uC6A9 \uC81C\uC548]
+<<PENDING_PROPOSALS>>
+
+[\uC0AC\uC6A9\uC790 \uC694\uCCAD\uC0AC\uD56D]
+<<USER_REQUEST>>`;
+  var LEGACY_USER_TEMPLATE = `[\uC791\uC5C5 \uC885\uB958]
+<<TASK_NAME>>
+
+[\uD604\uC7AC\uC548]
+<<CURRENT_DRAFT>>
+
 [\uC0AC\uC6A9\uC790 \uC694\uCCAD\uC0AC\uD56D]
 <<USER_REQUEST>>
 
@@ -10162,14 +10182,23 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       delete reference.character.lorebook;
       reference.currentDraftNote = "\uD604\uC7AC \uB85C\uC5B4\uBD81\uACFC ref\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4. \uBCC0\uACBD\xB7\uCD94\uAC00 \uD56D\uBAA9\uB9CC \uBC18\uD658\uD558\uB77C.";
     }
-    reference.pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => {
+    const pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => {
       const packets = candidatePackets(c);
       return packets.map((p, i) => ({ id: packets.length > 1 ? c.id + "#" + (i + 1) : c.id, task: p.task, data: filterLoreProposal(p, session).data }));
     });
-    reference.pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
+    const pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
     reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length, note: "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB85C\uC5B4\uBD81\uC740 \uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC81C\uACF5\uD588\uB2E4. ref\uB294 \uC6D0\uBCF8 \uC778\uB371\uC2A4\uC774\uBA70 \uBE60\uC9C4 \uBC88\uD638\uB97C \uC7AC\uC815\uB82C\uD558\uAC70\uB098 \uB204\uB77D \uD56D\uBAA9\uC744 \uCD94\uCE21\uD574 \uC218\uC815\xB7\uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uC774\uC804 \uB300\uD654\uC5D0 \uB0A8\uC544 \uC788\uB294 \uC790\uB8CC\uB294 \uD604\uC7AC \uD3EC\uD568 \uC0C1\uD0DC\uB97C \uC758\uBBF8\uD558\uC9C0 \uC54A\uB294\uB2E4." };
+    if (prompt.user.includes("<<CONVERSATION>>")) {
+      values.CONVERSATION = JSON.stringify(reference.conversation);
+      delete reference.conversation;
+    }
+    if (prompt.user.includes("<<PENDING_PROPOSALS>>")) values.PENDING_PROPOSALS = JSON.stringify({ note: pendingProposalNote, proposals: pendingProposals });
+    else {
+      reference.pendingProposals = pendingProposals;
+      reference.pendingProposalNote = pendingProposalNote;
+    }
     values.REFERENCE_CONTEXT = JSON.stringify(reference);
-    return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT)>>/g, (_, key2) => values[key2]) }];
+    return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT|CONVERSATION|PENDING_PROPOSALS)>>/g, (_, key2) => values[key2]) }];
   }
   var LORE_KEYS = ["comment", "key", "secondkey", "content", "insertorder", "mode", "alwaysActive", "selective", "useRegex", "activationPercent"];
   var REGEX_KEYS = ["comment", "in", "out", "flag", "ableFlag", "type"];
@@ -15643,7 +15672,13 @@ details[open] > summary { margin-bottom: 9px; }
         try {
           if (raw) {
             const p = JSON.parse(raw);
-            if (typeof p.system === "string" && typeof p.user === "string") this.prompts[task] = p;
+            if (typeof p.system === "string" && typeof p.user === "string") {
+              if (p.user === LEGACY_USER_TEMPLATE) {
+                p.user = USER_TEMPLATE;
+                await this.store("prompt:" + task, p);
+              }
+              this.prompts[task] = p;
+            }
           }
         } catch {
         }

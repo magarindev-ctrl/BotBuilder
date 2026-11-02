@@ -1,6 +1,6 @@
 import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX, candidatePackets, chunkOptions, CHUNK_MIN_TOKENS, CHUNK_MAX_TOKENS, CHUNK_HARD_MAX } from './core.js';
 import { CSS } from './style.js';
-import { VERSION, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, USER_TEMPLATE, LEGACY_USER_TEMPLATE, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
@@ -235,7 +235,11 @@ export class Workshop {
       try {
         if (raw) {
           const p = JSON.parse(raw);
-          if (typeof p.system === "string" && typeof p.user === "string") this.prompts[task] = p;
+          if (typeof p.system === "string" && typeof p.user === "string") {
+            // A saved template that is still the old default order gets the cache-friendly order; edited templates are kept.
+            if (p.user === LEGACY_USER_TEMPLATE) { p.user = USER_TEMPLATE; await this.store("prompt:" + task, p); }
+            this.prompts[task] = p;
+          }
         }
       } catch {
       }

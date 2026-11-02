@@ -761,3 +761,15 @@ test('preset block list has the splitter and fold button, module cards and previ
     const previews = [...doc.querySelectorAll('details.preview-message')]; assert.ok(previews.length >= 2); assert.match(previews[0].querySelector('summary').textContent, /^1\. system · [\d,]+자/);
   } finally { x.close(); }
 });
+
+test('a saved prompt still in the old default order is upgraded to the cache-friendly order; an edited one is kept', async () => {
+  const { USER_TEMPLATE, LEGACY_USER_TEMPLATE, defaultPrompt } = await import('../src/core.js');
+  const x = await make({ [PREFIX + 'prompt:description']: JSON.stringify({ system: defaultPrompt('description').system, user: LEGACY_USER_TEMPLATE }), [PREFIX + 'prompt:greeting']: JSON.stringify({ system: 'custom', user: LEGACY_USER_TEMPLATE + '\n추가 지시' }) });
+  try {
+    assert.equal(x.app.prompts.description.user, USER_TEMPLATE);
+    assert.equal(JSON.parse(x.store.get(PREFIX + 'prompt:description')).user, USER_TEMPLATE);
+    assert.equal(x.app.prompts.greeting.user, LEGACY_USER_TEMPLATE + '\n추가 지시');
+    x.app.task = 'greeting'; x.app.s.requests.greeting = '요청';
+    assert.match(x.app.previewRequest('greeting').messages[1].content, /pendingProposalNote/);
+  } finally { x.close(); }
+});

@@ -297,3 +297,24 @@ test('a long cumulative stream is assembled in linear time and still enforces th
   const big = new ReadableStream({ start(controller) { controller.enqueue({ '0': 'y'.repeat(1048577) }); controller.close(); } });
   await assert.rejects(callModel({ runLLMModel: async () => ({ type: 'streaming', result: big }) }, [], 'submodel', 30, {}), /1MiB/);
 });
+
+test('the user template keeps stable material first and the request last, and an old saved template still works', async () => {
+  const { USER_TEMPLATE, LEGACY_USER_TEMPLATE } = await import('../src/core.js');
+  const s = newSession(); s.draft.desc = '설명'; s.thread.push({ role: 'user', content: '이전 질문' }, { role: 'assistant', content: '이전 답' });
+  s.candidates.push({ id: 'cand', packet: { task: 'description', data: { text: '제안 본문' } }, before: clone(s.draft) });
+  const user = composeMessages(s, 'description', '이번 요청', defaultPrompt('description'))[1].content;
+  const at = (label) => user.indexOf(label);
+  assert.ok(at('[현재안]') < at('[참고자료]') && at('[참고자료]') < at('[출력 형식]') && at('[출력 형식]') < at('[설계 대화 기록]') && at('[설계 대화 기록]') < at('[미적용 제안]') && at('[미적용 제안]') < at('[사용자 요청사항]'));
+  assert.ok(user.trimEnd().endsWith('이번 요청'), 'the request is the last thing in the message');
+  // The reference no longer repeats the conversation or proposals; they live in their own slots after the stable prefix.
+  const reference = user.slice(at('[참고자료]'), at('[출력 형식]'));
+  assert.doesNotMatch(reference, /이전 답/); assert.doesNotMatch(reference, /제안 본문/); assert.match(reference, /lorebookSelection/);
+  assert.match(user.slice(at('[설계 대화 기록]'), at('[미적용 제안]')), /이전 답/); assert.match(user.slice(at('[미적용 제안]'), at('[사용자 요청사항]')), /제안 본문/);
+  // Two requests on the same draft share everything up to the conversation; only the tail differs.
+  const again = composeMessages(s, 'description', '다른 요청', defaultPrompt('description'))[1].content;
+  assert.equal(again.slice(0, again.indexOf('[설계 대화 기록]')), user.slice(0, at('[설계 대화 기록]')));
+  // A custom template in the old order still receives the conversation and proposals inside the reference.
+  const legacy = composeMessages(s, 'description', '이번 요청', { ...defaultPrompt('description'), user: LEGACY_USER_TEMPLATE })[1].content;
+  assert.match(legacy, /이전 답/); assert.match(legacy, /제안 본문/); assert.match(legacy, /pendingProposalNote/); assert.doesNotMatch(legacy, /\[설계 대화 기록\]/);
+  assert.notEqual(USER_TEMPLATE, LEGACY_USER_TEMPLATE);
+});
