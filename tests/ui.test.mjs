@@ -650,3 +650,15 @@ test('proposal review shows CBS warnings for {{else}} in a proposed first messag
     assert.equal(cards[cards.length - 1].querySelector('.cbs-warn'), null, 'valid CBS has no warning');
   } finally { x.close(); }
 });
+
+test('restoring a saved session keeps global settings (timeout, input limit) and only restores model, task and scope', async () => {
+  const x = await make(); try {
+    x.app.task = 'lorebook'; x.app.scopeOnly = true; x.app.settings.model = 'model'; x.app.setField('desc', '원고'); await x.app.saveSlot('manual');
+    x.app.settings = { ...x.app.settings, timeout: 1800, maxInputChars: 500000, model: 'submodel', chunkTokens: 3000 }; await x.app.store('settings', x.app.settings);
+    x.app.task = 'workshop'; x.app.scopeOnly = false;
+    await x.app.replaceSession(x.app.slots.manual.session);
+    assert.equal(x.app.settings.timeout, 1800); assert.equal(x.app.settings.maxInputChars, 500000); assert.equal(x.app.settings.chunkTokens, 3000);
+    assert.equal(x.app.settings.model, 'model'); assert.equal(x.app.task, 'lorebook'); assert.equal(x.app.scopeOnly, true);
+    assert.equal(JSON.parse(x.store.get(PREFIX + 'settings')).timeout, 1800);
+  } finally { x.close(); }
+});

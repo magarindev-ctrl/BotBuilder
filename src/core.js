@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.4';
+export const VERSION = '1.1.5';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -418,6 +418,15 @@ function resolveBlocks(value, blocks, used) {
   }
   return value;
 }
+function blockReferences(value, out = new Set()) {
+  if (Array.isArray(value)) value.forEach((v) => blockReferences(v, out));
+  else if (value && typeof value === 'object') {
+    const names = Object.keys(value);
+    if (names.length === 1 && names[0] === 'block' && typeof value.block === 'string') out.add(value.block);
+    else names.forEach((k) => blockReferences(value[k], out));
+  }
+  return out;
+}
 export function applyBlocks(response, blocks) {
   const used = new Set(), out = resolveBlocks(response, blocks, used);
   const unused = [...blocks.keys()].filter((k) => !used.has(k));
@@ -462,8 +471,17 @@ export async function reviewPacket(packet, draft, choose) {
 export function parseResponse(raw, task, draft, review = false) {
   assert(typeof raw === 'string' && bytes(raw) <= 1048576, '응답이 없거나 1MiB 상한을 초과했습니다.');
   const { text, blocks } = extractBlocks(raw);
+  // The answer stops right after a block close (or after the JSON) while the JSON still points at a block that never came.
+  const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
   const validate=parsedResponse=>{
-    const response = applyBlocks(parsedResponse, blocks);
+    let response;
+    try { response = applyBlocks(parsedResponse, blocks); } catch (error) {
+      // Every block that did arrive is referenced and the text stops at a block edge: the rest never came.
+      const referenced = blockReferences(parsedResponse);
+      const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
+      if (endsAtBlockEdge && !straggler && /참조한 블록이 응답에 없습니다/.test(error.message)) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · ${raw.length.toLocaleString('ko-KR')}자 수신. JSON이 참조한 블록이 오기 전에 응답이 끝났습니다. ${error.message}. 모델의 출력 상한이나 중계 서비스의 제한에 걸렸거나 스트리밍 중 연결이 끊긴 경우입니다. 잘린 응답은 복구하지 않습니다.`);
+      throw error;
+    }
     keys(response,['schemaVersion','task','data'],['plan']);
     assert([1,2].includes(response.schemaVersion)&&response.task===task,'응답 버전 또는 작업 종류가 요청과 다릅니다.');
     validatePacketVersion(response);
