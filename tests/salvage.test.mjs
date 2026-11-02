@@ -59,7 +59,7 @@ test('inside a workshop answer a change that loses its only item is removed; oth
 });
 
 const wait = () => new Promise(resolve => setTimeout(resolve, 12));
-const userText = options => options.messages.findLast(m => m.role === 'user').content;
+const userText = options => options.messages.filter(m => m.role === 'user').map(m => m.content).join('\n');
 async function make(handlers, settings = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://local.test/' });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

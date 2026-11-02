@@ -939,7 +939,7 @@ export class Workshop {
   // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
   previewRequest(task = this.task, forcePreset = false, override = {}) {
     const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
-    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), chunkOptions(this.settings));
+    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), cacheSplit: !usePreset });
     const report = usePreset ? assemblePreset(session.preset, session, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
     return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
   }

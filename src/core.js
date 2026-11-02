@@ -227,8 +227,23 @@ export function composeMessages(session, task, request, prompt, options = {}) {
   if (prompt.user.includes("<<PENDING_PROPOSALS>>")) values.PENDING_PROPOSALS = JSON.stringify({ note: pendingProposalNote, proposals: pendingProposals });
   else { reference.pendingProposals = pendingProposals; reference.pendingProposalNote = pendingProposalNote; }
   values.REFERENCE_CONTEXT = JSON.stringify(reference);
-  return [{ role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) }, { role: "user", content: prompt.user.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT|CONVERSATION|PENDING_PROPOSALS)>>/g, (_, key2) => values[key2]) }];
+  const fill = (template) => template.replace(/<<(TASK_NAME|CURRENT_DRAFT|USER_REQUEST|REFERENCE_CONTEXT|OUTPUT_FORMAT|CONVERSATION|PENDING_PROPOSALS)>>/g, (_, key2) => values[key2]);
+  const system = { role: "system", content: prompt.system + "\n\n" + jsonContract(task, options) };
+  // Prompt-cache split (direct mode): the stable prefix (draft, reference, format) goes in its own user message
+  // with a cache point, an assistant acknowledgement keeps the host from merging it with the changing tail
+  // (RisuBard joins consecutive same-role messages and would move the cache point past the request), and the
+  // conversation, pending proposals and request follow in a second user message.
+  const cut = options.cacheSplit === true ? prompt.user.indexOf("<<CONVERSATION>>") : -1;
+  if (cut > 0) {
+    const at = prompt.user.lastIndexOf("\n\n", cut);
+    if (at > 0) {
+      const head = fill(prompt.user.slice(0, at)), tail = fill(prompt.user.slice(at + 2));
+      if (head.trim() && tail.includes(request)) return [system, { role: "user", content: head, cachePoint: true }, { role: "assistant", content: CACHE_ACK }, { role: "user", content: tail }];
+    }
+  }
+  return [system, { role: "user", content: fill(prompt.user) }];
 }
+export const CACHE_ACK = "현재안·참고자료·출력 형식을 확인했다. 이어지는 설계 대화 기록과 요청에 따라 출력 형식대로 응답하겠다.";
 const LORE_KEYS = ['comment', 'key', 'secondkey', 'content', 'insertorder', 'mode', 'alwaysActive', 'selective', 'useRegex', 'activationPercent'];
 const REGEX_KEYS = ['comment', 'in', 'out', 'flag', 'ableFlag', 'type'];
 function validateEntry(entry, type, isNew) {
