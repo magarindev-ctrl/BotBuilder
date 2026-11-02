@@ -190,3 +190,15 @@ test('one stray closing brace or a trailing comma is removed, reported, and need
     assert.equal(x.app.s.candidates[0].packet.repairs, undefined, 'the note is not stored in the proposal');
   } finally { x.close(); }
 });
+
+test('a closing block tag glued to the last line, indented, or spaced inside is still a close; a missing one is truncation', () => {
+  const c = luaDraft();
+  const env = JSON.stringify({ schemaVersion: 2, task: 'lua', data: { scripts: [{ ref: null, comment: '새 Lua', code: { block: 'b_lua1' } }], removeScripts: [], variables: {}, removeVariables: [] } });
+  const code = 'function onStart(accessKey)\n  setChatVar(accessKey, "day", "1")\nend';
+  for (const tail of ['\n<<<b_lua1>>>\n' + code + '<<</b_lua1>>>', '\n  <<<b_lua1>>>\n' + code + '\n   <<</b_lua1>>>  ', '\n<<< b_lua1 >>>\n' + code + '\n<<< /b_lua1 >>>\n설명 끝', '\n<<<b_lua1>>>\n' + code + '  \n<<</b_lua1>>>']) {
+    const packet = parseResponse(env + tail, 'lua', c);
+    assert.equal(packet.data.scripts[0].code, code, JSON.stringify(tail));
+  }
+  const cut = env + '\n<<<b_lua1>>>\nfunction onStart(accessKey)\n  setChatVar(';
+  assert.throws(() => parseResponse(cut, 'lua', c), e => e instanceof TruncatedResponseError && /<<<\/b_lua1>>>를 찾지 못함/.test(e.message) && /자 수신/.test(e.message));
+});

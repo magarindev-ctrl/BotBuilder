@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.9
+//@version 1.1.10
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.10 accepts a closing block tag that is glued to the last code line, indented, or spaced inside (<<< /name >>>), and allows an indented opening tag; a genuinely missing closer is still reported as a truncated answer, now with the received length.
 Modified 2026-11-02: v1.1.9 removes two mechanical JSON slips before giving up on an answer: trailing commas before a closer and one closing brace or bracket too many. Each removal is validated against the response schema and reported to the user; nothing inside strings is touched and no other syntax is corrected.
 Modified 2026-11-02: v1.1.8 asks the user before every automatic re-request (truncated answer, broken JSON, wrong block reference): the dialog shows the failure, the purpose and the instruction the retry adds, and declining keeps the original error without sending anything.
 Modified 2026-11-02: v1.1.7 stops treating inner task/data objects as the answer when the envelope itself does not parse: such answers now report the JSON syntax position (and get the one-time syntax retry) instead of a misleading "schemaVersion missing" error.
@@ -9926,7 +9927,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.9";
+  var VERSION = "1.1.10";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10421,18 +10422,18 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   var BLOCK_NAME = /^[A-Za-z0-9_.-]{1,40}$/;
   function extractBlocks(raw) {
     const blocks = /* @__PURE__ */ new Map(), parts = [];
-    const open = /^<<<([^<>\r\n]{1,60})>>>[ \t\r]*$/gm;
+    const open = /^[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
     let cursor = 0, m;
     while (m = open.exec(raw)) {
       const name = m[1];
       assert(BLOCK_NAME.test(name), "\uBE14\uB85D \uC774\uB984\uC740 \uC601\uBB38\xB7\uC22B\uC790\xB7_ 1~40\uC790\uC5EC\uC57C \uD569\uB2C8\uB2E4: " + name);
       assert(!blocks.has(name), "\uBE14\uB85D \uC774\uB984\uC774 \uC911\uBCF5\uB429\uB2C8\uB2E4: <<<" + name + ">>>");
       const bodyStart = m.index + m[0].length;
-      const close = new RegExp("^<<</" + name.replace(/[.-]/g, "\\$&") + ">>>[ \\t\\r]*$", "gm");
+      const close = new RegExp("<<<\\s*/\\s*" + name.replace(/[.-]/g, "\\$&") + "\\s*>>>", "g");
       close.lastIndex = bodyStart;
       const c = close.exec(raw);
-      if (!c) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 \uBE14\uB85D <<<${name}>>>\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-      blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, "").replace(/\r?\n$/, ""));
+      if (!c) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 \uBE14\uB85D <<<${name}>>>\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(<<</${name}>>>\uB97C \uCC3E\uC9C0 \uBABB\uD568 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0). \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, "").replace(/\r?\n[ \t]*$/, "").replace(/[ \t]+$/, ""));
       parts.push(raw.slice(cursor, m.index));
       cursor = c.index + c[0].length;
       open.lastIndex = cursor;
