@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.1.6
+//@version 1.1.7
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-02: v1.1.7 stops treating inner task/data objects as the answer when the envelope itself does not parse: such answers now report the JSON syntax position (and get the one-time syntax retry) instead of a misleading "schemaVersion missing" error.
 Modified 2026-11-02: v1.1.6 accepts a string that is exactly a block tag ("<<<name>>>") as a block reference, retries once with a pointed instruction when the JSON references blocks wrongly (unknown reference or unreferenced block), and states in the output contract that a reference must be the {"block":"name"} object.
 Modified 2026-11-02: v1.1.5 treats an answer that stops at a block edge while the JSON still references a block that never arrived as a truncated response (so the chunked-request retry applies), and restoring a saved session no longer overwrites the global timeout and input-limit settings; only the model choice, task and scope come back with the session.
 Modified 2026-11-02: v1.1.4 adds RisuAI CBS syntax guidance to the prompts ({{#if}}…{{:else}}…{{/if}}, never {{else}}) and a text-only CBS check in proposal review that warns about unsupported else spellings and unbalanced condition blocks before a proposal is applied.
@@ -9923,7 +9924,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.1.6";
+  var VERSION = "1.1.7";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10556,12 +10557,14 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     } catch {
     }
     if (parsed) return validate(exact);
-    let response = null, validationError = null;
+    let response = null, validationError = null, index = 0;
     for (const chunk of responseJsonChunks(text)) {
+      const first = index++ === 0;
       let candidate;
       try {
         candidate = JSON.parse(chunk);
       } catch {
+        if (first) break;
         continue;
       }
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || !["schemaVersion", "task", "data"].some((key2) => Object.hasOwn(candidate, key2))) continue;

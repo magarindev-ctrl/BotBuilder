@@ -124,3 +124,21 @@ test('a string that is exactly the block tag is accepted as a reference; a bare 
     await x.app.applyCandidate(x.app.s.candidates[0]); assert.equal(x.app.s.draft.desc, '완성 본문');
   } finally { x.close(); }
 });
+
+test('when the envelope itself does not parse, inner task/data objects are not mistaken for the answer', async () => {
+  const c = blankCharacter();
+  const broken = '{"schemaVersion":2,"task":"workshop","data":{"reply":"진행 절차","changes":[{"task":"description","data":{"text":"x"}}],}}';
+  const err = (() => { try { parseResponse(broken, 'workshop', c); } catch (e) { return e; } })();
+  assert.ok(err instanceof JsonSyntaxError, 'syntax error, not 필수 필드 누락: ' + err.message);
+  assert.doesNotMatch(err.message, /필수 필드 누락/);
+  const x = await make([
+    () => broken,
+    options => { assert.match(userText(options), /JSON 문법이 깨졌다/); return JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '진행 절차', changes: [] } }); }
+  ]);
+  try {
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '진행 절차를 정리해 줘';
+    await x.app.sendRequest(); await wait();
+    assert.equal(x.calls.length, 2); assert.match(x.app.s.thread.at(-1).content, /진행 절차/); assert.equal(x.app.s.thread.at(-1).error, undefined);
+  } finally { x.close(); }
+  assert.throws(() => parseResponse(JSON.stringify({ task: 'description', data: { text: 'x' } }), 'description', c), /필수 필드 누락: schemaVersion/, 'a real envelope without schemaVersion still says so');
+});
