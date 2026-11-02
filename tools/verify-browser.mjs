@@ -200,7 +200,8 @@ try {
   assert.match(await frame.locator('.message.assistant .bubble').last().innerText(),/적용할 변경 사항이 없습니다/);
   assert.deepEqual(await frame.evaluate(()=>window.__calls[2].messages),preview);
   await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
-  await frame.waitForFunction(async()=>Boolean(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')));
+  // The key already exists from the import's own save, so wait for the edited values to land, not just for the key.
+  await frame.waitForFunction(async()=>{const raw=await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace');try{return Boolean(raw)&&JSON.parse(raw).values?.toggle_tone==='1';}catch{return false;}});
   const savedPreset=await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')));
   assert.equal(savedPreset.values.toggle_tone,'1');assert.equal(savedPreset.preset.promptTemplate[1].role,'bot');
   results.push({name:'block text, role and order edits match transmitted messages; local preset selections save',passed:true});

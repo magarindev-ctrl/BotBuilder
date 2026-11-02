@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.1.6';
+export const VERSION = '1.1.7';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -501,9 +501,15 @@ export function parseResponse(raw, task, draft, review = false) {
   let exact,parsed=false;
   try{exact=JSON.parse(text);parsed=true;}catch{/* Headers, fences and trailing prose are handled below. */}
   if(parsed)return validate(exact);
-  let response=null,validationError=null;
+  let response=null,validationError=null,index=0;
   for(const chunk of responseJsonChunks(text)) {
-    let candidate;try{candidate=JSON.parse(chunk);}catch{continue;}
+    const first=index++===0;
+    let candidate;try{candidate=JSON.parse(chunk);}catch{
+      // The first container is the envelope. When it does not parse, later objects are its own pieces
+      // (e.g. {"task":…,"data":…} inside changes), not answers: report the syntax problem, not a missing field.
+      if(first)break;
+      continue;
+    }
     if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||!['schemaVersion','task','data'].some(key=>Object.hasOwn(candidate,key)))continue;
     try{candidate=validate(candidate);}catch(error){validationError??=error;continue;}
     assert(response===null,'유효한 JSON 응답이 여러 개입니다. 하나의 응답 객체만 반환해야 합니다.');response=candidate;
