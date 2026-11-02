@@ -6,7 +6,7 @@ import { parseResponse, jsonContract, composeMessages, defaultPrompt, newSession
 
 const wait = () => new Promise(resolve => setTimeout(resolve, 12));
 const envelope = (data, plan) => JSON.stringify({ schemaVersion: 2, task: 'description', data, ...plan ? { plan } : {} });
-const userText = options => options.messages.findLast(m => m.role === 'user').content;
+const userText = options => options.messages.filter(m => m.role === 'user').map(m => m.content).join('\n');
 async function make(handlers, settings = {}) {
   const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://local.test/' });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

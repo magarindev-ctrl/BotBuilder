@@ -24,7 +24,7 @@ window.risuai = {
  setDatabaseLite:async db=>{window.__hostWrites.push('setDatabase');chars=structuredClone(db.characters);},
  runLLMModel:async o=>{window.__calls.push(o);await new Promise(r=>setTimeout(r,60));
  if(window.__responseOverride)return {type:'success',result:window.__responseOverride};
- const task = o.messages.findLast(m=>m.role==='user').content.split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
+ const task = o.messages.filter(m=>m.role==='user').map(m=>m.content).join('\\n').split('[출력 형식]')[1].includes('"task": "workshop"')?'workshop':'description';
  const data = task==='workshop'?{reply:'기억을 거래하는 항구 도시를 배경으로 시작해볼까요? 사용자의 역할부터 함께 정해보면 좋겠습니다.',changes:[]}:{text:'기억을 거래하는 항구 도시의 기록관. 사람들의 사라진 과거를 찾아주며, 자신의 기억만은 되찾지 못하고 있다.'};
  const result=JSON.stringify({schemaVersion:1,task,data});return {type:'success',result:window.__wrapResponse?'## OOC Response\\n'+result+'\\n응답 뒤의 부가 설명':result};},
  saveAsset:async()=> 'assets/mock',readImage:async()=>new Uint8Array([1,2,3])
