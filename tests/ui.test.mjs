@@ -803,3 +803,85 @@ test('folder scopeOnly is rejected, workshop summary mode shows in mode-strip, a
     assert.equal(x.app.s.draft.desc, '초기 설명');
   } finally { x.close(); }
 });
+
+test('workshop plain-text response with no JSON asks user via confirmPlainReply (reply, retry, stop) while non-workshop rejects it', async () => {
+  const x = await make();
+  try {
+    // 1) Choosing "reply" accepts plain prose as conversation reply with zero draft/candidate mutation.
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '장르 추천해 줘';
+    x.app.api.runLLMModel = async (opts) => { x.calls.push(opts); return { type: 'success', result: '어반 판타지와 추리물의 결합을 추천합니다.' }; };
+    let seenText = null;
+    x.app.confirmPlainReply = async (text) => { seenText = text; return 'reply'; };
+    await x.app.sendRequest();
+    assert.equal(x.calls.length, 1);
+    assert.equal(seenText, '어반 판타지와 추리물의 결합을 추천합니다.');
+    assert.equal(x.app.s.candidates.length, 0);
+    assert.equal(x.app.s.draft.desc, '');
+    assert.equal(x.app.s.thread.at(-1).error, undefined);
+    assert.match(x.app.s.thread.at(-1).content, /어반 판타지와 추리물의 결합/);
+    assert.match(x.app.s.thread.at(-1).content, /대화 답변\(원고 변경 없음\)으로 반영/);
+
+    // 2) Choosing "retry" sends one pointed JSON retry and parses the response.
+    x.calls.length = 0;
+    const responses = ['일반 설명문입니다.', JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: 'JSON으로 다시 답했습니다.', changes: [] } })];
+    x.app.api.runLLMModel = async (opts) => { x.calls.push(opts); return { type: 'success', result: responses.shift() }; };
+    x.app.confirmPlainReply = async () => 'retry';
+    x.app.s.requests.workshop = '계속 논의하자';
+    await x.app.sendRequest();
+    assert.equal(x.calls.length, 2);
+    assert.match(x.calls[1].messages.at(-1).content, /직전 응답에 JSON 객체가 없었다/);
+    assert.equal(x.app.s.thread.at(-1).error, undefined);
+    assert.match(x.app.s.thread.at(-1).content, /JSON으로 다시 답했습니다/);
+
+    // 3) Choosing "stop" keeps the error without sending a second request.
+    x.calls.length = 0;
+    x.app.api.runLLMModel = async (opts) => { x.calls.push(opts); return { type: 'success', result: '그냥 텍스트만 보냅니다.' }; };
+    x.app.confirmPlainReply = async () => 'stop';
+    x.app.s.requests.workshop = '다시 물어볼게';
+    await x.app.sendRequest();
+    assert.equal(x.calls.length, 1);
+    assert.equal(x.app.s.thread.at(-1).error, true);
+    assert.match(x.app.s.thread.at(-1).content, /재요청하지 않았습니다/);
+
+    // 4) Non-workshop task must never open confirmPlainReply or accept plain prose.
+    x.calls.length = 0;
+    let calledForDesc = false;
+    x.app.confirmPlainReply = async () => { calledForDesc = true; return 'reply'; };
+    x.app.task = 'description'; x.app.s.requests.description = '설명 써 줘';
+    await x.app.sendRequest();
+    assert.equal(calledForDesc, false);
+    assert.equal(x.app.s.candidates.length, 0);
+    assert.equal(x.app.s.thread.at(-1).error, true);
+
+    // 5) Real confirmPlainReply dialog renders preview and all three buttons.
+    const real = Object.getPrototypeOf(x.app).confirmPlainReply.bind(x.app);
+    const pending = real('모델의 일반 문장 응답 미리보기');
+    await wait();
+    const modal = x.dom.window.document.querySelector('.modal');
+    assert.match(modal.textContent, /JSON 형식 없이 일반 문장으로 응답했습니다/);
+    assert.match(modal.textContent, /모델의 일반 문장 응답 미리보기/);
+    const labels = [...modal.querySelectorAll('.modalfoot button')].map(b => b.textContent);
+    assert.deepEqual(labels, ['중단', 'JSON으로 다시 요청', '대화 답변으로 받기']);
+    button(x.dom, '대화 답변으로 받기').click();
+    assert.equal(await pending, 'reply');
+  } finally { x.close(); }
+});
+
+test('sendRequest transparently normalizes bare task data with missing empty defaults and mechanical slips in one call', async () => {
+  const x = await make();
+  try {
+    x.app.task = 'lorebook'; x.app.s.requests.lorebook = '로어북 하나 추가해 줘';
+    x.app.api.runLLMModel = async (opts) => {
+      x.calls.push(opts);
+      return { type: 'success', result: '{\n  // 로어북\n  "upsert": [{ "ref": null, "entry": { "key": "세계", "content": "첫 줄\n둘째 줄" } }],\n}' };
+    };
+    await x.app.sendRequest();
+    assert.equal(x.calls.length, 1);
+    assert.equal(x.app.s.candidates.length, 1);
+    assert.equal(x.app.s.candidates[0].packet.repairs, undefined);
+    assert.equal(x.app.s.candidates[0].packet.data.upsert[0].entry.content, '첫 줄\n둘째 줄');
+    assert.deepEqual(x.app.s.candidates[0].packet.data.remove, []);
+    assert.match(x.app.s.thread.at(-1).content, /주석 1개 제거.*문자열 안 제어문자 1개 이스케이프.*후행 쉼표 1개 제거.*누락된 응답 봉투.*누락된 빈 목록\(remove\) 보완/);
+  } finally { x.close(); }
+});
+

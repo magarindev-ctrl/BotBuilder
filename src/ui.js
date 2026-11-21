@@ -1022,6 +1022,23 @@ export class Workshop {
       raw = await callModel(this.api, stepMessages, this.settings.model, this.settings.timeout, job);
       guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
       try { return await receive(raw, staged); } catch (error) {
+        if (task === "workshop" && error.noJson && typeof raw === "string" && raw.trim() && !parts.length) {
+          const action = await this.confirmPlainReply(raw.trim());
+          guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+          if (action === "reply") {
+            notes.push("JSON 형식 없이 받은 응답을 사용자 확인 후 대화 답변(원고 변경 없음)으로 반영했습니다.");
+            return { schemaVersion: 2, task: "workshop", data: { reply: raw.trim(), changes: [] } };
+          }
+          if (action !== "retry") { error.message += " (재요청하지 않았습니다)"; throw error; }
+          const hint = '[주의] 직전 응답에 JSON 객체가 없었다. 응답 전체를 {"schemaVersion":2,"task":"workshop","data":{"reply":"…","changes":[]}} 형식의 JSON 객체 하나로만 작성하라.';
+          notes.push("JSON 형식이 없어 한 번 다시 요청했습니다.");
+          const retry = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint, images: [] });
+          assert(!retry.issues.length, "프리셋 조립 오류:\n" + retry.issues.join("\n"));
+          inputSize(retry.messages, this.settings.maxInputChars);
+          raw = await callModel(this.api, retry.messages, this.settings.model, this.settings.timeout, job);
+          guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+          return receive(raw, staged);
+        }
         let hint, purpose, note;
         if (error.truncated && options.chunking) { purpose = "응답이 중간에 끊겼습니다"; note = "응답이 끊겨 더 작은 구간으로 다시 요청했습니다."; hint = "[주의] 직전 응답이 중간에 끊겼다. 이번에는 훨씬 작은 자립 구간 하나만 data에 완성하고 나머지는 모두 plan으로 넘겨라."; }
         else if (error.syntax) { purpose = "응답의 JSON 문법이 깨졌습니다"; note = "응답의 JSON 문법이 깨져 한 번 다시 요청했습니다."; hint = `[주의] 직전 응답의 JSON 문법이 깨졌다(${error.detail}). 문자열 안의 큰따옴표는 \\", 줄바꿈은 \\n, 역슬래시는 \\\\로 이스케이프하고, 코드·긴 본문은 JSON 뒤의 <<<이름>>> 블록으로 보내라.`; }
@@ -1130,6 +1147,18 @@ export class Workshop {
         h("p", { class: "muted" }, keepPartial ? "중단하면 이미 받은 항목만 수정안으로 보관하며 빠진 항목은 원고에 반영하지 않습니다." : "중단하면 실패 원인이 대화에 남고 원고는 바뀌지 않습니다. 요청을 나누거나 부분편집으로 직접 다시 요청할 수 있습니다.")
       );
     }, [{ label: keepPartial ? "받은 항목만 남기기" : "중단", value: false }, { label: "다시 요청", value: true, kind: "primary" }]).then((value) => value === true);
+  }
+  // When a weak model replies to a workshop turn in plain prose with no JSON, let the user accept it as a reply-only turn or retry.
+  async confirmPlainReply(text) {
+    const h = this.h.bind(this);
+    return this.dialog("JSON 형식 없이 일반 문장으로 응답했습니다", (body) => {
+      body.append(
+        h("p", { class: "warn" }, "모델이 JSON 규약 없이 일반 대화문으로만 답했습니다. 원고 변경 없이 대화 답변으로 그대로 받거나, JSON 형식으로 한 번 다시 요청할 수 있습니다."),
+        h("h4", {}, "받은 응답"),
+        h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:240px;overflow:auto" }, text.length > 4000 ? text.slice(0, 4000) + "\n… (이하 생략)" : text),
+        h("p", { class: "muted" }, "대화 답변으로 받아도 원고는 바뀌지 않습니다. JSON으로 다시 요청하면 입력 토큰이 한 번 더 듭니다.")
+      );
+    }, [{ label: "중단", value: "stop" }, { label: "JSON으로 다시 요청", value: "retry" }, { label: "대화 답변으로 받기", value: "reply", kind: "primary" }]).then((value) => value ?? "stop");
   }
   async chooseTextRange({ source, edit, label, candidates }) {
     const h = this.h.bind(this);

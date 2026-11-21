@@ -214,3 +214,85 @@ test('opening block tag glued right after JSON closing brace and fenced JSON wit
   assert.equal(repairJson('{"a":1}}').text, '{"a":1}');
   assert.equal(repairJson('{"a":1]}').text, '{"a":1}');
 });
+
+test('repairJson strips JS comments outside strings, escapes raw control chars and invalid backslashes, and preserves string URLs/valid escapes', () => {
+  const c = blankCharacter();
+  const commented = '{\n  // "메모 {\n  "schemaVersion": 2, /* 블록 주석 */\n  "task": "description",\n  "data": { "text": "https://example.com /* 유지 */\\n줄2" }\n} // 끝 주석 {';
+  const parsedComments = parseResponse(commented, 'description', c);
+  assert.equal(parsedComments.data.text, 'https://example.com /* 유지 */\n줄2');
+  assert.deepEqual(parsedComments.repairs, ['주석 3개 제거']);
+
+  const rawControls = '{"schemaVersion":2,"task":"description","data":{"text":"첫 줄\n둘째 줄\t탭"}}';
+  const parsedControls = parseResponse(rawControls, 'description', c);
+  assert.equal(parsedControls.data.text, '첫 줄\n둘째 줄\t탭');
+  assert.deepEqual(parsedControls.repairs, ['문자열 안 제어문자 2개 이스케이프']);
+
+  const badEscapes = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"패턴","in":"\d+\s+\'a\'\u12\\d\uAC00","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  const parsedEscapes = parseResponse(badEscapes, 'regex', c);
+  assert.equal(parsedEscapes.data.upsert[0].rule.in, String.raw`\d+\s+\'a\'\u12\d` + '가');
+  assert.deepEqual(parsedEscapes.repairs, ['비표준 역슬래시 5개 보정']);
+
+  // Backslash right before a raw newline escapes both without corrupting the string.
+  const slashNewline = '{"schemaVersion":2,"task":"description","data":{"text":"a\\\nb"}}';
+  const parsedSlashNl = parseResponse(slashNewline, 'description', c);
+  assert.equal(parsedSlashNl.data.text, 'a\\\nb');
+  assert.deepEqual(parsedSlashNl.repairs, ['문자열 안 제어문자 1개 이스케이프', '비표준 역슬래시 1개 보정']);
+
+  // Unclosed block comment and genuinely truncated JSON remain rejected.
+  assert.equal(repairJson('{"a":1} /* unclosed'), null);
+  assert.throws(() => parseResponse('{"schemaVersion":2,"task":"description","data":{"text":"cut', 'description', c), e => e instanceof TruncatedResponseError);
+  // Plain text without JSON is tagged with noJson for optional workshop UI confirmation.
+  assert.throws(() => parseResponse('일반 문장만 있습니다.', 'workshop', c), e => e.noJson === true && /완성된 JSON 응답 객체를 찾지 못했습니다/.test(e.message));
+});
+
+test('parseResponse fills omitted empty collection defaults and lenient mode restores missing envelope fields while still rejecting wrong shapes', () => {
+  const c = blankCharacter();
+  // Omitted empty collections in standard envelope.
+  const ws = parseResponse(JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '대화만 합니다.' } }), 'workshop', c);
+  assert.deepEqual(ws.data, { reply: '대화만 합니다.', changes: [] });
+  assert.deepEqual(ws.repairs, ['누락된 changes([]) 보완']);
+
+  const wsNested = parseResponse(JSON.stringify({
+    schemaVersion: 2, task: 'workshop',
+    data: { reply: '로어북 추가', changes: [{ task: 'lorebook', data: { upsert: [{ ref: null, entry: { key: 'k', content: 'v' } }] } }] }
+  }), 'workshop', c);
+  assert.deepEqual(wsNested.data.changes[0].data.remove, []);
+  assert.deepEqual(wsNested.repairs, ['누락된 빈 목록(remove) 보완']);
+
+  const lua = parseResponse(JSON.stringify({ schemaVersion: 2, task: 'lua', data: { scripts: [{ ref: null, comment: 'S', code: 'return 1' }] } }), 'lua', c);
+  assert.deepEqual(lua.data.removeScripts, []); assert.deepEqual(lua.data.variables, {}); assert.deepEqual(lua.data.removeVariables, []);
+  assert.match(lua.repairs[0], /누락된 Lua 빈 필드/);
+
+  const choice = parseResponse(JSON.stringify({
+    schemaVersion: 2, task: 'choiceGreeting',
+    data: {
+      text: '<button risu-btn="start_a">A 선택</button>',
+      choices: [{ id: 'start_a', label: 'A 선택', content: '장면 A 본문' }],
+      scripts: [{ ref: null, comment: 'S', code: 'function onButtonClick(accessKey, data)\n  if data == "start_a" then setChat(accessKey, 0, "장면 A 본문") end\nend' }]
+    }
+  }), 'choiceGreeting', c);
+  assert.deepEqual(choice.data.variables, {}); assert.deepEqual(choice.data.regex, []);
+  assert.match(choice.repairs[0], /누락된 시작 상황 빈 필드/);
+
+  // Empty data object with no real keys is still rejected.
+  assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: {} }), 'lorebook', c), /필수 필드 누락: upsert/);
+
+  // Lenient mode restores missing schemaVersion and bare task data (with plan, blocks, and mechanical repair).
+  const noVer = parseResponse(JSON.stringify({ task: 'description', data: { text: '본문' } }), 'description', c, false, { lenient: true });
+  assert.equal(noVer.schemaVersion, 2); assert.equal(noVer.data.text, '본문');
+  assert.deepEqual(noVer.repairs, ['누락된 schemaVersion(2) 보완']);
+
+  const bareCombined = '```json\n{\n  // bare lorebook\n  "upsert": [{ "ref": null, "entry": { "key": "k", "content": { "block": "b1" } } }],\n  "plan": [{ "title": "2부", "instruction": "나머지" }],\n}\n```\n' + block('b1', '블록 본문');
+  const parsedBare = parseResponse(bareCombined, 'lorebook', c, false, { salvage: true });
+  assert.equal(parsedBare.schemaVersion, 2); assert.equal(parsedBare.task, 'lorebook');
+  assert.equal(parsedBare.data.upsert[0].entry.content, '블록 본문'); assert.deepEqual(parsedBare.data.remove, []);
+  assert.equal(parsedBare.plan.length, 1);
+  assert.deepEqual(parsedBare.repairs, ['주석 1개 제거', '후행 쉼표 1개 제거', '누락된 응답 봉투(schemaVersion·task·data) 복원', '누락된 빈 목록(remove) 보완']);
+
+  // Arrays, nested wrappers, and mismatched tasks remain rejected even in lenient mode.
+  assert.throws(() => parseResponse(JSON.stringify([{ text: 'x' }]), 'description', c, false, { lenient: true }));
+  assert.throws(() => parseResponse(JSON.stringify({ wrapper: { text: 'x' } }), 'description', c, false, { lenient: true }));
+  assert.throws(() => parseResponse(JSON.stringify({ task: 'greeting', data: { text: 'x' } }), 'description', c, false, { lenient: true }), /필수 필드 누락: schemaVersion/);
+  assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'greeting', data: { text: 'x' } }), 'description', c, false, { lenient: true }), /작업 종류/);
+});
+

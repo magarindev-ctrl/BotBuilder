@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.2.1
+//@version 1.2.2
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-21: v1.2.2 safe lenient JSON normalization for weaker LLMs: repairJson strips // and closed /* * / comments outside strings, escapes raw newline/CR/tab control characters inside strings, and doubles non-standard backslash escapes (\d, \s, \', etc.) without touching valid escapes or guessing unescaped double quotes; parseResponse fills omitted empty collection defaults (changes:[], upsert/remove:[], Lua empty arrays/variables:{}, choiceGreeting variables:{}/regex:[]) when real payload keys exist, and in lenient/salvage mode restores missing schemaVersion or bare task data envelopes while still rejecting arrays, wrappers and mismatched tasks; all repairs and normalizations are transparently reported in the chat note; workshop plain-text replies with no JSON prompt the user via confirmPlainReply to accept as reply-only (zero draft changes), retry once for JSON, or stop.
 Modified 2026-11-21: v1.2.1 protocol & reliability fixes: focused chunk/salvage requests include targeted existing refs and fall back to full draft after plan-only responses (and track deletions without index-shift drift); missing "<<<name>>>" tag-string references are caught as truncation/missing rather than saved literally; unclosed block salvage no longer double-counts and now handles Lua comment and choiceGreeting subfields cleanly; jsonContract is no longer duplicated in OUTPUT_FORMAT (~4,300 chars saved per request), CACHE_ACK uses minimal JSON, focused steps omit cachePoint, and preset mode applies historyTurns; repairJson and jsonSyntaxError use engine-independent bracket scanning (Safari/Firefox) and handle pure code-fenced JSON; callModel suppresses late unhandled rejections; parseVariables preserves '=' and empty values and CRLF; LLM lorebook responses forbid mode 'folder' and folder scopeOnly is blocked; CHARX preserves lorebook enabled:false and FIELDS preserves replaceGlobalNote; applied/discarded candidates prune duplicate before snapshots (restored on undo); DA Interop enforces UTF-8 byte limits; file picker adds focus cancel fallback and UI notices align with actual behavior (including RisuBard-only lorebook hide).
 Modified 2026-11-02: v1.2.0 protocol work: blocks are the default carrier for prose and code (thin JSON envelope, examples rendered as blocks), block-level salvage (items whose block never arrived are dropped and listed, one user-confirmed follow-up request for just those items), a prompt-cache split for direct requests (stable material in its own user message with cachePoint, an assistant acknowledgement, then the changing tail), a history-turn cap, a workshop summary mode and focused chunk requests. Lorebook index tables were measured (15% overall) and not adopted.
 Modified 2026-11-02: v1.2.0 adds lorebook folders in the Risu layout (folder entries with mode 'folder' and children keyed by the folder key) with folder-level request inclusion, Risu enable/hide and always-active switches; a drag handle between every item list and its editor plus list folding (both remembered in settings); foldable module and preview cards; and linear-time assembly of long streamed answers so the plugin no longer stays busy after the model has finished; the user template now puts stable material (draft, reference, format) before the conversation, pending proposals and request so provider prefix caches can reuse it, with new CONVERSATION and PENDING_PROPOSALS slots and in-place upgrade of a saved default template.
@@ -9930,7 +9931,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.2.1";
+  var VERSION = "1.2.2";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10723,6 +10724,84 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return { response: out, missing };
   }
+  function sanitizeJsonMechanics(text) {
+    let out = "", quoted = false, comments = 0, controls = 0, escapes = 0;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch === "\\") {
+          const next = text[i + 1];
+          if (next === void 0) {
+            out += ch;
+            continue;
+          }
+          if (next === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(i + 2, i + 6))) {
+            out += text.slice(i, i + 6);
+            i += 5;
+            continue;
+          }
+          if ('"\\/bfnrt'.includes(next)) {
+            out += ch + next;
+            i++;
+            continue;
+          }
+          if (next === "\n" || next === "\r" || next === "	") {
+            out += "\\\\";
+            escapes++;
+            continue;
+          }
+          out += "\\\\" + next;
+          escapes++;
+          i++;
+          continue;
+        }
+        if (ch === '"') {
+          quoted = false;
+          out += ch;
+          continue;
+        }
+        if (ch === "\n") {
+          out += "\\n";
+          controls++;
+          continue;
+        }
+        if (ch === "\r") {
+          out += "\\r";
+          controls++;
+          continue;
+        }
+        if (ch === "	") {
+          out += "\\t";
+          controls++;
+          continue;
+        }
+        out += ch;
+        continue;
+      }
+      if (ch === '"') {
+        quoted = true;
+        out += ch;
+        continue;
+      }
+      if (ch === "/" && text[i + 1] === "/") {
+        const nl = text.indexOf("\n", i + 2);
+        comments++;
+        if (nl < 0) break;
+        i = nl - 1;
+        continue;
+      }
+      if (ch === "/" && text[i + 1] === "*") {
+        const end = text.indexOf("*/", i + 2);
+        if (end >= 0) {
+          comments++;
+          i = end + 1;
+          continue;
+        }
+      }
+      out += ch;
+    }
+    return { text: out, comments, controls, escapes };
+  }
   function stripTrailingCommas(text) {
     let out = "", quoted = false, escaped = false, removed = 0;
     for (let i = 0; i < text.length; i++) {
@@ -10790,7 +10869,11 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   }
   function repairJson(text) {
     const fixes = [];
-    const commas = stripTrailingCommas(text);
+    const sanitized = sanitizeJsonMechanics(text);
+    if (sanitized.comments) fixes.push(`\uC8FC\uC11D ${sanitized.comments}\uAC1C \uC81C\uAC70`);
+    if (sanitized.controls) fixes.push(`\uBB38\uC790\uC5F4 \uC548 \uC81C\uC5B4\uBB38\uC790 ${sanitized.controls}\uAC1C \uC774\uC2A4\uCF00\uC774\uD504`);
+    if (sanitized.escapes) fixes.push(`\uBE44\uD45C\uC900 \uC5ED\uC2AC\uB798\uC2DC ${sanitized.escapes}\uAC1C \uBCF4\uC815`);
+    const commas = stripTrailingCommas(sanitized.text);
     let current = commas.text;
     if (commas.removed) fixes.push(`\uD6C4\uD589 \uC27C\uD45C ${commas.removed}\uAC1C \uC81C\uAC70`);
     for (let i = 0; i < 3; i++) {
@@ -10812,6 +10895,85 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       return null;
     }
   }
+  function normalizeDataDefaults(task, data, fixes) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) return;
+    if (task === "workshop") {
+      if (Object.hasOwn(data, "reply") && !Object.hasOwn(data, "changes")) {
+        data.changes = [];
+        fixes.push("\uB204\uB77D\uB41C changes([]) \uBCF4\uC644");
+      }
+      if (Array.isArray(data.changes)) {
+        for (const c of data.changes) if (c && typeof c === "object" && TASKS[c.task] && c.task !== "workshop") normalizeDataDefaults(c.task, c.data, fixes);
+      }
+    } else if (task === "lorebook" || task === "regex") {
+      if (Object.hasOwn(data, "upsert") || Object.hasOwn(data, "remove")) {
+        const added = [];
+        if (!Object.hasOwn(data, "upsert")) {
+          data.upsert = [];
+          added.push("upsert");
+        }
+        if (!Object.hasOwn(data, "remove")) {
+          data.remove = [];
+          added.push("remove");
+        }
+        if (added.length) fixes.push(`\uB204\uB77D\uB41C \uBE48 \uBAA9\uB85D(${added.join("\xB7")}) \uBCF4\uC644`);
+      }
+    } else if (task === "lua") {
+      if (["scripts", "removeScripts", "variables", "removeVariables"].some((k) => Object.hasOwn(data, k))) {
+        const added = [];
+        for (const k of ["scripts", "removeScripts", "removeVariables"]) if (!Object.hasOwn(data, k)) {
+          data[k] = [];
+          added.push(k);
+        }
+        if (!Object.hasOwn(data, "variables")) {
+          data.variables = {};
+          added.push("variables");
+        }
+        if (added.length) fixes.push(`\uB204\uB77D\uB41C Lua \uBE48 \uD544\uB4DC(${added.join("\xB7")}) \uBCF4\uC644`);
+      }
+    } else if (task === "choiceGreeting") {
+      if (["text", "choices", "scripts"].every((k) => Object.hasOwn(data, k))) {
+        const added = [];
+        if (!Object.hasOwn(data, "variables")) {
+          data.variables = {};
+          added.push("variables");
+        }
+        if (!Object.hasOwn(data, "regex")) {
+          data.regex = [];
+          added.push("regex");
+        }
+        if (added.length) fixes.push(`\uB204\uB77D\uB41C \uC2DC\uC791 \uC0C1\uD669 \uBE48 \uD544\uB4DC(${added.join("\xB7")}) \uBCF4\uC644`);
+      }
+    }
+  }
+  function isBareTaskData(candidate, task) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+    if (["schemaVersion", "task", "data"].some((k) => Object.hasOwn(candidate, k))) return false;
+    if (task === "workshop") return Object.hasOwn(candidate, "reply");
+    if (task === "description" || task === "greeting") return Object.hasOwn(candidate, "text");
+    if (task === "lorebook" || task === "regex") return Object.hasOwn(candidate, "upsert") || Object.hasOwn(candidate, "remove");
+    if (task === "lua") return ["scripts", "removeScripts", "variables", "removeVariables"].some((k) => Object.hasOwn(candidate, k));
+    if (task === "choiceGreeting") return ["text", "choices", "scripts"].every((k) => Object.hasOwn(candidate, k));
+    return false;
+  }
+  function looksLikeAnswer(candidate, task, lenient) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+    if (["schemaVersion", "task", "data"].some((key2) => Object.hasOwn(candidate, key2))) return true;
+    return lenient && isBareTaskData(candidate, task);
+  }
+  function normalizeEnvelope(candidate, task, lenient, fixes) {
+    if (!lenient || !candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
+    if (!Object.hasOwn(candidate, "schemaVersion") && candidate.task === task && Object.hasOwn(candidate, "data")) {
+      fixes.push("\uB204\uB77D\uB41C schemaVersion(2) \uBCF4\uC644");
+      return { schemaVersion: 2, ...candidate };
+    }
+    if (isBareTaskData(candidate, task)) {
+      const { plan, ...rest } = candidate;
+      fixes.push("\uB204\uB77D\uB41C \uC751\uB2F5 \uBD09\uD22C(schemaVersion\xB7task\xB7data) \uBCF5\uC6D0");
+      return { schemaVersion: 2, task, data: rest, ...plan !== void 0 ? { plan } : {} };
+    }
+    return candidate;
+  }
   function jsonSyntaxError(text) {
     const broken = [...responseJsonChunks(text)].filter((chunk) => {
       try {
@@ -10823,7 +10985,11 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     });
     const first = text.indexOf("{");
     const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
-    if (candidate === null) return new Error("\uC644\uC131\uB41C JSON \uC751\uB2F5 \uAC1D\uCCB4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\uC640 \uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638 \uC678\uC5D0\uB294 JSON \uBB38\uBC95\uC744 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8\uC640 \uC751\uB2F5 \uC6D0\uBB38\uC744 \uD655\uC778\uD558\uC138\uC694.");
+    if (candidate === null) {
+      const err2 = new Error("\uC644\uC131\uB41C JSON \uC751\uB2F5 \uAC1D\uCCB4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\xB7\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\xB7\uC8FC\uC11D\xB7\uBB38\uC790\uC5F4 \uC81C\uC5B4\uBB38\uC790 \uC678\uC5D0\uB294 JSON \uBB38\uBC95\uC744 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8\uC640 \uC751\uB2F5 \uC6D0\uBB38\uC744 \uD655\uC778\uD558\uC138\uC694.");
+      err2.noJson = true;
+      return err2;
+    }
     let reason = "";
     try {
       JSON.parse(candidate);
@@ -10835,7 +11001,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const pos = atPos ? Number(atPos[1]) : atLine ? lineColumnOffset(candidate, Number(atLine[1]), Number(atLine[2])) : findExtraCloser(candidate);
     const snippet = pos >= 0 ? candidate.slice(Math.max(0, pos - 40), pos + 40) : /\.\.\."([\s\S]*?)"\.\.\./.exec(reason)?.[1] ?? "";
     const detail = (pos >= 0 ? pos.toLocaleString("ko-KR") + "\uC790 \uBD80\uADFC" : "\uC704\uCE58 \uBD88\uBA85") + (snippet ? " " + JSON.stringify(snippet) : "") + (reason ? " \xB7 " + reason.replace(/ in JSON at position \d+.*$/, "") : "");
-    return new JsonSyntaxError("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uC2B5\uB2C8\uB2E4 \xB7 " + detail + ". \uD754\uD55C \uC6D0\uC778\uC740 \uBB38\uC790\uC5F4 \uC548\uC758 \uC774\uC2A4\uCF00\uC774\uD504\uB418\uC9C0 \uC54A\uC740 \uD070\uB530\uC634\uD45C\xB7\uC904\uBC14\uAFC8\xB7\uC5ED\uC2AC\uB798\uC2DC, \uD6C4\uD589 \uC27C\uD45C, \uC8FC\uC11D\uC785\uB2C8\uB2E4. \uAE34 \uCF54\uB4DC\xB7\uBCF8\uBB38\uC740 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uBA74 \uC774\uC2A4\uCF00\uC774\uD504\uAC00 \uD544\uC694 \uC5C6\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\uC640 \uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\uB294 \uC790\uB3D9\uC73C\uB85C \uAC77\uC5B4\uB0B4\uC9C0\uB9CC \uADF8 \uBC16\uC758 \uBB38\uBC95\uC740 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", detail);
+    return new JsonSyntaxError("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uC2B5\uB2C8\uB2E4 \xB7 " + detail + ". \uD754\uD55C \uC6D0\uC778\uC740 \uBB38\uC790\uC5F4 \uC548\uC758 \uC774\uC2A4\uCF00\uC774\uD504\uB418\uC9C0 \uC54A\uC740 \uD070\uB530\uC634\uD45C\uC785\uB2C8\uB2E4. \uAE34 \uCF54\uB4DC\xB7\uBCF8\uBB38\uC740 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uBA74 \uC774\uC2A4\uCF00\uC774\uD504\uAC00 \uD544\uC694 \uC5C6\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\xB7\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\xB7\uC8FC\uC11D\xB7\uBB38\uC790\uC5F4 \uC81C\uC5B4\uBB38\uC790\xB7\uBE44\uD45C\uC900 \uC5ED\uC2AC\uB798\uC2DC\uB294 \uC790\uB3D9\uC73C\uB85C \uBCF4\uC815\uD558\uC9C0\uB9CC \uC774\uC2A4\uCF00\uC774\uD504\uB418\uC9C0 \uC54A\uC740 \uB530\uC634\uD45C \uB4F1\uC740 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", detail);
   }
   async function reviewPacket(packet, draft, choose) {
     const result = clone(packet);
@@ -10864,21 +11030,23 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   }
   function parseResponse(raw, task, draft, review = false, options = {}) {
     assert(typeof raw === "string" && bytes(raw) <= 1048576, "\uC751\uB2F5\uC774 \uC5C6\uAC70\uB098 1MiB \uC0C1\uD55C\uC744 \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4.");
-    const salvage = options.salvage === true;
+    const salvage = options.salvage === true, lenient = salvage || options.lenient === true;
     const { text, blocks, unclosed } = extractBlocks(raw, { lenient: salvage });
     const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
     const validate = (parsedResponse) => {
+      const normFixes = [];
+      const shaped = normalizeEnvelope(parsedResponse, task, lenient, normFixes);
       let response2, missing = [];
       try {
-        response2 = applyBlocks(parsedResponse, blocks);
+        response2 = applyBlocks(shaped, blocks);
         if (unclosed !== null) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 \uBE14\uB85D <<<${unclosed}>>>\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(<<</${unclosed}>>>\uB97C \uCC3E\uC9C0 \uBABB\uD568 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0). \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
       } catch (error) {
-        const referenced = blockReferences(parsedResponse);
+        const referenced = blockReferences(shaped);
         const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
         const cut = (endsAtBlockEdge || unclosed !== null) && !straggler && /참조한 블록이 응답에 없습니다/.test(error.message);
         const strict = cut ? new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0. JSON\uC774 \uCC38\uC870\uD55C \uBE14\uB85D\uC774 \uC624\uAE30 \uC804\uC5D0 \uC751\uB2F5\uC774 \uB05D\uB0AC\uC2B5\uB2C8\uB2E4. ${error.message}. \uBAA8\uB378\uC758 \uCD9C\uB825 \uC0C1\uD55C\uC774\uB098 \uC911\uACC4 \uC11C\uBE44\uC2A4\uC758 \uC81C\uD55C\uC5D0 \uAC78\uB838\uAC70\uB098 \uC2A4\uD2B8\uB9AC\uBC0D \uC911 \uC5F0\uACB0\uC774 \uB04A\uAE34 \uACBD\uC6B0\uC785\uB2C8\uB2E4. \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`) : error;
         if (!salvage || !/참조한 블록이 응답에 없습니다/.test(error.message)) throw strict;
-        const partial = salvageResponse(parsedResponse, blocks);
+        const partial = salvageResponse(shaped, blocks);
         const usable = partial.response.data !== null && partial.response.data !== void 0 && (partial.response.task !== "workshop" || partial.response.data.changes.length || partial.response.data.reply);
         if (!usable) throw strict;
         response2 = partial.response;
@@ -10891,6 +11059,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       }
       const finish = (out2) => {
         if (missing.length) out2.missing = missing;
+        if (normFixes.length) out2.repairs = [...out2.repairs ?? [], ...normFixes];
         return out2;
       };
       keys(response2, ["schemaVersion", "task", "data"], ["plan"]);
@@ -10901,6 +11070,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         assert(response2.plan?.length, "data\uAC00 null\uC774\uBA74 plan\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
         return finish(response2);
       }
+      normalizeDataDefaults(task, response2.data, normFixes);
       if (review) return finish(response2);
       validateData(task, response2.data, draft);
       const out = compactLorePacket(response2, draft);
@@ -10924,7 +11094,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         if (first) break;
         continue;
       }
-      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || !["schemaVersion", "task", "data"].some((key2) => Object.hasOwn(candidate, key2))) continue;
+      if (!looksLikeAnswer(candidate, task, lenient)) continue;
       try {
         candidate = validate(candidate);
       } catch (error) {
@@ -10938,20 +11108,18 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if (validationError) throw validationError;
     const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
     const repairTarget = fenced ? fenced[1] : text;
-    if (!jsonTruncated(repairTarget)) {
-      const repaired = repairJson(repairTarget);
-      if (repaired && repaired.fixes.length) {
-        let fixed = null;
-        try {
-          fixed = JSON.parse(repaired.text);
-        } catch {
-          fixed = null;
-        }
-        if (fixed && typeof fixed === "object" && !Array.isArray(fixed) && Object.hasOwn(fixed, "schemaVersion")) {
-          const out = validate(fixed);
-          out.repairs = repaired.fixes;
-          return out;
-        }
+    const repaired = repairJson(repairTarget);
+    if (repaired && repaired.fixes.length) {
+      let fixed = null;
+      try {
+        fixed = JSON.parse(repaired.text);
+      } catch {
+        fixed = null;
+      }
+      if (looksLikeAnswer(fixed, task, lenient) && (lenient || Object.hasOwn(fixed, "schemaVersion"))) {
+        const out = validate(fixed);
+        out.repairs = [...repaired.fixes, ...out.repairs ?? []];
+        return out;
       }
     }
     if (jsonTruncated(text)) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0. JSON\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC740 \uCC44 \uB05D\uB0AC\uC2B5\uB2C8\uB2E4. \uBAA8\uB378\uC758 \uCD9C\uB825 \uC0C1\uD55C\uC774\uB098 \uC911\uACC4 \uC11C\uBE44\uC2A4\uC758 \uC81C\uD55C\uC5D0 \uAC78\uB838\uAC70\uB098, \uC2A4\uD2B8\uB9AC\uBC0D \uC911 \uC5F0\uACB0\uC774 \uB04A\uAE34 \uACBD\uC6B0(\uBAA8\uBC14\uC77C \uD654\uBA74 \uAEBC\uC9D0\xB7\uC571 \uC804\uD658)\uC785\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uD0ED\uBCC4\uB85C \uB098\uB204\uAC70\uB098 \uBD80\uBD84\uD3B8\uC9D1(edits)\uC73C\uB85C \uB2E4\uC2DC \uC694\uCCAD\uD558\uC138\uC694. \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
@@ -16981,6 +17149,26 @@ details[open] > summary { margin-bottom: 9px; }
         try {
           return await receive(raw, staged);
         } catch (error) {
+          if (task === "workshop" && error.noJson && typeof raw === "string" && raw.trim() && !parts.length) {
+            const action = await this.confirmPlainReply(raw.trim());
+            guard("\uC694\uCCAD \uC774\uD6C4 \uC791\uC5C5 \uB300\uC0C1\xB7\uC6D0\uACE0\xB7\uD504\uB86C\uD504\uD2B8\uAC00 \uBC14\uB00C\uC5B4 \uC751\uB2F5\uC744 \uD3D0\uAE30\uD588\uC2B5\uB2C8\uB2E4.");
+            if (action === "reply") {
+              notes.push("JSON \uD615\uC2DD \uC5C6\uC774 \uBC1B\uC740 \uC751\uB2F5\uC744 \uC0AC\uC6A9\uC790 \uD655\uC778 \uD6C4 \uB300\uD654 \uB2F5\uBCC0(\uC6D0\uACE0 \uBCC0\uACBD \uC5C6\uC74C)\uC73C\uB85C \uBC18\uC601\uD588\uC2B5\uB2C8\uB2E4.");
+              return { schemaVersion: 2, task: "workshop", data: { reply: raw.trim(), changes: [] } };
+            }
+            if (action !== "retry") {
+              error.message += " (\uC7AC\uC694\uCCAD\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4)";
+              throw error;
+            }
+            const hint2 = '[\uC8FC\uC758] \uC9C1\uC804 \uC751\uB2F5\uC5D0 JSON \uAC1D\uCCB4\uAC00 \uC5C6\uC5C8\uB2E4. \uC751\uB2F5 \uC804\uCCB4\uB97C {"schemaVersion":2,"task":"workshop","data":{"reply":"\u2026","changes":[]}} \uD615\uC2DD\uC758 JSON \uAC1D\uCCB4 \uD558\uB098\uB85C\uB9CC \uC791\uC131\uD558\uB77C.';
+            notes.push("JSON \uD615\uC2DD\uC774 \uC5C6\uC5B4 \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.");
+            const retry2 = this.previewRequest(task, false, { session: stagedSession(), text: stepText + "\n\n" + hint2, images: [] });
+            assert(!retry2.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + retry2.issues.join("\n"));
+            inputSize(retry2.messages, this.settings.maxInputChars);
+            raw = await callModel(this.api, retry2.messages, this.settings.model, this.settings.timeout, job);
+            guard("\uC694\uCCAD \uC774\uD6C4 \uC791\uC5C5 \uB300\uC0C1\xB7\uC6D0\uACE0\xB7\uD504\uB86C\uD504\uD2B8\uAC00 \uBC14\uB00C\uC5B4 \uC751\uB2F5\uC744 \uD3D0\uAE30\uD588\uC2B5\uB2C8\uB2E4.");
+            return receive(raw, staged);
+          }
           let hint, purpose, note;
           if (error.truncated && options.chunking) {
             purpose = "\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4";
@@ -17126,6 +17314,18 @@ ${next.instruction}
           h("p", { class: "muted" }, keepPartial ? "\uC911\uB2E8\uD558\uBA74 \uC774\uBBF8 \uBC1B\uC740 \uD56D\uBAA9\uB9CC \uC218\uC815\uC548\uC73C\uB85C \uBCF4\uAD00\uD558\uBA70 \uBE60\uC9C4 \uD56D\uBAA9\uC740 \uC6D0\uACE0\uC5D0 \uBC18\uC601\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." : "\uC911\uB2E8\uD558\uBA74 \uC2E4\uD328 \uC6D0\uC778\uC774 \uB300\uD654\uC5D0 \uB0A8\uACE0 \uC6D0\uACE0\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uB098\uB204\uAC70\uB098 \uBD80\uBD84\uD3B8\uC9D1\uC73C\uB85C \uC9C1\uC811 \uB2E4\uC2DC \uC694\uCCAD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")
         );
       }, [{ label: keepPartial ? "\uBC1B\uC740 \uD56D\uBAA9\uB9CC \uB0A8\uAE30\uAE30" : "\uC911\uB2E8", value: false }, { label: "\uB2E4\uC2DC \uC694\uCCAD", value: true, kind: "primary" }]).then((value) => value === true);
+    }
+    // When a weak model replies to a workshop turn in plain prose with no JSON, let the user accept it as a reply-only turn or retry.
+    async confirmPlainReply(text) {
+      const h = this.h.bind(this);
+      return this.dialog("JSON \uD615\uC2DD \uC5C6\uC774 \uC77C\uBC18 \uBB38\uC7A5\uC73C\uB85C \uC751\uB2F5\uD588\uC2B5\uB2C8\uB2E4", (body) => {
+        body.append(
+          h("p", { class: "warn" }, "\uBAA8\uB378\uC774 JSON \uADDC\uC57D \uC5C6\uC774 \uC77C\uBC18 \uB300\uD654\uBB38\uC73C\uB85C\uB9CC \uB2F5\uD588\uC2B5\uB2C8\uB2E4. \uC6D0\uACE0 \uBCC0\uACBD \uC5C6\uC774 \uB300\uD654 \uB2F5\uBCC0\uC73C\uB85C \uADF8\uB300\uB85C \uBC1B\uAC70\uB098, JSON \uD615\uC2DD\uC73C\uB85C \uD55C \uBC88 \uB2E4\uC2DC \uC694\uCCAD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
+          h("h4", {}, "\uBC1B\uC740 \uC751\uB2F5"),
+          h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:240px;overflow:auto" }, text.length > 4e3 ? text.slice(0, 4e3) + "\n\u2026 (\uC774\uD558 \uC0DD\uB7B5)" : text),
+          h("p", { class: "muted" }, "\uB300\uD654 \uB2F5\uBCC0\uC73C\uB85C \uBC1B\uC544\uB3C4 \uC6D0\uACE0\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. JSON\uC73C\uB85C \uB2E4\uC2DC \uC694\uCCAD\uD558\uBA74 \uC785\uB825 \uD1A0\uD070\uC774 \uD55C \uBC88 \uB354 \uB4ED\uB2C8\uB2E4.")
+        );
+      }, [{ label: "\uC911\uB2E8", value: "stop" }, { label: "JSON\uC73C\uB85C \uB2E4\uC2DC \uC694\uCCAD", value: "retry" }, { label: "\uB300\uD654 \uB2F5\uBCC0\uC73C\uB85C \uBC1B\uAE30", value: "reply", kind: "primary" }]).then((value) => value ?? "stop");
     }
     async chooseTextRange({ source, edit, label, candidates }) {
       const h = this.h.bind(this);

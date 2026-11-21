@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.2.1';
+export const VERSION = '1.2.2';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -641,10 +641,43 @@ export function salvageResponse(response, blocks) {
   if ('plan' in out) { const plan = salvagePlan(out.plan, missing); if (plan === undefined) delete out.plan; else out.plan = plan; }
   return { response: out, missing };
 }
-// Why the JSON did not parse: engine-independent scanning plus the parser's own message.
-// Two mechanical slips that models make at the very end of an otherwise valid JSON: a trailing comma before
-// a closer, and one closing brace/bracket too many. Both are removed only when the result parses and validates,
-// and every removal is reported to the user. Nothing inside strings is ever touched.
+// Safe mechanical JSON repairs: comments outside strings, raw control chars / non-standard backslash escapes
+// inside strings, trailing commas before closers, and up to 3 unmatched closing braces/brackets.
+// Unescaped double quotes inside strings are never guessed; every applied fix is reported to the user.
+function sanitizeJsonMechanics(text) {
+  let out = '', quoted = false, comments = 0, controls = 0, escapes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '\\') {
+        const next = text[i + 1];
+        if (next === undefined) { out += ch; continue; }
+        if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(i + 2, i + 6))) { out += text.slice(i, i + 6); i += 5; continue; }
+        if ('"\\/bfnrt'.includes(next)) { out += ch + next; i++; continue; }
+        if (next === '\n' || next === '\r' || next === '\t') { out += '\\\\'; escapes++; continue; }
+        out += '\\\\' + next; escapes++; i++; continue;
+      }
+      if (ch === '"') { quoted = false; out += ch; continue; }
+      if (ch === '\n') { out += '\\n'; controls++; continue; }
+      if (ch === '\r') { out += '\\r'; controls++; continue; }
+      if (ch === '\t') { out += '\\t'; controls++; continue; }
+      out += ch; continue;
+    }
+    if (ch === '"') { quoted = true; out += ch; continue; }
+    if (ch === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i + 2);
+      comments++;
+      if (nl < 0) break;
+      i = nl - 1; continue;
+    }
+    if (ch === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end >= 0) { comments++; i = end + 1; continue; }
+    }
+    out += ch;
+  }
+  return { text: out, comments, controls, escapes };
+}
 function stripTrailingCommas(text) {
   let out = '', quoted = false, escaped = false, removed = 0;
   for (let i = 0; i < text.length; i++) {
@@ -683,7 +716,11 @@ function lineColumnOffset(text, line, column) {
 }
 export function repairJson(text) {
   const fixes = [];
-  const commas = stripTrailingCommas(text);
+  const sanitized = sanitizeJsonMechanics(text);
+  if (sanitized.comments) fixes.push(`주석 ${sanitized.comments}개 제거`);
+  if (sanitized.controls) fixes.push(`문자열 안 제어문자 ${sanitized.controls}개 이스케이프`);
+  if (sanitized.escapes) fixes.push(`비표준 역슬래시 ${sanitized.escapes}개 보정`);
+  const commas = stripTrailingCommas(sanitized.text);
   let current = commas.text;
   if (commas.removed) fixes.push(`후행 쉼표 ${commas.removed}개 제거`);
   for (let i = 0; i < 3; i++) {
@@ -696,18 +733,79 @@ export function repairJson(text) {
   }
   try { JSON.parse(current); return { text: current, fixes }; } catch { return null; }
 }
+// Fills in omitted empty collection keys (remove:[], changes:[], variables:{}, etc.) only when real payload keys exist.
+function normalizeDataDefaults(task, data, fixes) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+  if (task === 'workshop') {
+    if (Object.hasOwn(data, 'reply') && !Object.hasOwn(data, 'changes')) { data.changes = []; fixes.push('누락된 changes([]) 보완'); }
+    if (Array.isArray(data.changes)) for (const c of data.changes) if (c && typeof c === 'object' && TASKS[c.task] && c.task !== 'workshop') normalizeDataDefaults(c.task, c.data, fixes);
+  } else if (task === 'lorebook' || task === 'regex') {
+    if (Object.hasOwn(data, 'upsert') || Object.hasOwn(data, 'remove')) {
+      const added = [];
+      if (!Object.hasOwn(data, 'upsert')) { data.upsert = []; added.push('upsert'); }
+      if (!Object.hasOwn(data, 'remove')) { data.remove = []; added.push('remove'); }
+      if (added.length) fixes.push(`누락된 빈 목록(${added.join('·')}) 보완`);
+    }
+  } else if (task === 'lua') {
+    if (['scripts', 'removeScripts', 'variables', 'removeVariables'].some((k) => Object.hasOwn(data, k))) {
+      const added = [];
+      for (const k of ['scripts', 'removeScripts', 'removeVariables']) if (!Object.hasOwn(data, k)) { data[k] = []; added.push(k); }
+      if (!Object.hasOwn(data, 'variables')) { data.variables = {}; added.push('variables'); }
+      if (added.length) fixes.push(`누락된 Lua 빈 필드(${added.join('·')}) 보완`);
+    }
+  } else if (task === 'choiceGreeting') {
+    if (['text', 'choices', 'scripts'].every((k) => Object.hasOwn(data, k))) {
+      const added = [];
+      if (!Object.hasOwn(data, 'variables')) { data.variables = {}; added.push('variables'); }
+      if (!Object.hasOwn(data, 'regex')) { data.regex = []; added.push('regex'); }
+      if (added.length) fixes.push(`누락된 시작 상황 빈 필드(${added.join('·')}) 보완`);
+    }
+  }
+}
+function isBareTaskData(candidate, task) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+  if (['schemaVersion', 'task', 'data'].some((k) => Object.hasOwn(candidate, k))) return false;
+  if (task === 'workshop') return Object.hasOwn(candidate, 'reply');
+  if (task === 'description' || task === 'greeting') return Object.hasOwn(candidate, 'text');
+  if (task === 'lorebook' || task === 'regex') return Object.hasOwn(candidate, 'upsert') || Object.hasOwn(candidate, 'remove');
+  if (task === 'lua') return ['scripts', 'removeScripts', 'variables', 'removeVariables'].some((k) => Object.hasOwn(candidate, k));
+  if (task === 'choiceGreeting') return ['text', 'choices', 'scripts'].every((k) => Object.hasOwn(candidate, k));
+  return false;
+}
+function looksLikeAnswer(candidate, task, lenient) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+  if (['schemaVersion', 'task', 'data'].some((key) => Object.hasOwn(candidate, key))) return true;
+  return lenient && isBareTaskData(candidate, task);
+}
+function normalizeEnvelope(candidate, task, lenient, fixes) {
+  if (!lenient || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate;
+  if (!Object.hasOwn(candidate, 'schemaVersion') && candidate.task === task && Object.hasOwn(candidate, 'data')) {
+    fixes.push('누락된 schemaVersion(2) 보완');
+    return { schemaVersion: 2, ...candidate };
+  }
+  if (isBareTaskData(candidate, task)) {
+    const { plan, ...rest } = candidate;
+    fixes.push('누락된 응답 봉투(schemaVersion·task·data) 복원');
+    return { schemaVersion: 2, task, data: rest, ...plan !== undefined ? { plan } : {} };
+  }
+  return candidate;
+}
 function jsonSyntaxError(text) {
   const broken = [...responseJsonChunks(text)].filter((chunk) => { try { JSON.parse(chunk); return false; } catch { return true; } });
   const first = text.indexOf('{');
   const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
-  if (candidate === null) return new Error('완성된 JSON 응답 객체를 찾지 못했습니다. 후행 쉼표와 여분 닫는 괄호 외에는 JSON 문법을 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
+  if (candidate === null) {
+    const err = new Error('완성된 JSON 응답 객체를 찾지 못했습니다. 후행 쉼표·여분 닫는 괄호·주석·문자열 제어문자 외에는 JSON 문법을 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
+    err.noJson = true;
+    return err;
+  }
   let reason = ''; try { JSON.parse(candidate); } catch (error) { reason = error.message; }
   const atPos = /position (\d+)/.exec(reason);
   const atLine = /line (\d+) column (\d+)/.exec(reason);
   const pos = atPos ? Number(atPos[1]) : atLine ? lineColumnOffset(candidate, Number(atLine[1]), Number(atLine[2])) : findExtraCloser(candidate);
   const snippet = pos >= 0 ? candidate.slice(Math.max(0, pos - 40), pos + 40) : (/\.\.\."([\s\S]*?)"\.\.\./.exec(reason)?.[1] ?? '');
   const detail = (pos >= 0 ? pos.toLocaleString('ko-KR') + '자 부근' : '위치 불명') + (snippet ? ' ' + JSON.stringify(snippet) : '') + (reason ? ' · ' + reason.replace(/ in JSON at position \d+.*$/, '') : '');
-  return new JsonSyntaxError('응답의 JSON 문법이 깨졌습니다 · ' + detail + '. 흔한 원인은 문자열 안의 이스케이프되지 않은 큰따옴표·줄바꿈·역슬래시, 후행 쉼표, 주석입니다. 긴 코드·본문은 <<<이름>>> 블록으로 보내면 이스케이프가 필요 없습니다. 후행 쉼표와 여분 닫는 괄호는 자동으로 걷어내지만 그 밖의 문법은 고치지 않습니다.', detail);
+  return new JsonSyntaxError('응답의 JSON 문법이 깨졌습니다 · ' + detail + '. 흔한 원인은 문자열 안의 이스케이프되지 않은 큰따옴표입니다. 긴 코드·본문은 <<<이름>>> 블록으로 보내면 이스케이프가 필요 없습니다. 후행 쉼표·여분 닫는 괄호·주석·문자열 제어문자·비표준 역슬래시는 자동으로 보정하지만 이스케이프되지 않은 따옴표 등은 고치지 않습니다.', detail);
 }
 export async function reviewPacket(packet, draft, choose) {
   const result = clone(packet);
@@ -734,24 +832,26 @@ export async function reviewPacket(packet, draft, choose) {
 
 export function parseResponse(raw, task, draft, review = false, options = {}) {
   assert(typeof raw === 'string' && bytes(raw) <= 1048576, '응답이 없거나 1MiB 상한을 초과했습니다.');
-  const salvage = options.salvage === true;
+  const salvage = options.salvage === true, lenient = salvage || options.lenient === true;
   const { text, blocks, unclosed } = extractBlocks(raw, { lenient: salvage });
   // The answer stops right after a block close (or after the JSON) while the JSON still points at a block that never came.
   const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
   const validate=parsedResponse=>{
+    const normFixes = [];
+    const shaped = normalizeEnvelope(parsedResponse, task, lenient, normFixes);
     let response, missing = [];
     try {
-      response = applyBlocks(parsedResponse, blocks);
+      response = applyBlocks(shaped, blocks);
       if (unclosed !== null) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${unclosed}>>>이 닫히지 않았습니다(<<</${unclosed}>>>를 찾지 못함 · ${raw.length.toLocaleString('ko-KR')}자 수신). 잘린 응답은 복구하지 않습니다.`);
     } catch (error) {
       // Every block that did arrive is referenced and the text stops at a block edge: the rest never came.
-      const referenced = blockReferences(parsedResponse);
+      const referenced = blockReferences(shaped);
       const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
       const cut = (endsAtBlockEdge || unclosed !== null) && !straggler && /참조한 블록이 응답에 없습니다/.test(error.message);
       const strict = cut ? new TruncatedResponseError(`응답이 중간에 끊겼습니다 · ${raw.length.toLocaleString('ko-KR')}자 수신. JSON이 참조한 블록이 오기 전에 응답이 끝났습니다. ${error.message}. 모델의 출력 상한이나 중계 서비스의 제한에 걸렸거나 스트리밍 중 연결이 끊긴 경우입니다. 잘린 응답은 복구하지 않습니다.`) : error;
       // Salvage keeps every item whose blocks did arrive; only when nothing usable remains does the strict error stand.
       if (!salvage || !/참조한 블록이 응답에 없습니다/.test(error.message)) throw strict;
-      const partial = salvageResponse(parsedResponse, blocks);
+      const partial = salvageResponse(shaped, blocks);
       const usable = partial.response.data !== null && partial.response.data !== undefined && (partial.response.task !== 'workshop' || partial.response.data.changes.length || partial.response.data.reply);
       if (!usable) throw strict;
       response = partial.response; missing = partial.missing;
@@ -761,12 +861,17 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
         else missing.push({ label: '응답 끝', block: unclosed + ' (닫히지 않음, 이후 내용 없음)' });
       }
     }
-    const finish = (out) => { if (missing.length) out.missing = missing; return out; };
+    const finish = (out) => {
+      if (missing.length) out.missing = missing;
+      if (normFixes.length) out.repairs = [...(out.repairs ?? []), ...normFixes];
+      return out;
+    };
     keys(response,['schemaVersion','task','data'],['plan']);
     assert([1,2].includes(response.schemaVersion)&&response.task===task,'응답 버전 또는 작업 종류가 요청과 다릅니다.');
     validatePacketVersion(response);
     validatePlan(response);
     if (response.data===null) { assert(response.plan?.length,'data가 null이면 plan이 필요합니다.'); return finish(response); }
+    normalizeDataDefaults(task, response.data, normFixes);
     if (review) return finish(response);
     validateData(task,response.data,draft);
     const out=compactLorePacket(response,draft); if(response.plan) out.plan=response.plan; return finish(out);
@@ -783,20 +888,22 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
       if(first)break;
       continue;
     }
-    if(!candidate||typeof candidate!=='object'||Array.isArray(candidate)||!['schemaVersion','task','data'].some(key=>Object.hasOwn(candidate,key)))continue;
+    if(!looksLikeAnswer(candidate, task, lenient))continue;
     try{candidate=validate(candidate);}catch(error){validationError??=error;continue;}
     assert(response===null,'유효한 JSON 응답이 여러 개입니다. 하나의 응답 객체만 반환해야 합니다.');response=candidate;
   }
   if(response!==null)return response;
   if(validationError)throw validationError;
-  // Before giving up: fix the two mechanical slips above (pure JSON or pure markdown code fence), and accept only a validated envelope.
+  // Before giving up: fix mechanical slips above (pure JSON or pure markdown code fence), and accept only a validated envelope.
   const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
   const repairTarget = fenced ? fenced[1] : text;
-  if(!jsonTruncated(repairTarget)) {
-    const repaired=repairJson(repairTarget);
-    if(repaired&&repaired.fixes.length) {
-      let fixed=null;try{fixed=JSON.parse(repaired.text);}catch{fixed=null;}
-      if(fixed&&typeof fixed==='object'&&!Array.isArray(fixed)&&Object.hasOwn(fixed,'schemaVersion')) { const out=validate(fixed); out.repairs=repaired.fixes; return out; }
+  const repaired=repairJson(repairTarget);
+  if(repaired&&repaired.fixes.length) {
+    let fixed=null;try{fixed=JSON.parse(repaired.text);}catch{fixed=null;}
+    if(looksLikeAnswer(fixed, task, lenient) && (lenient || Object.hasOwn(fixed, 'schemaVersion'))) {
+      const out=validate(fixed);
+      out.repairs=[...repaired.fixes, ...(out.repairs ?? [])];
+      return out;
     }
   }
   if(jsonTruncated(text))throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · ${raw.length.toLocaleString('ko-KR')}자 수신. JSON이 닫히지 않은 채 끝났습니다. 모델의 출력 상한이나 중계 서비스의 제한에 걸렸거나, 스트리밍 중 연결이 끊긴 경우(모바일 화면 꺼짐·앱 전환)입니다. 요청을 탭별로 나누거나 부분편집(edits)으로 다시 요청하세요. 잘린 응답은 복구하지 않습니다.`);
