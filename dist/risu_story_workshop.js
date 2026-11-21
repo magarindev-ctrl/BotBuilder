@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.2.0
+//@version 1.2.1
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-21: v1.2.1 protocol & reliability fixes: focused chunk/salvage requests include targeted existing refs and fall back to full draft after plan-only responses (and track deletions without index-shift drift); missing "<<<name>>>" tag-string references are caught as truncation/missing rather than saved literally; unclosed block salvage no longer double-counts and now handles Lua comment and choiceGreeting subfields cleanly; jsonContract is no longer duplicated in OUTPUT_FORMAT (~4,300 chars saved per request), CACHE_ACK uses minimal JSON, focused steps omit cachePoint, and preset mode applies historyTurns; repairJson and jsonSyntaxError use engine-independent bracket scanning (Safari/Firefox) and handle pure code-fenced JSON; callModel suppresses late unhandled rejections; parseVariables preserves '=' and empty values and CRLF; LLM lorebook responses forbid mode 'folder' and folder scopeOnly is blocked; CHARX preserves lorebook enabled:false and FIELDS preserves replaceGlobalNote; applied/discarded candidates prune duplicate before snapshots (restored on undo); DA Interop enforces UTF-8 byte limits; file picker adds focus cancel fallback and UI notices align with actual behavior (including RisuBard-only lorebook hide).
 Modified 2026-11-02: v1.2.0 protocol work: blocks are the default carrier for prose and code (thin JSON envelope, examples rendered as blocks), block-level salvage (items whose block never arrived are dropped and listed, one user-confirmed follow-up request for just those items), a prompt-cache split for direct requests (stable material in its own user message with cachePoint, an assistant acknowledgement, then the changing tail), a history-turn cap, a workshop summary mode and focused chunk requests. Lorebook index tables were measured (15% overall) and not adopted.
 Modified 2026-11-02: v1.2.0 adds lorebook folders in the Risu layout (folder entries with mode 'folder' and children keyed by the folder key) with folder-level request inclusion, Risu enable/hide and always-active switches; a drag handle between every item list and its editor plus list folding (both remembered in settings); foldable module and preview cards; and linear-time assembly of long streamed answers so the plugin no longer stays busy after the model has finished; the user template now puts stable material (draft, reference, format) before the conversation, pending proposals and request so provider prefix caches can reuse it, with new CONVERSATION and PENDING_PROPOSALS slots and in-place upgrade of a saved default template.
 Modified 2026-11-02: v1.1.10 accepts a closing block tag that is glued to the last code line, indented, or spaced inside (<<< /name >>>), and allows an indented opening tag; a genuinely missing closer is still reported as a truncated answer, now with the received length.
@@ -9929,9 +9930,9 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.2.0";
+  var VERSION = "1.2.1";
   var PREFIX = "risu-character-editor:v1:";
-  var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
+  var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
   var dangerous = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]);
   var clone = (x) => x === void 0 ? void 0 : JSON.parse(JSON.stringify(x));
@@ -10185,8 +10186,9 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const guide = examples.map((example, i) => "[\uC62C\uBC14\uB978 \uCD9C\uB825 \uC608\uC2DC " + (i + 1) + " \u2014 \uC0C8 \uC791\uC131\xB7\uBA85\uC2DC\uC801 \uC804\uCCB4 \uC7AC\uC791\uC131 \uB610\uB294 \uB300\uD654]\n" + exampleText(example)).join("\n\n");
     const invalid = "\n\n[\uC798\uBABB\uB41C \uCD9C\uB825 \uC608\uC2DC \u2014 \uC751\uB2F5 \uAC1D\uCCB4 \uC55E\uC774\uB098 \uB4A4\uC5D0 Markdown \uC81C\uBAA9, \uC778\uC0AC\uB9D0, \uD574\uC124, \uCF54\uB4DC \uD39C\uC2A4 \uC911 \uD558\uB098\uB77C\uB3C4 \uBD99\uC740 \uC751\uB2F5. \uC62C\uBC14\uB978 \uCD9C\uB825 \uC608\uC2DC 1\uC744 \uC544\uBB34 \uC7A5\uC2DD \uC5C6\uC774 \uADF8\uB300\uB85C \uBCF4\uB0B8\uB2E4]";
     const patchExample = textEditExample(task);
-    const patchGuide = "\n\n[\uAE30\uC874 \uC6D0\uBB38 \uBD80\uBD84\uD3B8\uC9D1 \uC608\uC2DC \u2014 \uC608\uC2DC \uC804\uC6A9 \uC6D0\uBB38\uACFC ref\uC774\uBA70 \uC2E4\uC81C \uD604\uC7AC\uC548\uC73C\uB85C \uAD50\uCCB4\uD560 \uAC83]\n\uC6D0\uBB38: " + JSON.stringify(patchExample.source) + "\n\uC751\uB2F5: " + exampleText(patchExample.packet);
-    return jsonContract(task, options) + patchGuide + "\n\n[\uC0C8\uB85C \uC791\uC131\uD560 \uB54C\uC758 \uB370\uC774\uD130 \uAD6C\uC870 \u2014 \uAE30\uC874 \uD14D\uC2A4\uD2B8 \uC218\uC815\uC740 \uACF5\uD1B5 edits \uD615\uC2DD \uC0AC\uC6A9]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n\uD5C8\uC6A9 \uD544\uB4DC: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. \uC0AD\uC81C \uBAA9\uB85D\uC5D0\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD560 \uAC83.";
+    const contract = options.includeContract === false ? "" : jsonContract(task, options) + "\n\n";
+    const patchGuide = "[\uAE30\uC874 \uC6D0\uBB38 \uBD80\uBD84\uD3B8\uC9D1 \uC608\uC2DC \u2014 \uC608\uC2DC \uC804\uC6A9 \uC6D0\uBB38\uACFC ref\uC774\uBA70 \uC2E4\uC81C \uD604\uC7AC\uC548\uC73C\uB85C \uAD50\uCCB4\uD560 \uAC83]\n\uC6D0\uBB38: " + JSON.stringify(patchExample.source) + "\n\uC751\uB2F5: " + exampleText(patchExample.packet);
+    return contract + patchGuide + "\n\n[\uC0C8\uB85C \uC791\uC131\uD560 \uB54C\uC758 \uB370\uC774\uD130 \uAD6C\uC870 \u2014 \uAE30\uC874 \uD14D\uC2A4\uD2B8 \uC218\uC815\uC740 \uACF5\uD1B5 edits \uD615\uC2DD \uC0AC\uC6A9]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n\uD5C8\uC6A9 \uD544\uB4DC: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. \uC0AD\uC81C \uBAA9\uB85D\uC5D0\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD560 \uAC83.";
   }
   var HISTORY_TURNS_DEFAULT = 12;
   var HISTORY_TURNS_MIN = 1;
@@ -10220,11 +10222,12 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   var omittedText = (text) => ({ omitted: true, chars: chars(text) });
   function focusContext(task, context, taskRef, focus) {
     const fields = new Set(focus.fields ?? []), lore = new Set(focus.lore ?? []), regex = new Set(focus.regex ?? []), scripts2 = new Set(focus.scripts ?? []);
-    const loreList = context.lorebook.map((item) => lore.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.entry.comment, key: item.entry.key, chars: chars(item.entry.content) } });
-    const regexList = context.regex.map((item) => regex.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.rule.comment, type: item.rule.type, chars: chars(item.rule.in) + chars(item.rule.out) } });
-    const scriptList = context.scripts.map((item) => scripts2.has(item.ref) ? item : { ref: item.ref, summary: { comment: item.comment, chars: chars(item.code) } });
-    const text = (key2, value) => fields.has(key2) ? value : omittedText(value);
-    const note = "\uBD84\uD560 \uC791\uC5C5 \uAD6C\uAC04 \uC694\uCCAD: \uC774\uC804 \uAD6C\uAC04\uC5D0\uC11C \uBC14\uB010 \uD544\uB4DC\xB7\uD56D\uBAA9\uB9CC \uBCF8\uBB38\uC744 \uBCF4\uB0C8\uACE0, \uB098\uBA38\uC9C0\uB294 \uAE38\uC774\uB9CC \uC801\uC5C8\uB2E4(omitted\xB7summary). \uBCF8\uBB38\uC744 \uBCF4\uB0B4\uC9C0 \uC54A\uC740 \uD544\uB4DC\xB7\uD56D\uBAA9\uC740 \uC774\uBC88 \uAD6C\uAC04\uC5D0\uC11C edits\uB85C \uC218\uC815\uD558\uAC70\uB098 \uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uADF8 \uC218\uC815\uC774 \uAF2D \uD544\uC694\uD558\uBA74 plan\uC5D0 \uB0A8\uAE30\uACE0 reply\uC5D0 \uC801\uC5B4\uB77C.";
+    const allFields = focus.allFields === true, allLore = focus.allLore === true, allRegex = focus.allRegex === true, allScripts = focus.allScripts === true;
+    const loreList = allLore ? context.lorebook : context.lorebook.map((item) => lore.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.entry.comment, key: item.entry.key, chars: chars(item.entry.content) } });
+    const regexList = allRegex ? context.regex : context.regex.map((item) => regex.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.rule.comment, type: item.rule.type, chars: chars(item.rule.in) + chars(item.rule.out) } });
+    const scriptList = allScripts ? context.scripts : context.scripts.map((item) => scripts2.has(item.ref) ? item : { ref: item.ref, summary: { comment: item.comment, chars: chars(item.code) } });
+    const text = (key2, value) => allFields || fields.has(key2) ? value : omittedText(value);
+    const note = "\uBD84\uD560 \uC791\uC5C5 \uAD6C\uAC04 \uC694\uCCAD: \uC774\uC804 \uAD6C\uAC04\uC5D0\uC11C \uBC14\uB010 \uD544\uB4DC\xB7\uD56D\uBAA9\uACFC \uC774\uBC88 \uAD6C\uAC04 \uB300\uC0C1\uB9CC \uBCF8\uBB38\uC744 \uBCF4\uB0C8\uACE0, \uB098\uBA38\uC9C0\uB294 \uAE38\uC774\uB9CC \uC801\uC5C8\uB2E4(omitted\xB7summary). \uBCF8\uBB38\uC744 \uBCF4\uB0B4\uC9C0 \uC54A\uC740 \uD544\uB4DC\xB7\uD56D\uBAA9\uC740 \uC774\uBC88 \uAD6C\uAC04\uC5D0\uC11C edits\uB85C \uC218\uC815\uD558\uAC70\uB098 \uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uADF8 \uC218\uC815\uC774 \uAF2D \uD544\uC694\uD558\uBA74 plan\uC5D0 \uB0A8\uAE30\uACE0 reply\uC5D0 \uC801\uC5B4\uB77C.";
     if (task === "workshop") return { ...context, description: text("description", context.description), personality: text("personality", context.personality), scenario: text("scenario", context.scenario), firstMessage: text("firstMessage", context.firstMessage), lorebook: loreList, regex: regexList, scripts: scriptList, focusNote: note };
     if (task === "lorebook") return { entries: loreList, focusNote: note };
     if (task === "regex") return { rules: regexList, focusNote: note };
@@ -10244,7 +10247,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const summary = options.draftSummary === true && task === "workshop" && !focus;
     const current = summary ? draftSummary(session, context) : focus ? focusContext(task, context, refs[task], focus) : task === "workshop" ? context : refs[task];
     const character = focus ? focusContext("workshop", context, null, focus) : context;
-    const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: 'RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. \uB2E8\uCD94\uB294 <button risu-btn="\uD0A4">\uC774\uBA70 Lua\uC758 onButtonClick(accessKey, buttonKey)\uC5D0\uC11C buttonKey\uB85C \uBC1B\uB294\uB2E4. getChatVar/setChatVar\uB85C \uBCC0\uC218\uB97C \uC77D\uACE0 \uC4F4\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.' }), OUTPUT_FORMAT: formatFor(task, session, options) };
+    const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: 'RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. \uB2E8\uCD94\uB294 <button risu-btn="\uD0A4">\uC774\uBA70 Lua\uC758 onButtonClick(accessKey, buttonKey)\uC5D0\uC11C buttonKey\uB85C \uBC1B\uB294\uB2E4. getChatVar/setChatVar\uB85C \uBCC0\uC218\uB97C \uC77D\uACE0 \uC4F4\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.' }), OUTPUT_FORMAT: formatFor(task, session, { ...options, includeContract: false }) };
     const reference = JSON.parse(values.REFERENCE_CONTEXT);
     if (task === "workshop") {
       delete reference.character;
@@ -10281,7 +10284,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return [system, { role: "user", content: fill(prompt.user) }];
   }
-  var CACHE_ACK = "\uD604\uC7AC\uC548\xB7\uCC38\uACE0\uC790\uB8CC\xB7\uCD9C\uB825 \uD615\uC2DD\uC744 \uD655\uC778\uD588\uB2E4. \uC774\uC5B4\uC9C0\uB294 \uC124\uACC4 \uB300\uD654 \uAE30\uB85D\uACFC \uC694\uCCAD\uC5D0 \uB530\uB77C \uCD9C\uB825 \uD615\uC2DD\uB300\uB85C \uC751\uB2F5\uD558\uACA0\uB2E4.";
+  var CACHE_ACK = '{"ack":true}';
   var LORE_KEYS = ["comment", "key", "secondkey", "content", "insertorder", "mode", "alwaysActive", "selective", "useRegex", "activationPercent"];
   var REGEX_KEYS = ["comment", "in", "out", "flag", "ableFlag", "type"];
   function validateEntry(entry, type, isNew) {
@@ -10289,7 +10292,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const strings = type === "lore" ? ["comment", "key", "secondkey", "content"] : ["comment", "in", "out", "flag", "type"];
     for (const k of strings) if (k in entry) str(entry[k], k);
     for (const k of ["alwaysActive", "selective", "useRegex", "ableFlag"]) if (k in entry) assert(typeof entry[k] === "boolean", k + ": \uBD88\uB9AC\uC5B8\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
-    if ("mode" in entry) assert(["multiple", "constant", "normal", "child", "folder"].includes(entry.mode), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uB85C\uC5B4\uBD81 \uBAA8\uB4DC\uC785\uB2C8\uB2E4.");
+    if ("mode" in entry) assert(["multiple", "constant", "normal", "child"].includes(entry.mode), "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uB85C\uC5B4\uBD81 \uBAA8\uB4DC\uC785\uB2C8\uB2E4.");
     if ("insertorder" in entry) assert(Number.isFinite(entry.insertorder), "\uC0BD\uC785 \uC21C\uC11C\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     if ("activationPercent" in entry) assert(Number.isFinite(entry.activationPercent) && entry.activationPercent >= 0 && entry.activationPercent <= 100, "\uD65C\uC131\uD654 \uD655\uB960\uC740 0~100\uC785\uB2C8\uB2E4.");
     if ("type" in entry) assert(["editinput", "editoutput", "editprocess", "editdisplay"].includes(entry.type), "\uC815\uADDC\uC2DD \uC801\uC6A9 \uC720\uD615\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
@@ -10535,7 +10538,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   function extractBlocks(raw, options = {}) {
     const blocks = /* @__PURE__ */ new Map(), parts = [];
     let unclosed = null;
-    const open = /^[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
+    const open = /(?:^|(?<=\}))[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
     let cursor = 0, m;
     while (m = open.exec(raw)) {
       const name = m[1];
@@ -10563,7 +10566,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     return { text: parts.join(""), blocks, unclosed };
   }
   var blockName = (value) => typeof value === "string" ? value.trim().replace(/^<<<(.+?)>>>$/, "$1") : null;
-  var tagString = (value, blocks) => typeof value === "string" && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value) && blocks.has(blockName(value));
+  var isTagString = (value) => typeof value === "string" && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value);
   var MISSING = "\0missing";
   var isMissing = (value) => !!value && typeof value === "object" && Object.hasOwn(value, MISSING);
   function resolveBlocks(value, blocks, used, lenient = false) {
@@ -10581,8 +10584,12 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       }
       return Object.fromEntries(names.map((k) => [k, resolveBlocks(value[k], blocks, used, lenient)]));
     }
-    if (tagString(value, blocks)) {
+    if (isTagString(value)) {
       const name = blockName(value);
+      if (!blocks.has(name)) {
+        if (lenient) return { [MISSING]: name };
+        throw new BlockReferenceError("\uCC38\uC870\uD55C \uBE14\uB85D\uC774 \uC751\uB2F5\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4: <<<" + name + ">>>", [...blocks.keys()]);
+      }
       used.add(name);
       return blocks.get(name);
     }
@@ -10594,7 +10601,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       const names = Object.keys(value);
       if (names.length === 1 && names[0] === "block" && typeof value.block === "string") out.add(blockName(value.block));
       else names.forEach((k) => blockReferences(value[k], out));
-    } else if (typeof value === "string" && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value)) out.add(blockName(value));
+    } else if (isTagString(value)) out.add(blockName(value));
     return out;
   }
   function applyBlocks(response, blocks, lenient = false) {
@@ -10666,7 +10673,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       return upsert.length || Array.isArray(data.remove) && data.remove.length ? { ...data, upsert } : null;
     }
     if (task === "lua") {
-      const scripts2 = salvageItems(data.scripts, ["comment", "code"], ["code"], "Lua", missing);
+      const scripts2 = salvageItems(data.scripts, ["comment", "code"], ["comment", "code"], "Lua", missing);
       const variables2 = data.variables && typeof data.variables === "object" ? Object.fromEntries(Object.entries(data.variables).flatMap(([k, v]) => {
         const value = textFieldStatus(v, "\uBCC0\uC218 " + k, missing);
         return value === null ? [] : [[k, value]];
@@ -10677,13 +10684,21 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if (task === "choiceGreeting") {
       const probe = [];
       const text = textFieldStatus(data.text, "\uC2DC\uC791 \uC0C1\uD669 \uBCF8\uBB38", probe);
-      const scripts2 = salvageItems(data.scripts, ["comment", "code"], ["code"], "Lua", probe);
-      const choices = Array.isArray(data.choices) ? data.choices.filter((c) => !isMissing(c?.content)) : data.choices;
-      if (text === null || probe.length || Array.isArray(data.choices) && choices.length !== data.choices.length) {
+      const scripts2 = salvageItems(data.scripts, ["comment", "code"], ["comment", "code"], "Lua", probe);
+      const regex = salvageItems(data.regex, ["comment", "in", "out"], ["in", "out"], "\uC815\uADDC\uC2DD", probe);
+      if (data.variables && typeof data.variables === "object" && !Array.isArray(data.variables)) {
+        for (const [k, v] of Object.entries(data.variables)) textFieldStatus(v, "\uBCC0\uC218 " + k, probe);
+      }
+      if (Array.isArray(data.choices)) {
+        data.choices.forEach((c, i) => {
+          for (const k of ["id", "label", "content"]) if (isMissing(c?.[k])) probe.push({ label: `\uC120\uD0DD \uC0C1\uD669 ${i + 1} ${k}`, block: c[k][MISSING] });
+        });
+      }
+      if (text === null || probe.length) {
         missing.push({ label: "\uC2DC\uC791 \uC0C1\uD669 \uC120\uD0DD \uBB36\uC74C", block: [...new Set(probe.map((p) => p.block))].join(", ") || "\uBCF8\uBB38" });
         return null;
       }
-      return { ...data, text, scripts: scripts2 };
+      return { ...data, text, scripts: scripts2, regex };
     }
     return data;
   }
@@ -10736,30 +10751,66 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return { text: out, removed };
   }
+  function findExtraCloser(text) {
+    const stack = [];
+    let quoted = false, escaped = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') quoted = false;
+        continue;
+      }
+      if (ch === '"') {
+        quoted = true;
+        continue;
+      }
+      if (ch === "{" || ch === "[") {
+        stack.push(ch);
+        continue;
+      }
+      if (ch === "}" || ch === "]") {
+        const expected = ch === "}" ? "{" : "[";
+        if (!stack.length || stack.at(-1) !== expected) return i;
+        stack.pop();
+      }
+    }
+    return -1;
+  }
+  function lineColumnOffset(text, line, column) {
+    let current = 1, offset = 0;
+    while (current < line && offset < text.length) {
+      const nl = text.indexOf("\n", offset);
+      if (nl < 0) return -1;
+      offset = nl + 1;
+      current++;
+    }
+    return Math.min(text.length, offset + Math.max(0, column - 1));
+  }
   function repairJson(text) {
     const fixes = [];
     const commas = stripTrailingCommas(text);
     let current = commas.text;
     if (commas.removed) fixes.push(`\uD6C4\uD589 \uC27C\uD45C ${commas.removed}\uAC1C \uC81C\uAC70`);
     for (let i = 0; i < 3; i++) {
-      let message;
       try {
         JSON.parse(current);
         return { text: current, fixes };
-      } catch (error) {
-        message = error.message;
+      } catch {
       }
-      const at = /position (\d+)/.exec(message);
-      if (!at) return null;
-      const pos = Number(at[1]), ch = current[pos];
-      if ((ch === "}" || ch === "]") && /after array element|after property value/.test(message)) {
-        current = current.slice(0, pos) + current.slice(pos + 1);
-        fixes.push(`\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638 '${ch}' 1\uAC1C \uC81C\uAC70(${pos.toLocaleString("ko-KR")}\uC790 \uBD80\uADFC)`);
-        continue;
-      }
+      const pos = findExtraCloser(current);
+      if (pos < 0) return null;
+      const ch = current[pos];
+      current = current.slice(0, pos) + current.slice(pos + 1);
+      fixes.push(`\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638 '${ch}' 1\uAC1C \uC81C\uAC70(${pos.toLocaleString("ko-KR")}\uC790 \uBD80\uADFC)`);
+    }
+    try {
+      JSON.parse(current);
+      return { text: current, fixes };
+    } catch {
       return null;
     }
-    return null;
   }
   function jsonSyntaxError(text) {
     const broken = [...responseJsonChunks(text)].filter((chunk) => {
@@ -10779,7 +10830,9 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     } catch (error) {
       reason = error.message;
     }
-    const at = /position (\d+)/.exec(reason), pos = at ? Number(at[1]) : -1;
+    const atPos = /position (\d+)/.exec(reason);
+    const atLine = /line (\d+) column (\d+)/.exec(reason);
+    const pos = atPos ? Number(atPos[1]) : atLine ? lineColumnOffset(candidate, Number(atLine[1]), Number(atLine[2])) : findExtraCloser(candidate);
     const snippet = pos >= 0 ? candidate.slice(Math.max(0, pos - 40), pos + 40) : /\.\.\."([\s\S]*?)"\.\.\./.exec(reason)?.[1] ?? "";
     const detail = (pos >= 0 ? pos.toLocaleString("ko-KR") + "\uC790 \uBD80\uADFC" : "\uC704\uCE58 \uBD88\uBA85") + (snippet ? " " + JSON.stringify(snippet) : "") + (reason ? " \xB7 " + reason.replace(/ in JSON at position \d+.*$/, "") : "");
     return new JsonSyntaxError("\uC751\uB2F5\uC758 JSON \uBB38\uBC95\uC774 \uAE68\uC84C\uC2B5\uB2C8\uB2E4 \xB7 " + detail + ". \uD754\uD55C \uC6D0\uC778\uC740 \uBB38\uC790\uC5F4 \uC548\uC758 \uC774\uC2A4\uCF00\uC774\uD504\uB418\uC9C0 \uC54A\uC740 \uD070\uB530\uC634\uD45C\xB7\uC904\uBC14\uAFC8\xB7\uC5ED\uC2AC\uB798\uC2DC, \uD6C4\uD589 \uC27C\uD45C, \uC8FC\uC11D\uC785\uB2C8\uB2E4. \uAE34 \uCF54\uB4DC\xB7\uBCF8\uBB38\uC740 <<<\uC774\uB984>>> \uBE14\uB85D\uC73C\uB85C \uBCF4\uB0B4\uBA74 \uC774\uC2A4\uCF00\uC774\uD504\uAC00 \uD544\uC694 \uC5C6\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\uC640 \uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\uB294 \uC790\uB3D9\uC73C\uB85C \uAC77\uC5B4\uB0B4\uC9C0\uB9CC \uADF8 \uBC16\uC758 \uBB38\uBC95\uC740 \uACE0\uCE58\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", detail);
@@ -10818,6 +10871,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       let response2, missing = [];
       try {
         response2 = applyBlocks(parsedResponse, blocks);
+        if (unclosed !== null) throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 \uBE14\uB85D <<<${unclosed}>>>\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(<<</${unclosed}>>>\uB97C \uCC3E\uC9C0 \uBABB\uD568 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0). \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
       } catch (error) {
         const referenced = blockReferences(parsedResponse);
         const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
@@ -10829,7 +10883,11 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         if (!usable) throw strict;
         response2 = partial.response;
         missing = partial.missing;
-        if (unclosed !== null) missing.push({ label: "\uC751\uB2F5 \uB05D", block: unclosed + " (\uB2EB\uD788\uC9C0 \uC54A\uC74C, \uC774\uD6C4 \uB0B4\uC6A9 \uC5C6\uC74C)" });
+        if (unclosed !== null) {
+          const existing = missing.find((m) => typeof m.block === "string" && m.block.split(/,\s*/).includes(unclosed));
+          if (existing) existing.block += " (\uB2EB\uD788\uC9C0 \uC54A\uC74C)";
+          else missing.push({ label: "\uC751\uB2F5 \uB05D", block: unclosed + " (\uB2EB\uD788\uC9C0 \uC54A\uC74C, \uC774\uD6C4 \uB0B4\uC6A9 \uC5C6\uC74C)" });
+        }
       }
       const finish = (out2) => {
         if (missing.length) out2.missing = missing;
@@ -10878,8 +10936,10 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     if (response !== null) return response;
     if (validationError) throw validationError;
-    if (!jsonTruncated(text)) {
-      const repaired = repairJson(text);
+    const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
+    const repairTarget = fenced ? fenced[1] : text;
+    if (!jsonTruncated(repairTarget)) {
+      const repaired = repairJson(repairTarget);
       if (repaired && repaired.fixes.length) {
         let fixed = null;
         try {
@@ -10987,18 +11047,20 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   }
   function parseVariables(text) {
     const r = /* @__PURE__ */ Object.create(null);
-    for (const line of text.split("\n")) {
-      const [key2, value] = line.split("=");
-      if (key2 && value && !dangerous.has(key2)) r[key2] = value;
+    for (const line of text.split(/\r?\n/)) {
+      const eq = line.indexOf("=");
+      if (eq <= 0) continue;
+      const key2 = line.slice(0, eq), value = line.slice(eq + 1);
+      if (key2 && !dangerous.has(key2)) r[key2] = value;
     }
     return r;
   }
   function applyVariables(text, changed, remove) {
     const used = /* @__PURE__ */ new Set(), lines = [];
-    for (const line of text.split("\n")) {
-      const key2 = line.split("=")[0];
-      if (remove.includes(key2)) continue;
-      if (Object.hasOwn(changed, key2)) {
+    for (const line of text.split(/\r?\n/)) {
+      const eq = line.indexOf("="), key2 = eq > 0 ? line.slice(0, eq) : line;
+      if (eq > 0 && remove.includes(key2)) continue;
+      if (eq > 0 && Object.hasOwn(changed, key2)) {
         if (!used.has(key2)) lines.push(key2 + "=" + changed[key2]);
         used.add(key2);
       } else lines.push(line);
@@ -11213,6 +11275,8 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       timer = setTimeout(() => job.stop("\uC694\uCCAD \uB300\uAE30 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2A6\uAC8C \uB3C4\uCC29\uD55C \uACB0\uACFC\uB294 \uD3D0\uAE30\uD569\uB2C8\uB2E4."), timeoutSeconds * 1e3);
     });
     const work = Promise.resolve().then(() => api2.runLLMModel({ messages, mode, allowPlugins: true })).then((r) => responseText(r, job));
+    work.catch(() => {
+    });
     try {
       return await Promise.race([work, stopped]);
     } finally {
@@ -13152,7 +13216,7 @@ details[open] > summary { margin-bottom: 9px; }
     c.lowLevelAccess = false;
     c.customscript = clone(module?.regex ?? r.customScripts ?? []);
     c.triggerscript = clone(module?.trigger ?? r.triggerscript ?? []);
-    c.globalLore = clone(module?.lorebook ?? (d.character_book?.entries ?? []).map((e) => ({ key: (e.keys ?? []).join(","), secondkey: (e.secondary_keys ?? []).join(","), content: e.content ?? "", comment: e.name ?? e.comment ?? "", insertorder: e.insertion_order ?? 100, mode: e.mode ?? "normal", alwaysActive: !!e.constant, selective: !!e.selective, useRegex: !!e.use_regex, extentions: clone(e.extensions ?? {}), activationPercent: e.extensions?.risu_activationPercent, folder: e.folder, id: e.id })));
+    c.globalLore = clone(module?.lorebook ?? (d.character_book?.entries ?? []).map((e) => ({ key: (e.keys ?? []).join(","), secondkey: (e.secondary_keys ?? []).join(","), content: e.content ?? "", comment: e.name ?? e.comment ?? "", insertorder: e.insertion_order ?? 100, mode: e.mode ?? "normal", alwaysActive: !!e.constant, selective: !!e.selective, useRegex: !!e.use_regex, extentions: clone(e.extensions ?? {}), activationPercent: e.extensions?.risu_activationPercent, folder: e.folder, id: e.id, ...e.enabled === false ? { enabled: false } : {} })));
     c.loreExt = clone(d.character_book?.extensions ?? {});
     c.loreSettings = { scanDepth: d.character_book?.scan_depth ?? 2, tokenBudget: d.character_book?.token_budget ?? 512, recursiveScanning: d.character_book?.recursive_scanning ?? false, fullWordMatching: d.character_book?.extensions?.risu_fullWordMatching ?? false };
     c.extentions = clone(d.extensions ?? {});
@@ -13169,7 +13233,7 @@ details[open] > summary { margin-bottom: 9px; }
     card.spec_version = "3.0";
     const d = card.data;
     Object.assign(d, { name: c.name, description: c.desc ?? "", personality: c.personality ?? "", scenario: c.scenario ?? "", first_mes: c.firstMessage ?? "", mes_example: c.exampleMessage ?? "", creator_notes: c.creatorNotes ?? "", system_prompt: c.systemPrompt ?? "", post_history_instructions: c.replaceGlobalNote ?? c.postHistoryInstructions ?? "", alternate_greetings: c.alternateGreetings ?? [], tags: c.tags ?? [], creator: c.creator ?? "", character_version: c.characterVersion ?? "", group_only_greetings: c.group_only_greetings ?? [], nickname: c.nickname ?? "", source: c.source ?? [] });
-    d.character_book = { ...d.character_book ?? {}, scan_depth: c.loreSettings?.scanDepth, token_budget: c.loreSettings?.tokenBudget, recursive_scanning: c.loreSettings?.recursiveScanning, extensions: c.loreExt ?? {}, entries: (c.globalLore ?? []).map((l) => ({ keys: (l.key ?? "").split(",").map((x) => x.trim()), secondary_keys: l.selective ? (l.secondkey ?? "").split(",").map((x) => x.trim()) : [], content: l.content, extensions: { ...l.extentions, risu_activationPercent: l.activationPercent }, enabled: true, insertion_order: l.insertorder, constant: l.alwaysActive, selective: l.selective, name: l.comment, comment: l.comment, case_sensitive: !!l.extentions?.risu_case_sensitive, use_regex: !!l.useRegex, mode: l.mode, folder: l.folder, id: l.id })) };
+    d.character_book = { ...d.character_book ?? {}, scan_depth: c.loreSettings?.scanDepth, token_budget: c.loreSettings?.tokenBudget, recursive_scanning: c.loreSettings?.recursiveScanning, extensions: c.loreExt ?? {}, entries: (c.globalLore ?? []).map((l) => ({ keys: (l.key ?? "").split(",").map((x) => x.trim()), secondary_keys: l.selective ? (l.secondkey ?? "").split(",").map((x) => x.trim()) : [], content: l.content, extensions: { ...l.extentions, risu_activationPercent: l.activationPercent }, enabled: l.enabled !== false, insertion_order: l.insertorder, constant: l.alwaysActive, selective: l.selective, name: l.comment, comment: l.comment, case_sensitive: !!l.extentions?.risu_case_sensitive, use_regex: !!l.useRegex, mode: l.mode, folder: l.folder, id: l.id })) };
     d.extensions = { ...d.extensions ?? {}, ...c.extentions ?? {}, risuai: { ...d.extensions?.risuai ?? {} } };
     const r = d.extensions.risuai;
     for (const field of ["bias", "viewScreen", "utilityBot", "sdData", "backgroundHTML", "license", "additionalText", "largePortrait", "lorePlus", "inlayViewScreen", "newGenData", "lowLevelAccess", "defaultVariables", "prebuiltAssetCommand", "prebuiltAssetExclude", "prebuiltAssetStyle", "moduleNamespace", "hideChatIcon", "onboarding"]) if (c[field] !== void 0) r[field] = clone(c[field]);
@@ -14851,14 +14915,17 @@ details[open] > summary { margin-bottom: 9px; }
   var role = (value) => Object.hasOwn(roles, value) ? roles[value] : void 0;
   var BLOCK_TYPES = [["plain", "\uC77C\uBC18 \uD504\uB86C\uD504\uD2B8"], ["chat", "\uC81C\uC791 \uB300\uD654"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["persona", "\uD398\uB974\uC18C\uB098"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["authornote", "\uC791\uAC00 \uB178\uD2B8"], ["postEverything", "\uB9C8\uC9C0\uB9C9 \uC9C0\uC2DC"], ["memory", "\uBA54\uBAA8\uB9AC \uC785\uB825"], ["chatML", "ChatML"], ["jailbreak", "\uAD6C\uD615 \uCD94\uAC00 \uD504\uB86C\uD504\uD2B8"], ["cot", "\uAD6C\uD615 CoT \uBE14\uB85D"], ["cache", "\uCE90\uC2DC \uC9C0\uC810"]];
   var moduleReferences = (preset) => [...new Set((preset?.moduleIntergration ?? "").split(",").map((id) => id.trim()).filter(Boolean))];
-  function assemblePreset(rawState, session, task, directMessages) {
+  function assemblePreset(rawState, session, task, directMessages, options = {}) {
     const state = validatePresetState(rawState), p = state.preset;
     assert(p, "\uBA3C\uC800 \uD504\uB9AC\uC14B \uD30C\uC77C\uC744 \uAC00\uC838\uC624\uC138\uC694.");
     const globals = presetValues(state), variables2 = { ...parseVariables(p.templateDefaultVariables), ...parseVariables(session.draft.defaultVariables ?? "") };
     const d = session.draft, env = state.environment;
     let lore = requestLorebook(session).map(({ entry: l }) => "[" + (l.comment || l.key) + "]\n" + l.content).join("\n\n");
     const currentUser = { role: "user", content: "[\uACF5\uBC29 \uC791\uC5C5 \uC9C0\uCE68]\n" + directMessages[0].content + "\n\n" + directMessages[1].content };
-    const history = session.thread.filter((m) => !m.error && ["user", "assistant"].includes(m.role)).map((m) => ({ role: m.role, content: m.content }));
+    const allHistory = session.thread.filter((m) => !m.error && ["user", "assistant"].includes(m.role)).map((m) => ({ role: m.role, content: m.content }));
+    const keep = historyOptions(options).historyTurns * 2;
+    const omittedHistory = Math.max(0, allHistory.length - keep);
+    const history = omittedHistory ? allHistory.slice(-keep) : allHistory;
     const chats = [...history, currentUser];
     const context = { globals, variables: variables2, fields: { char: d.name ?? "", user: env.userName, description: d.desc ?? "", personality: d.personality ?? "", scenario: d.scenario ?? "", persona: env.persona, firstmessage: d.firstMessage ?? "", first_message: d.firstMessage ?? "", systemprompt: d.systemPrompt ?? "", lorebook: lore, chatindex: String(chats.length - 1), lastusermessage: currentUser.content, lastcharmessage: history.findLast((m) => m.role === "assistant")?.content ?? "", original: p.mainPrompt, slot: "" } };
     const messages = [], trace = [], issues = [], moduleTrace = [], presetRegexTrace = [], selectedModules = activeModules(state);
@@ -14871,25 +14938,25 @@ details[open] > summary { margin-bottom: 9px; }
     const moduleLore = [];
     let moduleSize = 0;
     for (const module of state.modules) {
-      const options = moduleOptions(state, module), profile = moduleRuntimeProfile(module), features = profile.blocking;
+      const options2 = moduleOptions(state, module), profile = moduleRuntimeProfile(module), features = profile.blocking;
       if (state.excluded.modules) {
         moduleTrace.push({ module: module.name, status: "excluded", reason: "\uBAA8\uB4C8 \uC5F0\uB3D9 \uC804\uCCB4 \uC81C\uC678" });
         continue;
       }
       if (profile.notApplicable.length) moduleTrace.push({ module: module.name, type: "runtime", status: "not-applicable", features: profile.notApplicable, items: profile.items.filter((item) => item.status === "not-applicable") });
       if (features.length) {
-        const status = options.skipRuntime ? "excluded" : "error";
+        const status = options2.skipRuntime ? "excluded" : "error";
         moduleTrace.push({ module: module.name, type: "runtime", status, features, items: profile.items.filter((item) => item.status === "unsupported") });
-        if (!options.skipRuntime) issues.push(module.name + ": " + features.join(", ") + " \uC2E4\uD589\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC758 \uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uACE0 \uD544\uC694\uD55C \uCC98\uB9AC\uB97C \uC9C0\uC6D0\uD558\uAC70\uB098 \uBA85\uC2DC\uC801\uC73C\uB85C \uC81C\uC678\uD574\uC57C \uD569\uB2C8\uB2E4.");
+        if (!options2.skipRuntime) issues.push(module.name + ": " + features.join(", ") + " \uC2E4\uD589\uC740 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA8\uB4C8 \uD0ED\uC758 \uC815\uADDC\uC2DD\xB7\uD2B8\uB9AC\uAC70 \uCC98\uB9AC \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uACE0 \uD544\uC694\uD55C \uCC98\uB9AC\uB97C \uC9C0\uC6D0\uD558\uAC70\uB098 \uBA85\uC2DC\uC801\uC73C\uB85C \uC81C\uC678\uD574\uC57C \uD569\uB2C8\uB2E4.");
       }
       for (const [index, entry] of module.lorebook.entries()) {
         const record = { module: module.name, index, name: entry.comment || entry.key || "\uB85C\uC5B4\uBD81", status: "excluded" };
         moduleTrace.push(record);
-        if (options.excludedLore.includes(index)) continue;
+        if (options2.excludedLore.includes(index)) continue;
         let text;
         try {
           const decorated = /(?:^|\n)\s*@@/.test(entry.content);
-          if (options.relaxConditions) {
+          if (options2.relaxConditions) {
             const relaxed = decorated ? ["@@ \uC704\uCE58\xB7\uD65C\uC131\uD654 \uC9C0\uC2DC \uC904 \uC81C\uAC70"] : [];
             text = renderPresetText(decorated ? stripDecorators(entry.content) : entry.content, { ...context, lenient: true, relaxed });
             if (relaxed.length) record.relaxed = relaxed;
@@ -14901,7 +14968,7 @@ details[open] > summary { margin-bottom: 9px; }
         } catch (error) {
           record.status = "error";
           record.error = error.message;
-          issues.push(module.name + " / " + record.name + ": " + error.message + (options.relaxConditions ? "" : ' \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uC774 \uD56D\uBAA9\uC744 \uC81C\uC678\uD558\uAC70\uB098 "\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568"\uC744 \uCF1C\uC138\uC694.'));
+          issues.push(module.name + " / " + record.name + ": " + error.message + (options2.relaxConditions ? "" : ' \uBAA8\uB4C8 \uD0ED\uC5D0\uC11C \uC774 \uD56D\uBAA9\uC744 \uC81C\uC678\uD558\uAC70\uB098 "\uD574\uC11D \uBABB \uD558\uB294 \uC870\uAC74\uC740 \uAC70\uC9D3\uC73C\uB85C \uBCF4\uACE0 \uBCF8\uBB38\uB9CC \uD3EC\uD568"\uC744 \uCF1C\uC138\uC694.'));
           continue;
         }
         moduleSize += bytes(text);
@@ -14994,6 +15061,7 @@ details[open] > summary { margin-bottom: 9px; }
     if (moduleLore.length && !context.loreUsage.used) issues.push("\uC120\uD0DD \uBAA8\uB4C8\uC758 \uB85C\uC5B4\uBD81\uC744 \uD3EC\uD568\uD558\uB294 \uBE14\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uBE14\uB85D \uB610\uB294 {{lorebook}}\uC744 \uC0AC\uC6A9\uD558\uB294 \uBE14\uB85D\uC744 \uCD94\uAC00\uD558\uC138\uC694.");
     for (const record of moduleTrace) if (record.status === "prepared") record.status = context.loreUsage.used ? "included" : "not-included";
     const notes = ["\uB85C\uC5B4\uBD81 \uBE14\uB85D\uC740 \uACF5\uBC29\uC5D0\uC11C \uCCB4\uD06C\uD55C \uD604\uC7AC \uC6D0\uACE0 \uD56D\uBAA9\uACFC \uC120\uD0DD \uBAA8\uB4C8\uC758 \uD3EC\uD568 \uD56D\uBAA9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4\uC758 \uD0A4\uC6CC\uB4DC \uD65C\uC131\uD654\xB7\uD1A0\uD070 \uC608\uC0B0 \uACC4\uC0B0\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uBAA8\uB4C8 \uD1A0\uAE00\uC740 \uACF5\uBC29 \uAC12\uC774\uBA70 \uC120\uD0DD\uD55C \uBAA8\uB4C8\uC758 \uC0AC\uBCF8\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uBAA8\uB4C8 \uD65C\uC131\uD654\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "\uD398\uB974\uC18C\uB098\xB7\uC791\uAC00 \uB178\uD2B8\xB7\uBA54\uBAA8\uB9AC\uB294 \uC774 \uD504\uB9AC\uC14B \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD55C \uAC12\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uC0C1\uD0DC\uC640 \uC790\uB3D9 \uB3D9\uAE30\uD654\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."];
+    if (omittedHistory) notes.push(`\uC774\uC804 \uB300\uD654 ${omittedHistory}\uAC1C\uB294 \uB300\uD654 \uAE30\uB85D \uC804\uC1A1 \uD134 \uC218 \uC0C1\uD55C\uC5D0 \uB530\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     if (context.nativeLiterals.size) notes.push("\uACF5\uC2DD \uB0B4\uC7A5 CBS\uB85C \uC815\uC758\uB418\uC9C0 \uC54A\uC740 " + [...context.nativeLiterals].map((name) => "{{" + name + "}}").join(", ") + " \uD45C\uAE30\uB97C \uB9AC\uC2A4\uCC98\uB7FC \uC6D0\uBB38\uC73C\uB85C \uC720\uC9C0\uD588\uC2B5\uB2C8\uB2E4. \uD604\uC7AC \uC0AC\uC6A9\uC790 \uC694\uCCAD\uBB38\uC73C\uB85C \uCE58\uD658\uD55C \uAC83\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
     return { messages, trace, moduleTrace, presetRegexTrace, issues, globals, notes };
   }
@@ -15307,9 +15375,13 @@ details[open] > summary { margin-bottom: 9px; }
     const i = Math.min(Math.max(Number(state.selected) || 0, 0), Math.max(0, list.length - 1));
     state.selected = i;
     const nav = h("div", { class: "itemlist preset-block-list" }, list.map((b3, index) => app.b((b3.enabled === false ? "\u25CB " : "\u25CF ") + (index + 1) + ". " + (b3.name || b3.type), () => {
+      const scrollTop = nav.scrollTop, editorScrollTop = app.editor?.scrollTop ?? 0;
       state.selected = index;
       app.touch(false);
       redraw();
+      if (app.editor) app.editor.scrollTop = editorScrollTop;
+      const replacement = app.editor?.querySelector(".preset-block-list");
+      if (replacement) replacement.scrollTop = scrollTop;
     }, "listitem" + (i === index ? " active" : ""))));
     const edit = h("div", { class: "stack" }), pane = h("div", { class: "list-editor", "data-list": "preset" }, nav, app.listSplitter(), edit);
     host.append(h("div", { class: "row" }, h("span", { class: "muted" }, list.length + "\uAC1C \uBE14\uB85D"), app.listCollapseButton("preset", pane)), pane);
@@ -15572,7 +15644,7 @@ details[open] > summary { margin-bottom: 9px; }
           try {
             const output = await action.run(clone2(request.args ?? null), { rev: request.rev, source: "dusk-atelier" });
             actionResult = output === void 0 ? null : clone2(output);
-            if (JSON.stringify(actionResult).length > INTEROP_RESULT_MAX) {
+            if (new TextEncoder().encode(JSON.stringify(actionResult)).length > INTEROP_RESULT_MAX) {
               actionResult = null;
               actionError = "result too large";
             }
@@ -15619,11 +15691,11 @@ details[open] > summary { margin-bottom: 9px; }
 
   // src/ui.js
   var TABS = [["overview", "\uC81C\uC791 \uB178\uD2B8"], ["description", "\uCE90\uB9AD\uD130 \uC124\uBA85"], ["lorebook", "\uB85C\uC5B4\uBD81"], ["regex", "\uC815\uADDC\uC2DD"], ["lua", "Lua \xB7 \uBCC0\uC218"], ["greeting", "\uCCAB \uBA54\uC2DC\uC9C0"], ["assets", "\uC5D0\uC14B \uBAA9\uB85D"], ["preset", "\uD504\uB86C\uD504\uD2B8 \uD504\uB9AC\uC14B", "\uD504\uB9AC\uC14B"]];
-  var TAB_FIELDS = { overview: ["name"], description: ["desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags"], lorebook: ["globalLore"], regex: ["customscript"], lua: ["triggerscript", "defaultVariables"], greeting: ["firstMessage", "alternateGreetings"], assets: ["image", "additionalAssets", "ccAssets"] };
+  var TAB_FIELDS = { overview: ["name"], description: ["desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags"], lorebook: ["globalLore"], regex: ["customscript"], lua: ["triggerscript", "defaultVariables"], greeting: ["firstMessage", "alternateGreetings"], assets: ["image", "additionalAssets", "ccAssets"] };
   var AUTOSAVE_KEYS = ["autosave", "autosave-1", "autosave-2"];
   var SLOT_NAMES = { autosave: "\uC790\uB3D9 \uC800\uC7A5 \xB7 \uCD5C\uADFC", "autosave-1": "\uC790\uB3D9 \uC800\uC7A5 \xB7 1\uD68C \uC804", "autosave-2": "\uC790\uB3D9 \uC800\uC7A5 \xB7 2\uD68C \uC804", manual: "\uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5" };
   var fieldNames = { name: "\uC774\uB984", image: "\uBD07 \uC544\uC774\uCF58", desc: "\uCE90\uB9AD\uD130 \uC124\uBA85", globalLore: "\uB85C\uC5B4\uBD81", customscript: "\uC815\uADDC\uC2DD", triggerscript: "Lua\xB7\uD2B8\uB9AC\uAC70", defaultVariables: "\uCD08\uAE30 \uBCC0\uC218", firstMessage: "\uCCAB \uBA54\uC2DC\uC9C0", additionalAssets: "\uC5D0\uC14B \uBAA9\uB85D", ccAssets: "\uCE74\uB4DC \uC5D0\uC14B \uCC38\uC870" };
-  var TASK_SCOPE = { workshop: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD569\uB2C8\uB2E4. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD560 \uB54C\uB9CC \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 \uBB36\uC5B4 \uC81C\uC548\uD569\uB2C8\uB2E4.", description: "\uCE90\uB9AD\uD130 \uC124\uBA85\xB7\uC131\uACA9\xB7\uC2DC\uB098\uB9AC\uC624 \uBCF8\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lorebook: "\uB85C\uC5B4\uBD81 \uD56D\uBAA9\uC744 \uCD94\uAC00\xB7\uC218\uC815\xB7\uC0AD\uC81C\uD569\uB2C8\uB2E4.", regex: "\uC815\uADDC\uC2DD \uADDC\uCE59\uACFC HTML/CSS \uC6D0\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lua: "Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", greeting: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", choiceGreeting: "\uCCAB \uBA54\uC2DC\uC9C0\xB7\uC0C1\uD669 \uBAA9\uB85D\xB7\uBCC0\uC218\xB7Lua\xB7\uC815\uADDC\uC2DD\uC744 \uD55C \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD569\uB2C8\uB2E4." };
+  var TASK_SCOPE = { workshop: "\uBC29\uD5A5\uC744 \uC758\uB17C\uD569\uB2C8\uB2E4. \uC81C\uC791\xB7\uC218\uC815\uC744 \uC694\uCCAD\uD560 \uB54C\uB9CC \uC791\uC5C5\uBCC4 \uC218\uC815\uC548\uC744 \uBB36\uC5B4 \uC81C\uC548\uD569\uB2C8\uB2E4.", description: "\uCE90\uB9AD\uD130 \uC124\uBA85 \uBCF8\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lorebook: "\uB85C\uC5B4\uBD81 \uD56D\uBAA9\uC744 \uCD94\uAC00\xB7\uC218\uC815\xB7\uC0AD\uC81C\uD569\uB2C8\uB2E4.", regex: "\uC815\uADDC\uC2DD \uADDC\uCE59\uACFC HTML/CSS \uC6D0\uBB38\uC744 \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", lua: "Lua \uCF54\uB4DC\uC640 \uCD08\uAE30 \uBCC0\uC218\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", greeting: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uC791\uC131\xB7\uC218\uC815\uD569\uB2C8\uB2E4.", choiceGreeting: "\uCCAB \uBA54\uC2DC\uC9C0\xB7\uC0C1\uD669 \uBAA9\uB85D\xB7\uBCC0\uC218\xB7Lua\xB7\uC815\uADDC\uC2DD\uC744 \uD55C \uBB36\uC74C\uC73C\uB85C \uC791\uC131\uD569\uB2C8\uB2E4." };
   var SETTINGS = { model: "submodel", timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: "system", chunking: true, chunkTokens: 5e3, chunkMax: 8, historyTurns: 12, listNavWidth: null, collapsedLists: {} };
   var LIST_NAV_MIN = 120;
   var LIST_NAV_DEFAULT = 170;
@@ -16184,18 +16256,18 @@ details[open] > summary { margin-bottom: 9px; }
       const tree2 = lore ? loreTree(list) : null;
       const descendants = (index) => lore ? loreDescendants(list, index) : [];
       const entries = (index) => descendants(index).filter((i) => !isLoreFolder(list[i]));
-      const redrawLoreList = () => {
+      const redrawList = () => {
         const scrollTop = nav.scrollTop;
         const editorScrollTop = this.editor?.scrollTop ?? 0;
         this.renderEditor();
         if (this.editor) this.editor.scrollTop = editorScrollTop;
-        const replacement = this.editor?.querySelector(".lore-request-list");
+        const replacement = this.editor?.querySelector(lore ? ".lore-request-list" : ".itemlist");
         if (replacement) replacement.scrollTop = scrollTop;
       };
       const inclusionChanged = () => {
         this.s.promptRevision++;
         this.touch(false);
-        redrawLoreList();
+        redrawList();
       };
       const loreCount = lore ? list.filter((x) => !isLoreFolder(x)).length : list.length;
       if (lore) host.append(h(
@@ -16214,8 +16286,7 @@ details[open] > summary { margin-bottom: 9px; }
       const select = (i) => {
         s.selected[task] = i;
         this.navigate();
-        if (lore) redrawLoreList();
-        else this.renderEditor();
+        redrawList();
       };
       const itemButton = (x, i, label) => h("button", {
         type: "button",
@@ -16247,7 +16318,7 @@ details[open] > summary { margin-bottom: 9px; }
         box.setAttribute("title", `${name} \xB7 \uC548\uC758 \uD56D\uBAA9 ${inside.length}\uAC1C\uB97C \uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568`);
         const disclosure = h("button", { type: "button", class: "lore-folder-disclosure", "aria-expanded": String(open), "aria-label": (open ? "\uD3F4\uB354 \uC811\uAE30 \xB7 " : "\uD3F4\uB354 \uD3BC\uCE58\uAE30 \xB7 ") + name, onclick: () => {
           open ? this.loreFolderClosed.add(x.key) : this.loreFolderClosed.delete(x.key);
-          redrawLoreList();
+          redrawList();
         } }, open ? "\u25BE" : "\u25B8");
         const head = h("div", { class: "lore-folder-head" }, disclosure, itemButton(x, i, `\u{1F4C1} ${name}`), h("span", { class: "lore-folder-count muted" }, `${inside.length}\uAC1C`));
         const children = open ? h("div", { class: "lore-folder-children", role: "group", "aria-label": name }, node.children.map(loreRow)) : null;
@@ -16318,13 +16389,13 @@ details[open] > summary { margin-bottom: 9px; }
               bulk("\uB9AC\uC2A4\uC5D0\uC11C \uD65C\uC131\uD654", (x) => x.enabled !== false, (x, v) => {
                 if (v) delete x.enabled;
                 else x.enabled = false;
-              }, "\uB044\uBA74 \uB9AC\uC2A4\uAC00 \uC774 \uD56D\uBAA9\uC744 \uC228\uAE40(\uBE44\uD65C\uC131) \uC0C1\uD0DC\uB85C \uC800\uC7A5\uD574 \uCC44\uD305\uC5D0\uC11C \uC4F0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB9AC\uC2A4 \uB85C\uC5B4\uBD81\uC758 '\uC228\uAE40' \uC124\uC815\uACFC \uAC19\uC2B5\uB2C8\uB2E4."),
+              }, "\uB044\uBA74 \uB9AC\uC2A4\uBC14\uB4DC\uAC00 \uC774 \uD56D\uBAA9\uC744 \uC228\uAE40(\uBE44\uD65C\uC131) \uC0C1\uD0DC\uB85C \uC800\uC7A5\uD574 \uCC44\uD305\uC5D0\uC11C \uC4F0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4(\uB9AC\uC2A4\uBC14\uB4DC \uC804\uC6A9 \xB7 \uACF5\uC2DD RisuAI\uB294 \uBBF8\uC9C0\uC6D0)."),
               bulk("\uD56D\uC0C1 \uD65C\uC131\uD654", (x) => !!x.alwaysActive, (x, v) => {
                 x.alwaysActive = v;
               }, "\uB9AC\uC2A4\uC758 \uD3F4\uB354 \uD56D\uC0C1 \uD65C\uC131\uD654 \uD1A0\uAE00\uACFC \uAC19\uC774 \uC548\uC758 \uD56D\uBAA9 \uC804\uCCB4\uC5D0 \uC801\uC6A9\uD569\uB2C8\uB2E4.")
             )
           );
-        } else if (lore) edit.append(this.field("\uD0A4\uC6CC\uB4DC \xB7 \uC27C\uD45C \uAD6C\uBD84", item.key, (v) => change("key", v), { tag: "input" }), this.field("\uBCF8\uBB38", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("\uC0BD\uC785 \uC21C\uC11C", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("\uD56D\uC0C1 \uD65C\uC131\uD654", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC \uC0AC\uC6A9", item.selective, (v) => change("selective", v)), this.check("\uD0A4\uC6CC\uB4DC\uB97C \uC815\uADDC\uC2DD\uC73C\uB85C", item.useRegex, (v) => change("useRegex", v)), this.check("\uB9AC\uC2A4\uC5D0\uC11C \uD65C\uC131\uD654 \xB7 \uB044\uBA74 \uC228\uAE40", item.enabled !== false, (v) => {
+        } else if (lore) edit.append(this.field("\uD0A4\uC6CC\uB4DC \xB7 \uC27C\uD45C \uAD6C\uBD84", item.key, (v) => change("key", v), { tag: "input" }), this.field("\uBCF8\uBB38", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("\uC0BD\uC785 \uC21C\uC11C", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("\uD56D\uC0C1 \uD65C\uC131\uD654", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("\uBCF4\uC870 \uD0A4\uC6CC\uB4DC \uC0AC\uC6A9", item.selective, (v) => change("selective", v)), this.check("\uD0A4\uC6CC\uB4DC\uB97C \uC815\uADDC\uC2DD\uC73C\uB85C", item.useRegex, (v) => change("useRegex", v)), this.check("\uB9AC\uC2A4\uC5D0\uC11C \uD65C\uC131\uD654 \xB7 \uB044\uBA74 \uC228\uAE40(\uB9AC\uC2A4\uBC14\uB4DC \uC804\uC6A9)", item.enabled !== false, (v) => {
           if (v) delete item.enabled;
           else item.enabled = false;
           this.touch();
@@ -16647,6 +16718,7 @@ details[open] > summary { margin-bottom: 9px; }
           this.diffView(candidate),
           h("div", { class: "row" }, this.b("\uC6D0\uACE0\uC5D0 \uC801\uC6A9", () => this.applyCandidate(candidate), "primary small", { disabled: stale, "data-action": "apply-candidate" }), this.b("\uD3D0\uAE30", () => {
             candidate.status = "discarded";
+            delete candidate.before;
             this.touch(false);
             this.render();
           }, "small")),
@@ -16697,6 +16769,7 @@ details[open] > summary { margin-bottom: 9px; }
       const summaryOnly = this.task === "workshop" ? this.check("\uC6D0\uACE0 \uC804\uCCB4 \uB300\uC2E0 \uC694\uC57D\uB9CC \uBCF4\uB0B4\uAE30 \xB7 \uC124\uACC4 \uB17C\uC758\uC6A9, \uAE30\uC874 \uBCF8\uBB38\uC758 \uBD80\uBD84\uD3B8\uC9D1\uC740 \uBD88\uAC00", s.workshopSummary === true, (v) => {
         s.workshopSummary = v;
         this.touch(false);
+        this.render();
       }) : null;
       const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
       const toggleLabel = TASKS[this.task].label + " \u25BE";
@@ -16707,7 +16780,8 @@ details[open] > summary { margin-bottom: 9px; }
         settingsToggle.textContent = open ? "\uC124\uC815 \uB2EB\uAE30 \u25B4" : toggleLabel;
       }, "request-settings-toggle", { "aria-expanded": "false", title: "\uC694\uCCAD \uC124\uC815 \xB7 \uC885\uB958\xB7\uBAA8\uB378\xB7\uAD6C\uC131\uC744 \uBC14\uAFC9\uB2C8\uB2E4." });
       const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
-      const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " \uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\uD569\uB2C8\uB2E4." : "")));
+      const summaryOn = this.task === "workshop" && s.workshopSummary === true;
+      const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " \uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\uD569\uB2C8\uB2E4." : "") + (summaryOn ? " \xB7 \uC694\uC57D \uBAA8\uB4DC(\uAE30\uC874 \uBCF8\uBB38 \uD3B8\uC9D1 \uBD88\uAC00)" : "")));
       requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, summaryOnly, this.b("\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1", () => this.showPrompt(this.task), "small mobile-prompt")));
       panel.append(messages, h(
         "div",
@@ -16779,11 +16853,13 @@ details[open] > summary { margin-bottom: 9px; }
         next = applied;
       }
       assert(this.candidateValid(candidate), "\uC6D0\uACE0\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4.");
+      const beforeSnapshot = candidate.before;
       this.s.loreIncluded = lore;
       this.s.draft = next;
       candidate.status = "applied";
+      delete candidate.before;
       this.touch();
-      this.s.undo = { candidateId: candidate.id, sessionId: this.s.sessionId, revision: this.s.revision, restoreRevision: candidate.revision, before: candidate.before, loreIncluded: loreBefore, label: candidate.label };
+      this.s.undo = { candidateId: candidate.id, sessionId: this.s.sessionId, revision: this.s.revision, restoreRevision: candidate.revision, before: beforeSnapshot, loreIncluded: loreBefore, label: candidate.label };
       this.render();
       this.toast("\uC218\uC815\uC548\uC744 \uC6D0\uACE0\uC5D0 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4. \uC2E4\uC81C \uCE90\uB9AD\uD130 \uC800\uC7A5\uC740 \uBCC4\uB3C4\uC785\uB2C8\uB2E4.");
     }
@@ -16797,7 +16873,10 @@ details[open] > summary { margin-bottom: 9px; }
       this.s.draft = clone(undo.before);
       this.s.loreIncluded = loreSelection({ draft: this.s.draft, loreIncluded: undo.loreIncluded });
       this.s.revision = undo.restoreRevision;
-      if (candidate) delete candidate.status;
+      if (candidate) {
+        candidate.before = clone(undo.before);
+        delete candidate.status;
+      }
       delete this.s.undo;
       this.touch(false);
       this.render();
@@ -16805,15 +16884,19 @@ details[open] > summary { margin-bottom: 9px; }
     }
     requestWithScope(task) {
       const s = this.s, request = (s.requests[task] ?? "").trim() || (requestImages(s, task).length ? "\uCCA8\uBD80\uD55C \uD654\uBA74\uC744 \uD655\uC778\uD558\uACE0 \uD604\uC7AC \uC694\uCCAD \uC791\uC5C5\uC5D0 \uB9DE\uAC8C \uBD84\uC11D\uD574 \uC8FC\uC138\uC694." : "");
-      const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
-      if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "\uD604\uC7AC \uD3B8\uC9D1 \uD56D\uBAA9\uC774 \uC694\uCCAD\uC5D0\uC11C \uC81C\uC678\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uD0ED\uC5D0\uC11C \u2018\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\u2019\uC744 \uCCB4\uD06C\uD558\uAC70\uB098 \u2018\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\u2019\uC744 \uD574\uC81C\uD558\uC138\uC694.");
+      const selectedIndex = s.selected[task] ?? 0;
+      const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + selectedIndex : null;
+      if (task === "lorebook" && scope) {
+        assert(!isLoreFolder(s.draft.globalLore?.[selectedIndex]), "\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uC740 \uB85C\uC5B4\uBD81 \uD3F4\uB354\uC785\uB2C8\uB2E4. \uAC1C\uBCC4 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \u2018\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\u2019\uC744 \uD574\uC81C\uD558\uC138\uC694.");
+        assert(loreSelection(s)[selectedIndex], "\uD604\uC7AC \uD3B8\uC9D1 \uD56D\uBAA9\uC774 \uC694\uCCAD\uC5D0\uC11C \uC81C\uC678\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uB85C\uC5B4\uBD81 \uD0ED\uC5D0\uC11C \u2018\uC774\uBC88 \uC694\uCCAD\uC5D0 \uD3EC\uD568\u2019\uC744 \uCCB4\uD06C\uD558\uAC70\uB098 \u2018\uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\u2019\uC744 \uD574\uC81C\uD558\uC138\uC694.");
+      }
       return { request, scope, text: request + (scope ? "\n[\uD5C8\uC6A9 \uD3B8\uC9D1 \uBC94\uC704] \uAE30\uC874 \uD56D\uBAA9 " + scope + "\uB9CC \uC218\uC815\xB7\uC0AD\uC81C\uD560 \uC218 \uC788\uB2E4. \uC0C8 \uD56D\uBAA9 \uCD94\uAC00\uC640 \uB2E4\uB978 \uD56D\uBAA9 \uBCC0\uACBD\uC740 \uAE08\uC9C0\uD55C\uB2E4." : "") };
     }
     // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
     previewRequest(task = this.task, forcePreset = false, override = {}) {
       const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
-      const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
-      const report = usePreset ? assemblePreset(session.preset, session, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+      const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset && !override.focus, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
+      const report = usePreset ? assemblePreset(session.preset, session, task, direct, historyOptions(this.settings)) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
       return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
     }
     async sendRequest() {
@@ -16837,11 +16920,42 @@ details[open] > summary { margin-bottom: 9px; }
       const options = chunkOptions(this.settings), parts = [], replies = [], notes = [];
       let raw, staged = clone(before), stagedLore = loreSelection(s);
       const stagedSession = () => ({ ...s, draft: staged, loreIncluded: stagedLore });
-      const focusOf = () => {
-        const fields = Object.entries({ desc: "description", personality: "personality", scenario: "scenario", firstMessage: "firstMessage" }).filter(([key2]) => !equal(before[key2] ?? "", staged[key2] ?? "")).map(([, name]) => name);
-        const changed = (key2) => (staged[key2] ?? []).map((item, i) => i >= (before[key2] ?? []).length || !equal(before[key2][i], item) ? i : -1).filter((i) => i >= 0);
+      const focusOf = (extraText = "", extraMissing = []) => {
+        const fields = new Set(Object.entries({ desc: "description", personality: "personality", scenario: "scenario", firstMessage: "firstMessage" }).filter(([key2]) => !equal(before[key2] ?? "", staged[key2] ?? "")).map(([, name]) => name));
+        const changedIndices = (key2) => {
+          const prev = before[key2] ?? [], curr = staged[key2] ?? [];
+          const counts = /* @__PURE__ */ new Map();
+          for (const item of prev) {
+            const sig = stable(item);
+            counts.set(sig, (counts.get(sig) ?? 0) + 1);
+          }
+          const out = /* @__PURE__ */ new Set();
+          curr.forEach((item, i) => {
+            const sig = stable(item), left = counts.get(sig) ?? 0;
+            if (left > 0) counts.set(sig, left - 1);
+            else out.add(i);
+          });
+          return out;
+        };
+        const lore = changedIndices("globalLore"), regex = changedIndices("customscript");
         const was = luaEntries(before);
-        return { fields, lore: changed("globalLore"), regex: changed("customscript"), scripts: luaEntries(staged).filter((item) => !was.some((old) => old.ref === item.ref && old.code === item.code && old.comment === item.comment)).map((item) => item.ref) };
+        const scripts2 = new Set(luaEntries(staged).filter((item) => !was.some((old) => old.ref === item.ref && old.code === item.code && old.comment === item.comment)).map((item) => item.ref));
+        const hintText = [extraText, ...extraMissing.map((m) => m.label + " " + m.block)].join("\n");
+        for (const m of hintText.matchAll(/\bl(0|[1-9][0-9]*)\b/g)) lore.add(Number(m[1]));
+        for (const m of hintText.matchAll(/\br(0|[1-9][0-9]*)\b/g)) regex.add(Number(m[1]));
+        for (const m of hintText.matchAll(/\b(s(?:0|[1-9][0-9]*)_(?:0|[1-9][0-9]*))\b/g)) scripts2.add(m[1]);
+        if (/캐릭터\s*설명|\bdescription\b/i.test(hintText)) fields.add("description");
+        if (/성격|\bpersonality\b/i.test(hintText)) fields.add("personality");
+        if (/시나리오|\bscenario\b/i.test(hintText)) fields.add("scenario");
+        if (/첫\s*메시지|퍼스트\s*메시지|인사말|시작\s*상황|\bfirstMessage\b|\bgreeting\b|\bchoiceGreeting\b/i.test(hintText)) fields.add("firstMessage");
+        let allLore = false, allRegex = false, allScripts = false;
+        const mentionsEdit = /기존|수정|편집|다듬|교체|보완|삭제|edits/i.test(hintText);
+        if (mentionsEdit) {
+          if ((task === "lorebook" || /로어북|\blorebook\b/i.test(hintText)) && !/\bl(?:0|[1-9][0-9]*)\b/.test(hintText)) allLore = true;
+          if ((task === "regex" || /정규식|\bregex\b/i.test(hintText)) && !/\br(?:0|[1-9][0-9]*)\b/.test(hintText)) allRegex = true;
+          if ((task === "lua" || task === "choiceGreeting" || /\blua\b|스크립트|\bscript/i.test(hintText)) && !/\bs(?:0|[1-9][0-9]*)_(?:0|[1-9][0-9]*)\b/.test(hintText)) allScripts = true;
+        }
+        return { fields: [...fields], lore: [...lore], regex: [...regex], scripts: [...scripts2], allLore, allRegex, allScripts };
       };
       const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
       let missing = [];
@@ -16941,7 +17055,7 @@ ${partial ? "\uC77C\uBD80\uB9CC \uC644\uC131\uD588\uC2B5\uB2C8\uB2E4 \xB7 " : ""
 [\uBD84\uD560 \uC791\uC5C5 ${index}/${total}] \uC774\uBC88 \uAD6C\uAC04: ${next.title}
 ${next.instruction}
 \uC774\uC804 \uAD6C\uAC04\uC758 \uACB0\uACFC\uB294 \uC774\uBBF8 \uD604\uC7AC\uC548\uC5D0 \uBC18\uC601\uB418\uC5B4 \uC788\uB2E4. \uC774\uBC88 \uAD6C\uAC04\uB9CC \uC791\uC131\uD558\uACE0, \uC544\uC9C1 \uB0A8\uC740 \uAD6C\uAC04\uC774 \uC788\uC73C\uBA74 plan\uC5D0 \uB0A8\uC740 \uAC83\uB9CC \uB2E4\uC2DC \uC801\uC5B4\uB77C(\uC774\uBC88 \uAD6C\uAC04\uC740 \uC81C\uC678). \uB0A8\uC740 \uAD6C\uAC04\uC774 \uC5C6\uC73C\uBA74 plan\uC744 \uC0DD\uB7B5\uD558\uB77C.`;
-          const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf() });
+          const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: parts.length ? focusOf(next.title + "\n" + next.instruction) : null });
           assert(!step.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + step.issues.join("\n"));
           inputSize(step.messages, this.settings.maxInputChars);
           packet = await ask(step.messages, stepText);
@@ -16958,18 +17072,21 @@ ${next.instruction}
 ` + listing;
             const cause = new Error(`\uBCF8\uBB38 \uBE14\uB85D\uC774 \uC624\uC9C0 \uC54A\uC740 \uD56D\uBAA9 ${lost.length}\uAC1C:
 ` + listing);
-            if (await this.confirmRetry(`\uC751\uB2F5\uC5D0\uC11C \uBE14\uB85D ${lost.length}\uAC1C\uAC00 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4`, cause, hint)) {
+            if (await this.confirmRetry(`\uC751\uB2F5\uC5D0\uC11C \uBE14\uB85D ${lost.length}\uAC1C\uAC00 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4`, cause, hint, { keepPartial: true })) {
               guard("\uC694\uCCAD \uC774\uD6C4 \uC791\uC5C5 \uB300\uC0C1\xB7\uC6D0\uACE0\xB7\uD504\uB86C\uD504\uD2B8\uAC00 \uBC14\uB00C\uC5B4 \uC751\uB2F5\uC744 \uD3D0\uAE30\uD588\uC2B5\uB2C8\uB2E4.");
+              const beforeParts = parts.length;
               missing.length = 0;
               job.label = TASKS[task].label + " \xB7 \uACB0\uC190 \uBCF4\uCDA9";
               this.jobStatus();
               const stepText = requestText + "\n\n" + hint;
-              const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf() });
+              const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf("", lost) });
               assert(!step.issues.length, "\uD504\uB9AC\uC14B \uC870\uB9BD \uC624\uB958:\n" + step.issues.join("\n"));
               inputSize(step.messages, this.settings.maxInputChars);
               packet = await ask(step.messages, stepText);
               absorb(packet, "\uACB0\uC190 \uBCF4\uCDA9");
-              notes.push(`\uBE60\uC9C4 \uD56D\uBAA9 ${lost.length}\uAC1C\uB97C \uB2E4\uC2DC \uC694\uCCAD\uD574 \uBC1B\uC558\uC2B5\uB2C8\uB2E4.`);
+              if (missing.length) notes.push(`\uBCF4\uCDA9 \uC694\uCCAD\uC5D0\uC11C\uB3C4 \uC77C\uBD80 \uD56D\uBAA9(${missing.length}\uAC1C)\uC758 \uBE14\uB85D\uC774 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+              else if (parts.length > beforeParts) notes.push(`\uBE60\uC9C4 \uD56D\uBAA9 ${lost.length}\uAC1C\uB97C \uB2E4\uC2DC \uC694\uCCAD\uD574 \uBC1B\uC558\uC2B5\uB2C8\uB2E4.`);
+              else notes.push(`\uBE60\uC9C4 \uD56D\uBAA9 ${lost.length}\uAC1C\uB97C \uB2E4\uC2DC \uC694\uCCAD\uD588\uC73C\uB098 \uCD94\uAC00\uB85C \uBC18\uC601\uD560 \uBCC0\uACBD\uC774 \uC5C6\uC5C8\uC2B5\uB2C8\uB2E4.`);
             } else notes.push(`\uBE60\uC9C4 \uD56D\uBAA9 ${lost.length}\uAC1C\uB294 \uB2E4\uC2DC \uC694\uCCAD\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ` + lost.map((m) => m.label).join(", "));
           }
         }
@@ -16995,20 +17112,20 @@ ${next.instruction}
         }
       }
     }
-    // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error.
-    async confirmRetry(purpose, error, hint) {
-      const h = this.h.bind(this);
+    // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error (or keep received items).
+    async confirmRetry(purpose, error, hint, options = {}) {
+      const h = this.h.bind(this), keepPartial = options.keepPartial === true;
       return this.dialog("LLM\uC5D0 \uB2E4\uC2DC \uC694\uCCAD\uD560\uAE4C\uC694?", (body) => {
         body.append(
-          h("p", { class: "warn" }, `${purpose}. \uC774\uB300\uB85C \uB450\uBA74 \uC774\uBC88 \uC751\uB2F5\uC740 \uD3D0\uAE30\uB429\uB2C8\uB2E4.`),
+          h("p", { class: "warn" }, keepPartial ? `${purpose}. \uC911\uB2E8\uD558\uBA74 \uC774\uBBF8 \uBC1B\uC740 \uD56D\uBAA9\uB9CC \uC218\uC815\uC548\uC73C\uB85C \uB0A8\uC2B5\uB2C8\uB2E4.` : `${purpose}. \uC774\uB300\uB85C \uB450\uBA74 \uC774\uBC88 \uC751\uB2F5\uC740 \uD3D0\uAE30\uB429\uB2C8\uB2E4.`),
           h("h4", {}, "\uC2E4\uD328 \uC6D0\uC778"),
           h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:200px;overflow:auto" }, error.message),
           h("h4", {}, "\uC7AC\uC694\uCCAD \uBAA9\uC801"),
           h("p", {}, "\uAC19\uC740 \uC694\uCCAD\uC5D0 \uC544\uB798 \uC9C0\uC2DC\uB97C \uB367\uBD99\uC5EC \uD55C \uBC88 \uB354 \uBCF4\uB0C5\uB2C8\uB2E4. \uD604\uC7AC\uC548\uACFC \uCC38\uACE0\uC790\uB8CC\uB97C \uB2E4\uC2DC \uBCF4\uB0B4\uBBC0\uB85C \uC785\uB825 \uD1A0\uD070\uC774 \uD55C \uBC88 \uB354 \uB4E4\uACE0, \uC7AC\uC694\uCCAD\uC740 \uC774 \uC790\uB9AC\uC5D0\uC11C \uD55C \uBC88\uB9CC \uD569\uB2C8\uB2E4."),
           h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:160px;overflow:auto" }, hint),
-          h("p", { class: "muted" }, "\uC911\uB2E8\uD558\uBA74 \uC2E4\uD328 \uC6D0\uC778\uC774 \uB300\uD654\uC5D0 \uB0A8\uACE0 \uC6D0\uACE0\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uB098\uB204\uAC70\uB098 \uBD80\uBD84\uD3B8\uC9D1\uC73C\uB85C \uC9C1\uC811 \uB2E4\uC2DC \uC694\uCCAD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")
+          h("p", { class: "muted" }, keepPartial ? "\uC911\uB2E8\uD558\uBA74 \uC774\uBBF8 \uBC1B\uC740 \uD56D\uBAA9\uB9CC \uC218\uC815\uC548\uC73C\uB85C \uBCF4\uAD00\uD558\uBA70 \uBE60\uC9C4 \uD56D\uBAA9\uC740 \uC6D0\uACE0\uC5D0 \uBC18\uC601\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." : "\uC911\uB2E8\uD558\uBA74 \uC2E4\uD328 \uC6D0\uC778\uC774 \uB300\uD654\uC5D0 \uB0A8\uACE0 \uC6D0\uACE0\uB294 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uB098\uB204\uAC70\uB098 \uBD80\uBD84\uD3B8\uC9D1\uC73C\uB85C \uC9C1\uC811 \uB2E4\uC2DC \uC694\uCCAD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")
         );
-      }, [{ label: "\uC911\uB2E8", value: false }, { label: "\uB2E4\uC2DC \uC694\uCCAD", value: true, kind: "primary" }]).then((value) => value === true);
+      }, [{ label: keepPartial ? "\uBC1B\uC740 \uD56D\uBAA9\uB9CC \uB0A8\uAE30\uAE30" : "\uC911\uB2E8", value: false }, { label: "\uB2E4\uC2DC \uC694\uCCAD", value: true, kind: "primary" }]).then((value) => value === true);
     }
     async chooseTextRange({ source, edit, label, candidates }) {
       const h = this.h.bind(this);
@@ -17091,7 +17208,7 @@ ${next.instruction}
       const next = clone(this.settings);
       const result = await this.dialog("\uC791\uC5C5 \uC124\uC815", (body) => {
         body.append(this.h("p", { class: "muted" }, "30\uB9CC \uC785\uB825 \uD1A0\uD070 \uADDC\uBAA8\uC6A9: \uAE30\uBCF8 3,000,000\uC790, \uC804\uCCB4 32MiB\uAE4C\uC9C0 \uC804\uC1A1\uD569\uB2C8\uB2E4. \uAE00\uC790 \uC218\uB294 \uD1A0\uD070 \uC218\uAC00 \uC544\uB2D9\uB2C8\uB2E4. \uC0AC\uC6A9\uD558\uB294 \uBAA8\uB378\xB7API\uAC00 \uC785\uB825 300,000\uD1A0\uD070\uACFC \uC751\uB2F5 \uC5EC\uC720\uB97C \uC9C0\uC6D0\uD574\uC57C \uD569\uB2C8\uB2E4. \uBCF8\uCCB4 \uCEE8\uD14D\uC2A4\uD2B8 \uC124\uC815\uC740 \uC790\uB3D9 \uBCC0\uACBD\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."));
-        body.append(this.h("label", { class: "field" }, this.h("span", {}, "\uD654\uBA74 \uD14C\uB9C8"), this.select(next.theme, [["system", "\uC2DC\uC2A4\uD15C \uC124\uC815 \uB530\uB974\uAE30"], ["light", "\uB77C\uC774\uD2B8 \uBAA8\uB4DC"], ["dark", "\uB2E4\uD06C \uBAA8\uB4DC"]], (v) => next.theme = v, "\uD654\uBA74 \uD14C\uB9C8")), this.field("LLM \uB300\uAE30 \uC81C\uD55C \xB7 \uCD08 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("\uC804\uCCB4 \uC804\uC1A1 \uBB38\uC790 \uD55C\uB3C4 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.field("\uB300\uD654 \uAE30\uB85D \uC804\uC1A1 \uD134 \uC218 \xB7 \uCD5C\uADFC N\uD134\uB9CC \uBCF4\uB0C4 (1~100, \uAE30\uBCF8 12)", next.historyTurns, (v) => next.historyTurns = Number(v), { tag: "input", type: "number", min: HISTORY_TURNS_MIN, max: HISTORY_TURNS_MAX }), this.h("h3", {}, "\uBD84\uD560 \uC791\uC5C5"), this.check("\uAE34 \uC751\uB2F5 \uB098\uB220 \uBC1B\uAE30 \xB7 \uACB0\uACFC\uAC00 \uC608\uC0B0\uC744 \uB118\uC73C\uBA74 \uBAA8\uB378\uC774 \uAD6C\uAC04 \uACC4\uD68D\uC744 \uC138\uC6B0\uACE0 \uBD07\uBE4C\uB354\uAC00 \uC790\uB3D9\uC73C\uB85C \uC774\uC5B4 \uC694\uCCAD\uD569\uB2C8\uB2E4", next.chunking !== false, (v) => next.chunking = v), this.field("\uC751\uB2F5\uB2F9 \uCD9C\uB825 \uC608\uC0B0 \xB7 \uD1A0\uD070 (\uC0AC\uACE0 \uD1A0\uD070 \uC81C\uC678, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("\uCD5C\uB300 \uAD6C\uAC04 \uC218 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "\uAD6C\uAC04\uB9C8\uB2E4 \uD604\uC7AC\uC548\uC744 \uB2E4\uC2DC \uBCF4\uB0B4\uBBC0\uB85C \uC785\uB825 \uD1A0\uD070\uC740 \uAD6C\uAC04 \uC218\uC5D0 \uBE44\uB840\uD574 \uB298\uC5B4\uB0A9\uB2C8\uB2E4. \uAD6C\uAC04 \uACB0\uACFC\uB294 \uC784\uC2DC \uC6D0\uACE0\uC5D0 \uC313\uC774\uACE0, \uAC80\uD1A0\uC640 \uC801\uC6A9\uC740 \uB9C8\uC9C0\uB9C9\uC5D0 \uD55C \uBC88\uB9CC \uD569\uB2C8\uB2E4. \uC911\uAC04\uC5D0 \uCDE8\uC18C\uD558\uBA74 \uADF8\uB54C\uAE4C\uC9C0 \uC644\uC131\uB41C \uAD6C\uAC04\uB9CC \uC218\uC815\uC548\uC73C\uB85C \uB0A8\uAE41\uB2C8\uB2E4."), this.h("p", { class: "muted" }, "\uC790\uB3D9 \uC800\uC7A5 \uAC04\uACA9\uC740 3\uBD84\uC785\uB2C8\uB2E4. \uC790\uB3D9 \uC800\uC7A5\uACFC \uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5\uC740 \uAC01\uAC01 \uCD5C\uADFC 1\uAC1C\uB97C \uBCF4\uAD00\uD569\uB2C8\uB2E4. \uB300\uAE30 \uC911\uB2E8\uC740 \uC2E4\uC81C \uB124\uD2B8\uC6CC\uD06C \uCDE8\uC18C\uB97C \uBCF4\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD50C\uB7EC\uADF8\uC778\uC740 \uC790\uB3D9 \uC7AC\uC2DC\uB3C4\uD558\uC9C0 \uC54A\uC73C\uBA70, \uD638\uC2A4\uD2B8 \uC790\uCCB4\uC758 \uC7AC\uC2DC\uB3C4 \uC815\uCC45\uC740 \uD638\uC2A4\uD2B8 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4."));
+        body.append(this.h("label", { class: "field" }, this.h("span", {}, "\uD654\uBA74 \uD14C\uB9C8"), this.select(next.theme, [["system", "\uC2DC\uC2A4\uD15C \uC124\uC815 \uB530\uB974\uAE30"], ["light", "\uB77C\uC774\uD2B8 \uBAA8\uB4DC"], ["dark", "\uB2E4\uD06C \uBAA8\uB4DC"]], (v) => next.theme = v, "\uD654\uBA74 \uD14C\uB9C8")), this.field("LLM \uB300\uAE30 \uC81C\uD55C \xB7 \uCD08 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("\uC804\uCCB4 \uC804\uC1A1 \uBB38\uC790 \uD55C\uB3C4 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.field("\uB300\uD654 \uAE30\uB85D \uC804\uC1A1 \uD134 \uC218 \xB7 \uCD5C\uADFC N\uD134\uB9CC \uBCF4\uB0C4 (1~100, \uAE30\uBCF8 12)", next.historyTurns, (v) => next.historyTurns = Number(v), { tag: "input", type: "number", min: HISTORY_TURNS_MIN, max: HISTORY_TURNS_MAX }), this.h("h3", {}, "\uBD84\uD560 \uC791\uC5C5"), this.check("\uAE34 \uC751\uB2F5 \uB098\uB220 \uBC1B\uAE30 \xB7 \uACB0\uACFC\uAC00 \uC608\uC0B0\uC744 \uB118\uC73C\uBA74 \uBAA8\uB378\uC774 \uAD6C\uAC04 \uACC4\uD68D\uC744 \uC138\uC6B0\uACE0 \uBD07\uBE4C\uB354\uAC00 \uC790\uB3D9\uC73C\uB85C \uC774\uC5B4 \uC694\uCCAD\uD569\uB2C8\uB2E4", next.chunking !== false, (v) => next.chunking = v), this.field("\uC751\uB2F5\uB2F9 \uCD9C\uB825 \uC608\uC0B0 \xB7 \uD1A0\uD070 (\uC0AC\uACE0 \uD1A0\uD070 \uC81C\uC678, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("\uCD5C\uB300 \uAD6C\uAC04 \uC218 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "\uAD6C\uAC04\uB9C8\uB2E4 \uD604\uC7AC\uC548\uC744 \uB2E4\uC2DC \uBCF4\uB0B4\uBBC0\uB85C \uC785\uB825 \uD1A0\uD070\uC740 \uAD6C\uAC04 \uC218\uC5D0 \uBE44\uB840\uD574 \uB298\uC5B4\uB0A9\uB2C8\uB2E4. \uAD6C\uAC04 \uACB0\uACFC\uB294 \uC784\uC2DC \uC6D0\uACE0\uC5D0 \uC313\uC774\uACE0, \uAC80\uD1A0\uC640 \uC801\uC6A9\uC740 \uB9C8\uC9C0\uB9C9\uC5D0 \uD55C \uBC88\uB9CC \uD569\uB2C8\uB2E4. \uC911\uAC04\uC5D0 \uCDE8\uC18C\uD558\uBA74 \uADF8\uB54C\uAE4C\uC9C0 \uC644\uC131\uB41C \uAD6C\uAC04\uB9CC \uC218\uC815\uC548\uC73C\uB85C \uB0A8\uAE41\uB2C8\uB2E4."), this.h("p", { class: "muted" }, "\uC790\uB3D9 \uC800\uC7A5\uC740 3\uBD84 \uAC04\uACA9\uC73C\uB85C \uCD5C\uADFC 3\uAC1C, \uC218\uB3D9 \uC784\uC2DC \uC800\uC7A5\uC740 \uCD5C\uADFC 1\uAC1C\uB97C \uBCF4\uAD00\uD569\uB2C8\uB2E4. \uB300\uAE30 \uC911\uB2E8\uC740 \uC2E4\uC81C \uB124\uD2B8\uC6CC\uD06C \uCDE8\uC18C\uB97C \uBCF4\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD50C\uB7EC\uADF8\uC778\uC740 \uC790\uB3D9 \uC7AC\uC2DC\uB3C4\uD558\uC9C0 \uC54A\uC73C\uBA70, \uD638\uC2A4\uD2B8 \uC790\uCCB4\uC758 \uC7AC\uC2DC\uB3C4 \uC815\uCC45\uC740 \uD638\uC2A4\uD2B8 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4."));
       }, [{ label: "\uCDE8\uC18C", value: false }, { label: "\uC800\uC7A5", value: true, kind: "primary" }]);
       if (result) {
         assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= MAX_INPUT_CHARS, "\uC124\uC815 \uBC94\uC704\uB97C \uD655\uC778\uD558\uC138\uC694.");
@@ -17220,10 +17337,18 @@ ${next.instruction}
       return new Promise((resolve) => {
         const input = this.h("input", { type: "file", accept, style: "display:none" });
         this.doc.body.append(input);
-        let settled = false;
+        const win = this.doc.defaultView;
+        let settled = false, timer;
+        const onFocus = () => {
+          timer = setTimeout(() => {
+            if (!settled && !input.files?.length) done(null);
+          }, 400);
+        };
         const done = (value) => {
           if (!settled) {
             settled = true;
+            clearTimeout(timer);
+            win?.removeEventListener("focus", onFocus);
             input.remove();
             resolve(value);
           }
@@ -17231,6 +17356,7 @@ ${next.instruction}
         input.addEventListener("change", () => done(input.files[0] ?? null), { once: true });
         input.addEventListener("cancel", () => done(null), { once: true });
         input.click();
+        win?.addEventListener("focus", onFocus, { once: true });
       });
     }
     async chooseCharx() {

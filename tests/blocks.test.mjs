@@ -202,3 +202,15 @@ test('a closing block tag glued to the last line, indented, or spaced inside is 
   const cut = env + '\n<<<b_lua1>>>\nfunction onStart(accessKey)\n  setChatVar(';
   assert.throws(() => parseResponse(cut, 'lua', c), e => e instanceof TruncatedResponseError && /<<<\/b_lua1>>>를 찾지 못함/.test(e.message) && /자 수신/.test(e.message));
 });
+
+test('opening block tag glued right after JSON closing brace and fenced JSON with trailing comma/extra brace are accepted', () => {
+  const c = blankCharacter();
+  const glued = JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: { block: 't1' } } }) + '<<<t1>>>\n본문\n<<</t1>>>';
+  assert.equal(parseResponse(glued, 'description', c).data.text, '본문');
+  const fencedTrailing = '```json\n{"schemaVersion":2,"task":"description","data":{"text":"본문",}}\n```';
+  const fixed = parseResponse(fencedTrailing, 'description', c);
+  assert.equal(fixed.data.text, '본문'); assert.deepEqual(fixed.repairs, ['후행 쉼표 1개 제거']);
+  // Extra closer at root end and mismatched bracket inside object are fixed without relying on V8 error wording.
+  assert.equal(repairJson('{"a":1}}').text, '{"a":1}');
+  assert.equal(repairJson('{"a":1]}').text, '{"a":1}');
+});

@@ -37,7 +37,7 @@ test('a focused context sends changed fields and items whole and the rest as siz
   const focused = focusContext('workshop', context, null, { fields: ['description'], lore: [1], regex: [], scripts: [] });
   assert.equal(focused.description, '바뀐 설명'); assert.deepEqual(focused.personality, { omitted: true, chars: 7 });
   assert.equal(focused.lorebook[1].entry.content, context.lorebook[1].entry.content); assert.deepEqual(focused.lorebook[0], { ref: 'l0', summary: { comment: '항목 0', key: 'k0', chars: 50 } });
-  assert.deepEqual(focused.regex[0].summary, { comment: '규칙', type: 'editdisplay', chars: 2 }); assert.match(focused.focusNote, /바뀐 필드·항목만 본문을 보냈고/);
+  assert.deepEqual(focused.regex[0].summary, { comment: '규칙', type: 'editdisplay', chars: 2 }); assert.match(focused.focusNote, /바뀐 필드·항목과 이번 구간 대상만 본문을 보냈고/);
   const text = userText(composeMessages(s, 'lorebook', '요청', defaultPrompt('lorebook'), { focus: { fields: ['description'], lore: [1] } }));
   assert.match(text, /"entries":\[\{"ref":"l0","summary"/); assert.match(text, /"personality":\{"omitted":true,"chars":7\}/, 'the reference character is focused too');
   // With real-sized entries the focused request is far smaller; tiny entries would not outweigh the note and markers.
@@ -90,4 +90,63 @@ test('input size on the memo scenarios: history cap, summary mode and focused st
   const fixed = composeMessages(empty, 'lorebook', '요청', defaultPrompt('lorebook')).reduce((n, m) => n + m.content.length, 0);
   console.log(`[size] 고정 오버헤드(빈 원고, 로어북 요청) ${fixed}자 · 로어북 40개×600자+대화 10턴: 기본 ${base}자 → 대화 3턴 ${capped}자 → 구간 요청(2개 항목만 본문) ${focused}자 · 설계 대화: 전체 ${wsBase}자 → 요약 ${wsSummary}자`);
   assert.ok(capped < base); assert.ok(focused < base * 0.6, 'focused step under 60% of the full request'); assert.ok(wsSummary < wsBase * 0.5, 'summary mode under half of the full workshop request');
+});
+
+test('jsonContract appears once in system and is not duplicated inside OUTPUT_FORMAT', () => {
+  const messages = composeMessages(newSession(), 'lorebook', '요청', defaultPrompt('lorebook'));
+  assert.match(messages[0].content, /\[필수 JSON 응답 규칙\]/);
+  assert.doesNotMatch(messages[1].content, /\[필수 JSON 응답 규칙\]/);
+  assert.match(messages[1].content, /\[올바른 출력 예시 1/);
+});
+
+test('focused chunk steps include targeted existing refs, keep full draft after a plan-only answer, and survive deletion shifts', async () => {
+  const x = await make([
+    () => JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: 'l0', entry: { content: '항목0 수정' } }], remove: [] }, plan: [{ title: 'l2 수정', instruction: 'l2 본문을 다듬는다' }] }),
+    (options) => {
+      const text = userText(options.messages);
+      assert.match(text, /"ref":"l2","entry":\{[^}]*"content":"원본2"/, 'targeted untouched ref l2 must carry its full body');
+      assert.match(text, /"ref":"l1","summary":/, 'untargeted ref l1 stays summarized');
+      assert.ok(options.messages.every((m) => m.cachePoint === undefined), 'focused chunk steps do not set cachePoint');
+      return JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: 'l2', entry: { content: { edits: [{ before: '원본2', after: '수정2' }] } } }], remove: [] } });
+    },
+  ]);
+  try {
+    x.app.task = 'lorebook';
+    x.app.s.draft.globalLore = [{ comment: 'A', key: 'a', content: '원본0', secondkey: '' }, { comment: 'B', key: 'b', content: '원본1', secondkey: '' }, { comment: 'C', key: 'c', content: '원본2', secondkey: '' }];
+    x.app.s.loreIncluded = [true, true, true]; x.app.s.requests.lorebook = 'l0과 l2 수정'; x.app.touch();
+    await x.app.sendRequest();
+    assert.equal(x.calls.length, 2);
+    await x.app.applyCandidate(x.app.s.candidates[0]);
+    assert.equal(x.app.s.draft.globalLore[2].content, '수정2');
+  } finally { x.close(); }
+
+  // Plan-only first response (data: null) keeps full draft for the next step.
+  const y = await make([
+    () => JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: null, plan: [{ title: '1부', instruction: '기존 항목 다듬기' }] }),
+    (options) => {
+      const text = userText(options.messages);
+      assert.match(text, /원본0/); assert.doesNotMatch(text, /"summary":/);
+      return JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: 'l0', entry: { content: '새0' } }], remove: [] } });
+    },
+  ]);
+  try {
+    y.app.task = 'lorebook'; y.app.s.draft.globalLore = [{ comment: 'A', key: 'a', content: '원본0', secondkey: '' }]; y.app.s.loreIncluded = [true]; y.app.s.requests.lorebook = '계획 후 수정'; y.app.touch();
+    await y.app.sendRequest();
+    assert.equal(y.calls.length, 2);
+  } finally { y.close(); }
+
+  // Deleting l0 does not mark every shifted item as changed in focusOf.
+  const z = await make([
+    () => JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [], remove: ['l0'] }, plan: [{ title: '후속', instruction: '새 항목 추가' }] }),
+    (options) => {
+      const text = userText(options.messages);
+      assert.match(text, /"ref":"l0","summary":/, 'shifted unchanged entry stays summarized');
+      return JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: null, entry: { comment: '신규', key: 'n', content: '신규 본문' } }], remove: [] } });
+    },
+  ]);
+  try {
+    z.app.task = 'lorebook'; z.app.s.draft.globalLore = [{ comment: 'A', key: 'a', content: '원본0', secondkey: '' }, { comment: 'B', key: 'b', content: '원본1', secondkey: '' }]; z.app.s.loreIncluded = [true, true]; z.app.s.requests.lorebook = '삭제 후 추가'; z.app.touch();
+    await z.app.sendRequest();
+    assert.equal(z.calls.length, 2);
+  } finally { z.close(); }
 });

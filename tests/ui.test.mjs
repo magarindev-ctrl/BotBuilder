@@ -773,3 +773,33 @@ test('a saved prompt still in the old default order is upgraded to the cache-fri
     assert.match(x.app.previewRequest('greeting').messages[1].content, /pendingProposalNote/);
   } finally { x.close(); }
 });
+
+test('folder scopeOnly is rejected, workshop summary mode shows in mode-strip, and candidate.before is pruned on apply/discard and restored on undo', async () => {
+  const { newLoreFolder } = await import('../src/core.js');
+  const x = await make();
+  try {
+    // Selecting a lorebook folder with scopeOnly enabled must block the request before sending.
+    const folder = newLoreFolder('폴더');
+    x.app.s.draft.globalLore = [folder, { key: 'a', comment: 'A', content: 'A', folder: folder.key }];
+    x.app.s.selected.lorebook = 0; x.app.task = 'lorebook'; x.app.scopeOnly = true; x.app.s.requests.lorebook = '수정해 줘';
+    assert.throws(() => x.app.requestWithScope('lorebook'), /로어북 폴더입니다/);
+
+    // Workshop summary mode shows clearly in mode-strip.
+    x.app.task = 'workshop'; x.app.s.workshopSummary = true; x.app.render();
+    assert.match(x.dom.window.document.querySelector('.mode-strip').textContent, /요약 모드/);
+
+    // Applied candidate drops its duplicate before snapshot and restores it on undoApplied.
+    x.app.task = 'description'; x.app.s.draft.desc = '초기 설명'; x.app.s.requests.description = '수정';
+    x.app.api.runLLMModel = async () => ({ type: 'success', result: JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: '새 설명' } }) });
+    await x.app.sendRequest();
+    const cand = x.app.s.candidates[0];
+    assert.ok(cand.before);
+    await x.app.applyCandidate(cand);
+    assert.equal(cand.before, undefined);
+    assert.equal(x.app.s.draft.desc, '새 설명');
+    x.app.undoApplied();
+    assert.ok(cand.before);
+    assert.equal(cand.status, undefined);
+    assert.equal(x.app.s.draft.desc, '초기 설명');
+  } finally { x.close(); }
+});

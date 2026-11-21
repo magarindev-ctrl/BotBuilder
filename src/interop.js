@@ -83,7 +83,7 @@ export async function registerInterop(storage, rawCfg, options = {}) {
         try {
           const output = await action.run(clone(request.args ?? null), { rev: request.rev, source: 'dusk-atelier' });
           actionResult = output === undefined ? null : clone(output);
-          if (JSON.stringify(actionResult).length > INTEROP_RESULT_MAX) { actionResult = null; actionError = 'result too large'; }
+          if (new TextEncoder().encode(JSON.stringify(actionResult)).length > INTEROP_RESULT_MAX) { actionResult = null; actionError = 'result too large'; }
         } catch (error) { actionError = String(error?.message ?? error); console.warn('[DA Interop] action 실패', error); }
       }
       lastAction = { actionKey: request.key, actionResult, actionError };

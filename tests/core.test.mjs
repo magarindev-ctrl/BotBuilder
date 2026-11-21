@@ -337,3 +337,41 @@ test('the user template keeps stable material first and the request last, and an
   assert.match(legacy, /이전 답/); assert.match(legacy, /제안 본문/); assert.match(legacy, /pendingProposalNote/); assert.doesNotMatch(legacy, /\[설계 대화 기록\]/);
   assert.notEqual(USER_TEMPLATE, LEGACY_USER_TEMPLATE);
 });
+
+test('parseVariables handles = in values, empty values and CRLF; LLM cannot emit folder mode; CHARX preserves enabled:false and replaceGlobalNote', async () => {
+  const { parseVariables } = await import('../src/core.js');
+  assert.deepEqual({ ...parseVariables('url=https://a.test?x=1\r\nempty=\r\nok=2') }, { url: 'https://a.test?x=1', empty: '', ok: '2' });
+  const c = blankCharacter(); c.defaultVariables = 'empty=\r\nkeep=1';
+  const removed = applyPacket(c, { task: 'lua', data: { scripts: [], removeScripts: [], variables: { keep: '2' }, removeVariables: ['empty'] } });
+  assert.equal(removed.defaultVariables, 'keep=2');
+  assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: null, entry: { key: 'k', content: 'v', mode: 'folder' } }], remove: [] } }), 'lorebook', c), /로어북 모드/);
+  // CHARX roundtrip preserves enabled:false and replaceGlobalNote (also kept by editable()).
+  c.replaceGlobalNote = '글로벌 노트';
+  c.globalLore = [{ ...lore('active') }, { ...lore('hidden'), enabled: false }];
+  assert.equal(editable(c).replaceGlobalNote, '글로벌 노트');
+  const card = characterToCard(c);
+  assert.equal(card.data.character_book.entries[0].enabled, true);
+  assert.equal(card.data.character_book.entries[1].enabled, false);
+  const round = cardToCharacter(card);
+  assert.equal(round.globalLore[0].enabled, undefined);
+  assert.equal(round.globalLore[1].enabled, false);
+  assert.equal(round.replaceGlobalNote, '글로벌 노트');
+});
+
+test('cancelling an in-flight streaming callModel does not leak an unhandled rejection', async () => {
+  const unhandled = [];
+  const onReject = (err) => unhandled.push(err);
+  process.on('unhandledRejection', onReject);
+  try {
+    let pullResolve;
+    const stream = new ReadableStream({ pull() { return new Promise((resolve) => { pullResolve = resolve; }); } });
+    const job = {};
+    const pending = callModel({ runLLMModel: async () => ({ type: 'streaming', result: stream }) }, [], 'submodel', 10, job);
+    await new Promise((r) => setTimeout(r, 15));
+    job.stop();
+    await assert.rejects(pending, /중단/);
+    pullResolve?.();
+    await new Promise((r) => setTimeout(r, 25));
+    assert.deepEqual(unhandled, []);
+  } finally { process.off('unhandledRejection', onReject); }
+});

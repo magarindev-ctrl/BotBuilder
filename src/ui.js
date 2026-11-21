@@ -1,6 +1,6 @@
 import { conflictFields, requestImages, validateRequestImages, withRequestImages, readRequestImage, REQUEST_IMAGE_MAX, candidatePackets, chunkOptions, CHUNK_MIN_TOKENS, CHUNK_MAX_TOKENS, CHUNK_HARD_MAX } from './core.js';
 import { CSS } from './style.js';
-import { VERSION, USER_TEMPLATE, LEGACY_USER_TEMPLATE, historyOptions, HISTORY_TURNS_MIN, HISTORY_TURNS_MAX, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
+import { VERSION, USER_TEMPLATE, LEGACY_USER_TEMPLATE, historyOptions, HISTORY_TURNS_MIN, HISTORY_TURNS_MAX, DEFAULT_INPUT_CHARS, MAX_INPUT_CHARS, INPUT_LIMIT_VERSION, migrateInputSettings, inputSize, isLoreFolder, newLoreFolder, loreTree, loreDescendants, loreSelection, loreSelectionAfterPacket, reconcileLoreSelection, validateLoreSelection, PREFIX, FIELDS, TASKS, clone, equal, stable, uid, tick, assert, editable, blankCharacter, newSession, sessionFromCharacter, snapshot, restoreSnapshot, luaEntries, defaultPrompt, formatFor, composeMessages, parseResponse, applyPacket, mergeCharacter, listCharacters, saveExisting, saveNew, callModel, regexTest } from './core.js';
 import { importCharx, exportCharx } from './charx.js';
 import { newPresetState, validatePresetState, assemblePreset } from './preset-engine.js';
 import { renderPresetEditor } from './preset-ui.js';
@@ -8,12 +8,12 @@ import { proposalDiff, removeAdditionalAssets, luaFirstTriggers, reviewPacket, w
 import { registerInterop, DA_WORKSHOP_INTEROP_MARK } from './interop.js';
 
 const TABS = [['overview', '제작 노트'], ['description', '캐릭터 설명'], ['lorebook', '로어북'], ['regex', '정규식'], ['lua', 'Lua · 변수'], ['greeting', '첫 메시지'], ['assets', '에셋 목록'], ['preset', '프롬프트 프리셋', '프리셋']];
-const TAB_FIELDS = { overview: ['name'], description: ['desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags'], lorebook: ['globalLore'], regex: ['customscript'], lua: ['triggerscript', 'defaultVariables'], greeting: ['firstMessage', 'alternateGreetings'], assets: ['image', 'additionalAssets', 'ccAssets'] };
+const TAB_FIELDS = { overview: ['name'], description: ['desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags'], lorebook: ['globalLore'], regex: ['customscript'], lua: ['triggerscript', 'defaultVariables'], greeting: ['firstMessage', 'alternateGreetings'], assets: ['image', 'additionalAssets', 'ccAssets'] };
 export const AUTOSAVE_KEYS = ['autosave', 'autosave-1', 'autosave-2'];
 const SLOT_NAMES = { autosave: '자동 저장 · 최근', 'autosave-1': '자동 저장 · 1회 전', 'autosave-2': '자동 저장 · 2회 전', manual: '수동 임시 저장' };
 const fieldNames = { name: '이름', image: '봇 아이콘', desc: '캐릭터 설명', globalLore: '로어북', customscript: '정규식', triggerscript: 'Lua·트리거', defaultVariables: '초기 변수', firstMessage: '첫 메시지', additionalAssets: '에셋 목록', ccAssets: '카드 에셋 참조' };
 // What each request task may change; shown beside the input so the active task is never a guess.
-const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명·성격·시나리오 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
+const TASK_SCOPE = { workshop: '방향을 의논합니다. 제작·수정을 요청할 때만 작업별 수정안을 묶어 제안합니다.', description: '캐릭터 설명 본문을 작성·수정합니다.', lorebook: '로어북 항목을 추가·수정·삭제합니다.', regex: '정규식 규칙과 HTML/CSS 원문을 작성·수정합니다.', lua: 'Lua 코드와 초기 변수를 작성·수정합니다.', greeting: '첫 메시지를 작성·수정합니다.', choiceGreeting: '첫 메시지·상황 목록·변수·Lua·정규식을 한 묶음으로 작성합니다.' };
 const SETTINGS = { model: 'submodel', timeout: 900, maxInputChars: DEFAULT_INPUT_CHARS, inputLimitVersion: INPUT_LIMIT_VERSION, theme: 'system', chunking: true, chunkTokens: 5000, chunkMax: 8, historyTurns: 12, listNavWidth: null, collapsedLists: {} };
 const LIST_NAV_MIN = 120, LIST_NAV_DEFAULT = 170;
 
@@ -465,18 +465,18 @@ export class Workshop {
     const tree = lore ? loreTree(list) : null;
     const descendants = (index) => lore ? loreDescendants(list, index) : [];
     const entries = (index) => descendants(index).filter((i) => !isLoreFolder(list[i]));
-    const redrawLoreList = () => {
+    const redrawList = () => {
       const scrollTop = nav.scrollTop;
       const editorScrollTop = this.editor?.scrollTop ?? 0;
       this.renderEditor();
       if (this.editor) this.editor.scrollTop = editorScrollTop;
-      const replacement = this.editor?.querySelector(".lore-request-list");
+      const replacement = this.editor?.querySelector(lore ? ".lore-request-list" : ".itemlist");
       if (replacement) replacement.scrollTop = scrollTop;
     };
     const inclusionChanged = () => {
       this.s.promptRevision++;
       this.touch(false);
-      redrawLoreList();
+      redrawList();
     };
     const loreCount = lore ? list.filter((x) => !isLoreFolder(x)).length : list.length;
     if (lore) host.append(h("div", { class: "card stack" },
@@ -487,8 +487,7 @@ export class Workshop {
     const select = (i) => {
       s.selected[task] = i;
       this.navigate();
-      if (lore) redrawLoreList();
-      else this.renderEditor();
+      redrawList();
     };
     const itemButton = (x, i, label) => h("button", {
       type: "button", class: "listitem" + (i === selected ? " active" : ""), title: label,
@@ -511,7 +510,7 @@ export class Workshop {
       box.querySelector("input").indeterminate = on > 0 && on < inside.length;
       box.querySelector("input").disabled = !inside.length;
       box.setAttribute("title", `${name} · 안의 항목 ${inside.length}개를 이번 요청에 포함`);
-      const disclosure = h("button", { type: "button", class: "lore-folder-disclosure", "aria-expanded": String(open), "aria-label": (open ? "폴더 접기 · " : "폴더 펼치기 · ") + name, onclick: () => { open ? this.loreFolderClosed.add(x.key) : this.loreFolderClosed.delete(x.key); redrawLoreList(); } }, open ? "▾" : "▸");
+      const disclosure = h("button", { type: "button", class: "lore-folder-disclosure", "aria-expanded": String(open), "aria-label": (open ? "폴더 접기 · " : "폴더 펼치기 · ") + name, onclick: () => { open ? this.loreFolderClosed.add(x.key) : this.loreFolderClosed.delete(x.key); redrawList(); } }, open ? "▾" : "▸");
       const head = h("div", { class: "lore-folder-head" }, disclosure, itemButton(x, i, `📁 ${name}`), h("span", { class: "lore-folder-count muted" }, `${inside.length}개`));
       const children = open ? h("div", { class: "lore-folder-children", role: "group", "aria-label": name }, node.children.map(loreRow)) : null;
       return h("div", { class: "lore-folder-item" + (i === selected ? " is-selected" : "") + (open ? " is-open" : ""), style: `--depth:${node.depth}`, "data-index": i, "data-folder": x.key }, head, box, children);
@@ -557,9 +556,9 @@ export class Workshop {
         edit.append(folderField(), h("p", { class: "muted" }, `안의 항목 ${inside.length}개${folders ? ` · 하위 폴더 ${folders}개` : ""}. 폴더는 리스의 로어북 폴더와 같은 구조로 저장되며 LLM 요청에는 보내지 않습니다.`),
           h("div", { class: "card stack" }, h("strong", {}, "폴더 단위 설정"),
             bulk("이번 요청에 포함", (x) => s.loreIncluded[list.indexOf(x)] !== false, (x, v) => { s.loreIncluded[list.indexOf(x)] = v; }, "봇빌더 요청에 보낼지 여부입니다. 원본은 바꾸지 않습니다."),
-            bulk("리스에서 활성화", (x) => x.enabled !== false, (x, v) => { if (v) delete x.enabled; else x.enabled = false; }, "끄면 리스가 이 항목을 숨김(비활성) 상태로 저장해 채팅에서 쓰지 않습니다. 리스 로어북의 '숨김' 설정과 같습니다."),
+            bulk("리스에서 활성화", (x) => x.enabled !== false, (x, v) => { if (v) delete x.enabled; else x.enabled = false; }, "끄면 리스바드가 이 항목을 숨김(비활성) 상태로 저장해 채팅에서 쓰지 않습니다(리스바드 전용 · 공식 RisuAI는 미지원)."),
             bulk("항상 활성화", (x) => !!x.alwaysActive, (x, v) => { x.alwaysActive = v; }, "리스의 폴더 항상 활성화 토글과 같이 안의 항목 전체에 적용합니다.")));
-      } else if (lore) edit.append(this.field("키워드 · 쉼표 구분", item.key, (v) => change("key", v), { tag: "input" }), this.field("본문", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("보조 키워드", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("삽입 순서", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("항상 활성화", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("보조 키워드 사용", item.selective, (v) => change("selective", v)), this.check("키워드를 정규식으로", item.useRegex, (v) => change("useRegex", v)), this.check("리스에서 활성화 · 끄면 숨김", item.enabled !== false, (v) => { if (v) delete item.enabled; else item.enabled = false; this.touch(); })), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "모드"), this.select(item.mode, ["normal", "multiple", "constant", "child"].map((v) => [v, v]), (v) => change("mode", v), "로어북 모드")), folderField()));
+      } else if (lore) edit.append(this.field("키워드 · 쉼표 구분", item.key, (v) => change("key", v), { tag: "input" }), this.field("본문", item.content, (v) => change("content", v), { style: "min-height:260px" }), h("div", { class: "grid2" }, this.field("보조 키워드", item.secondkey, (v) => change("secondkey", v), { tag: "input" }), this.field("삽입 순서", item.insertorder, (v) => change("insertorder", Number(v)), { tag: "input", type: "number" })), h("div", { class: "row" }, this.check("항상 활성화", item.alwaysActive, (v) => change("alwaysActive", v)), this.check("보조 키워드 사용", item.selective, (v) => change("selective", v)), this.check("키워드를 정규식으로", item.useRegex, (v) => change("useRegex", v)), this.check("리스에서 활성화 · 끄면 숨김(리스바드 전용)", item.enabled !== false, (v) => { if (v) delete item.enabled; else item.enabled = false; this.touch(); })), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "모드"), this.select(item.mode, ["normal", "multiple", "constant", "child"].map((v) => [v, v]), (v) => change("mode", v), "로어북 모드")), folderField()));
       else {
         edit.append(this.field("IN · 찾을 패턴", item.in, (v) => change("in", v), { class: "code", style: "min-height:90px" }), this.field("OUT · 치환문 / HTML·CSS 원문", item.out, (v) => change("out", v), { class: "code", style: "min-height:230px" }), h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "적용 유형"), this.select(item.type, [["editinput", "입력"], ["editoutput", "출력"], ["editprocess", "처리"], ["editdisplay", "표시"]], (v) => change("type", v), "정규식 적용 유형")), this.field("플래그", item.flag, (v) => change("flag", v), { tag: "input" })), this.check("지정한 플래그 사용 · 끄면 기본 g", item.ableFlag, (v) => change("ableFlag", v)));
         const result = h("div", { class: "stack testresult", "aria-live": "polite" });
@@ -791,6 +790,7 @@ export class Workshop {
         this.diffView(candidate),
         h("div", { class: "row" }, this.b("원고에 적용", () => this.applyCandidate(candidate), "primary small", { disabled: stale, "data-action": "apply-candidate" }), this.b("폐기", () => {
           candidate.status = "discarded";
+          delete candidate.before;
           this.touch(false);
           this.render();
         }, "small")),
@@ -838,7 +838,7 @@ export class Workshop {
       }
       this.render();
     }, "요청 구성");
-    const summaryOnly = this.task === "workshop" ? this.check("원고 전체 대신 요약만 보내기 · 설계 논의용, 기존 본문의 부분편집은 불가", s.workshopSummary === true, (v) => { s.workshopSummary = v; this.touch(false); }) : null;
+    const summaryOnly = this.task === "workshop" ? this.check("원고 전체 대신 요약만 보내기 · 설계 논의용, 기존 본문의 부분편집은 불가", s.workshopSummary === true, (v) => { s.workshopSummary = v; this.touch(false); this.render(); }) : null;
     const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
     const toggleLabel = TASKS[this.task].label + " ▾";
     const settingsToggle = this.b(toggleLabel, () => {
@@ -848,7 +848,8 @@ export class Workshop {
       settingsToggle.textContent = open ? "설정 닫기 ▴" : toggleLabel;
     }, "request-settings-toggle", { "aria-expanded": "false", title: "요청 설정 · 종류·모델·구성을 바꿉니다." });
     const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
-    const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "")));
+    const summaryOn = this.task === "workshop" && s.workshopSummary === true;
+    const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "") + (summaryOn ? " · 요약 모드(기존 본문 편집 불가)" : "")));
     requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, summaryOnly, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
     panel.append(messages, h(
       "div",
@@ -906,12 +907,14 @@ export class Workshop {
       next = applied;
     }
     assert(this.candidateValid(candidate), "원고가 바뀌었습니다.");
+    const beforeSnapshot = candidate.before;
     this.s.loreIncluded = lore;
     this.s.draft = next;
     candidate.status = "applied";
+    delete candidate.before;
     this.touch();
     // One-step undo, valid only until the draft changes again.
-    this.s.undo = { candidateId: candidate.id, sessionId: this.s.sessionId, revision: this.s.revision, restoreRevision: candidate.revision, before: candidate.before, loreIncluded: loreBefore, label: candidate.label };
+    this.s.undo = { candidateId: candidate.id, sessionId: this.s.sessionId, revision: this.s.revision, restoreRevision: candidate.revision, before: beforeSnapshot, loreIncluded: loreBefore, label: candidate.label };
     this.render();
     this.toast("수정안을 원고에 적용했습니다. 실제 캐릭터 저장은 별도입니다.");
   }
@@ -925,7 +928,7 @@ export class Workshop {
     this.s.draft = clone(undo.before);
     this.s.loreIncluded = loreSelection({ draft: this.s.draft, loreIncluded: undo.loreIncluded });
     this.s.revision = undo.restoreRevision;
-    if (candidate) delete candidate.status;
+    if (candidate) { candidate.before = clone(undo.before); delete candidate.status; }
     delete this.s.undo;
     this.touch(false);
     this.render();
@@ -933,15 +936,19 @@ export class Workshop {
   }
   requestWithScope(task) {
     const s = this.s, request = (s.requests[task] ?? "").trim() || (requestImages(s, task).length ? "첨부한 화면을 확인하고 현재 요청 작업에 맞게 분석해 주세요." : "");
-    const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + (s.selected[task] ?? 0) : null;
-    if (task === "lorebook" && scope) assert(loreSelection(s)[s.selected[task] ?? 0], "현재 편집 항목이 요청에서 제외되어 있습니다. 로어북 탭에서 ‘이번 요청에 포함’을 체크하거나 ‘현재 선택한 항목만 수정’을 해제하세요.");
+    const selectedIndex = s.selected[task] ?? 0;
+    const scope = this.scopeOnly && ["lorebook", "regex"].includes(task) && (s.draft[task === "lorebook" ? "globalLore" : "customscript"] ?? []).length ? (task === "lorebook" ? "l" : "r") + selectedIndex : null;
+    if (task === "lorebook" && scope) {
+      assert(!isLoreFolder(s.draft.globalLore?.[selectedIndex]), "현재 선택한 항목은 로어북 폴더입니다. 개별 항목을 선택하거나 ‘현재 선택한 항목만 수정’을 해제하세요.");
+      assert(loreSelection(s)[selectedIndex], "현재 편집 항목이 요청에서 제외되어 있습니다. 로어북 탭에서 ‘이번 요청에 포함’을 체크하거나 ‘현재 선택한 항목만 수정’을 해제하세요.");
+    }
     return { request, scope, text: request + (scope ? "\n[허용 편집 범위] 기존 항목 " + scope + "만 수정·삭제할 수 있다. 새 항목 추가와 다른 항목 변경은 금지한다." : "") };
   }
   // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
   previewRequest(task = this.task, forcePreset = false, override = {}) {
     const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
-    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
-    const report = usePreset ? assemblePreset(session.preset, session, task, direct) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
+    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset && !override.focus, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
+    const report = usePreset ? assemblePreset(session.preset, session, task, direct, historyOptions(this.settings)) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
     return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
   }
   async sendRequest() {
@@ -966,12 +973,40 @@ export class Workshop {
     const options = chunkOptions(this.settings), parts = [], replies = [], notes = [];
     let raw, staged = clone(before), stagedLore = loreSelection(s);
     const stagedSession = () => ({ ...s, draft: staged, loreIncluded: stagedLore });
-    // What the chain has changed so far: those fields and items go to the next step in full, the rest as sizes.
-    const focusOf = () => {
-      const fields = Object.entries({ desc: "description", personality: "personality", scenario: "scenario", firstMessage: "firstMessage" }).filter(([key]) => !equal(before[key] ?? "", staged[key] ?? "")).map(([, name]) => name);
-      const changed = (key) => (staged[key] ?? []).map((item, i) => i >= (before[key] ?? []).length || !equal(before[key][i], item) ? i : -1).filter((i) => i >= 0);
+    // What the chain has changed so far plus any fields/refs targeted by the next chunk or missing-block follow-up.
+    const focusOf = (extraText = "", extraMissing = []) => {
+      const fields = new Set(Object.entries({ desc: "description", personality: "personality", scenario: "scenario", firstMessage: "firstMessage" }).filter(([key]) => !equal(before[key] ?? "", staged[key] ?? "")).map(([, name]) => name));
+      const changedIndices = (key) => {
+        const prev = before[key] ?? [], curr = staged[key] ?? [];
+        const counts = new Map();
+        for (const item of prev) { const sig = stable(item); counts.set(sig, (counts.get(sig) ?? 0) + 1); }
+        const out = new Set();
+        curr.forEach((item, i) => {
+          const sig = stable(item), left = counts.get(sig) ?? 0;
+          if (left > 0) counts.set(sig, left - 1);
+          else out.add(i);
+        });
+        return out;
+      };
+      const lore = changedIndices("globalLore"), regex = changedIndices("customscript");
       const was = luaEntries(before);
-      return { fields, lore: changed("globalLore"), regex: changed("customscript"), scripts: luaEntries(staged).filter((item) => !was.some((old) => old.ref === item.ref && old.code === item.code && old.comment === item.comment)).map((item) => item.ref) };
+      const scripts = new Set(luaEntries(staged).filter((item) => !was.some((old) => old.ref === item.ref && old.code === item.code && old.comment === item.comment)).map((item) => item.ref));
+      const hintText = [extraText, ...extraMissing.map((m) => m.label + " " + m.block)].join("\n");
+      for (const m of hintText.matchAll(/\bl(0|[1-9][0-9]*)\b/g)) lore.add(Number(m[1]));
+      for (const m of hintText.matchAll(/\br(0|[1-9][0-9]*)\b/g)) regex.add(Number(m[1]));
+      for (const m of hintText.matchAll(/\b(s(?:0|[1-9][0-9]*)_(?:0|[1-9][0-9]*))\b/g)) scripts.add(m[1]);
+      if (/캐릭터\s*설명|\bdescription\b/i.test(hintText)) fields.add("description");
+      if (/성격|\bpersonality\b/i.test(hintText)) fields.add("personality");
+      if (/시나리오|\bscenario\b/i.test(hintText)) fields.add("scenario");
+      if (/첫\s*메시지|퍼스트\s*메시지|인사말|시작\s*상황|\bfirstMessage\b|\bgreeting\b|\bchoiceGreeting\b/i.test(hintText)) fields.add("firstMessage");
+      let allLore = false, allRegex = false, allScripts = false;
+      const mentionsEdit = /기존|수정|편집|다듬|교체|보완|삭제|edits/i.test(hintText);
+      if (mentionsEdit) {
+        if ((task === "lorebook" || /로어북|\blorebook\b/i.test(hintText)) && !/\bl(?:0|[1-9][0-9]*)\b/.test(hintText)) allLore = true;
+        if ((task === "regex" || /정규식|\bregex\b/i.test(hintText)) && !/\br(?:0|[1-9][0-9]*)\b/.test(hintText)) allRegex = true;
+        if ((task === "lua" || task === "choiceGreeting" || /\blua\b|스크립트|\bscript/i.test(hintText)) && !/\bs(?:0|[1-9][0-9]*)_(?:0|[1-9][0-9]*)\b/.test(hintText)) allScripts = true;
+      }
+      return { fields: [...fields], lore: [...lore], regex: [...regex], scripts: [...scripts], allLore, allRegex, allScripts };
     };
     const guard = (message) => assert(!job.cancelled && this.job?.id === job.id && this.candidateValid(meta), message);
     let missing = [];
@@ -1037,7 +1072,8 @@ export class Workshop {
         job.label = `${TASKS[task].label} · 구간 ${index}/${total}`; this.jobStatus();
         assert(!job.cancelled, "요청을 취소했습니다.");
         const stepText = `${requestText}\n\n[분할 작업 ${index}/${total}] 이번 구간: ${next.title}\n${next.instruction}\n이전 구간의 결과는 이미 현재안에 반영되어 있다. 이번 구간만 작성하고, 아직 남은 구간이 있으면 plan에 남은 것만 다시 적어라(이번 구간은 제외). 남은 구간이 없으면 plan을 생략하라.`;
-        const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf() });
+        // After a plan-only response (parts.length === 0) keep the full draft; otherwise focus on changed + targeted items.
+        const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: parts.length ? focusOf(next.title + "\n" + next.instruction) : null });
         assert(!step.issues.length, "프리셋 조립 오류:\n" + step.issues.join("\n"));
         inputSize(step.messages, this.settings.maxInputChars);
         packet = await ask(step.messages, stepText);
@@ -1053,17 +1089,20 @@ export class Workshop {
         else {
           const hint = `[결손 보충] 직전 응답에서 아래 항목의 본문 블록이 오지 않아 그 항목만 비어 있다. 이미 받은 항목은 현재안에 반영되어 있으니 반복하지 말고, 아래 항목만 작성하라. 기존 항목은 현재안 기준 edits로, 새 항목은 완성 본문으로 보내라.\n` + listing;
           const cause = new Error(`본문 블록이 오지 않은 항목 ${lost.length}개:\n` + listing);
-          if (await this.confirmRetry(`응답에서 블록 ${lost.length}개가 오지 않았습니다`, cause, hint)) {
+          if (await this.confirmRetry(`응답에서 블록 ${lost.length}개가 오지 않았습니다`, cause, hint, { keepPartial: true })) {
             guard("요청 이후 작업 대상·원고·프롬프트가 바뀌어 응답을 폐기했습니다.");
+            const beforeParts = parts.length;
             missing.length = 0;
             job.label = TASKS[task].label + " · 결손 보충"; this.jobStatus();
             const stepText = requestText + "\n\n" + hint;
-            const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf() });
+            const step = this.previewRequest(task, false, { session: stagedSession(), text: stepText, images: [], focus: focusOf("", lost) });
             assert(!step.issues.length, "프리셋 조립 오류:\n" + step.issues.join("\n"));
             inputSize(step.messages, this.settings.maxInputChars);
             packet = await ask(step.messages, stepText);
             absorb(packet, "결손 보충");
-            notes.push(`빠진 항목 ${lost.length}개를 다시 요청해 받았습니다.`);
+            if (missing.length) notes.push(`보충 요청에서도 일부 항목(${missing.length}개)의 블록이 오지 않았습니다.`);
+            else if (parts.length > beforeParts) notes.push(`빠진 항목 ${lost.length}개를 다시 요청해 받았습니다.`);
+            else notes.push(`빠진 항목 ${lost.length}개를 다시 요청했으나 추가로 반영할 변경이 없었습니다.`);
           } else notes.push(`빠진 항목 ${lost.length}개는 다시 요청하지 않았습니다: ` + lost.map((m) => m.label).join(', '));
         }
       }
@@ -1079,18 +1118,18 @@ export class Workshop {
       try { this.render(); } catch (error) { this.jobStatus(); this.lockRequestEditors(); this.toast("화면 갱신 실패: " + error.message, true); }
     }
   }
-  // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error.
-  async confirmRetry(purpose, error, hint) {
-    const h = this.h.bind(this);
+  // Asks before an automatic re-request. Resolves true to retry, false to stop with the original error (or keep received items).
+  async confirmRetry(purpose, error, hint, options = {}) {
+    const h = this.h.bind(this), keepPartial = options.keepPartial === true;
     return this.dialog("LLM에 다시 요청할까요?", (body) => {
       body.append(
-        h("p", { class: "warn" }, `${purpose}. 이대로 두면 이번 응답은 폐기됩니다.`),
+        h("p", { class: "warn" }, keepPartial ? `${purpose}. 중단하면 이미 받은 항목만 수정안으로 남습니다.` : `${purpose}. 이대로 두면 이번 응답은 폐기됩니다.`),
         h("h4", {}, "실패 원인"), h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:200px;overflow:auto" }, error.message),
         h("h4", {}, "재요청 목적"), h("p", {}, "같은 요청에 아래 지시를 덧붙여 한 번 더 보냅니다. 현재안과 참고자료를 다시 보내므로 입력 토큰이 한 번 더 들고, 재요청은 이 자리에서 한 번만 합니다."),
         h("pre", { class: "diff", style: "white-space:pre-wrap;max-height:160px;overflow:auto" }, hint),
-        h("p", { class: "muted" }, "중단하면 실패 원인이 대화에 남고 원고는 바뀌지 않습니다. 요청을 나누거나 부분편집으로 직접 다시 요청할 수 있습니다.")
+        h("p", { class: "muted" }, keepPartial ? "중단하면 이미 받은 항목만 수정안으로 보관하며 빠진 항목은 원고에 반영하지 않습니다." : "중단하면 실패 원인이 대화에 남고 원고는 바뀌지 않습니다. 요청을 나누거나 부분편집으로 직접 다시 요청할 수 있습니다.")
       );
-    }, [{ label: "중단", value: false }, { label: "다시 요청", value: true, kind: "primary" }]).then((value) => value === true);
+    }, [{ label: keepPartial ? "받은 항목만 남기기" : "중단", value: false }, { label: "다시 요청", value: true, kind: "primary" }]).then((value) => value === true);
   }
   async chooseTextRange({ source, edit, label, candidates }) {
     const h = this.h.bind(this);
@@ -1148,7 +1187,7 @@ export class Workshop {
     const next = clone(this.settings);
     const result = await this.dialog("작업 설정", (body) => {
       body.append(this.h("p", { class: "muted" }, "30만 입력 토큰 규모용: 기본 3,000,000자, 전체 32MiB까지 전송합니다. 글자 수는 토큰 수가 아닙니다. 사용하는 모델·API가 입력 300,000토큰과 응답 여유를 지원해야 합니다. 본체 컨텍스트 설정은 자동 변경하지 않습니다."));
-      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.field("대화 기록 전송 턴 수 · 최근 N턴만 보냄 (1~100, 기본 12)", next.historyTurns, (v) => next.historyTurns = Number(v), { tag: "input", type: "number", min: HISTORY_TURNS_MIN, max: HISTORY_TURNS_MAX }), this.h("h3", {}, "분할 작업"), this.check("긴 응답 나눠 받기 · 결과가 예산을 넘으면 모델이 구간 계획을 세우고 봇빌더가 자동으로 이어 요청합니다", next.chunking !== false, (v) => next.chunking = v), this.field("응답당 출력 예산 · 토큰 (사고 토큰 제외, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("최대 구간 수 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "구간마다 현재안을 다시 보내므로 입력 토큰은 구간 수에 비례해 늘어납니다. 구간 결과는 임시 원고에 쌓이고, 검토와 적용은 마지막에 한 번만 합니다. 중간에 취소하면 그때까지 완성된 구간만 수정안으로 남깁니다."), this.h("p", { class: "muted" }, "자동 저장 간격은 3분입니다. 자동 저장과 수동 임시 저장은 각각 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
+      body.append(this.h("label", { class: "field" }, this.h("span", {}, "화면 테마"), this.select(next.theme, [["system", "시스템 설정 따르기"], ["light", "라이트 모드"], ["dark", "다크 모드"]], (v) => next.theme = v, "화면 테마")), this.field("LLM 대기 제한 · 초 (10~3,600)", next.timeout, (v) => next.timeout = Number(v), { tag: "input", type: "number", min: 10, max: 3600 }), this.field("전체 전송 문자 한도 (1,000~10,000,000)", next.maxInputChars, (v) => next.maxInputChars = Number(v), { tag: "input", type: "number", min: 1e3, max: MAX_INPUT_CHARS }), this.field("대화 기록 전송 턴 수 · 최근 N턴만 보냄 (1~100, 기본 12)", next.historyTurns, (v) => next.historyTurns = Number(v), { tag: "input", type: "number", min: HISTORY_TURNS_MIN, max: HISTORY_TURNS_MAX }), this.h("h3", {}, "분할 작업"), this.check("긴 응답 나눠 받기 · 결과가 예산을 넘으면 모델이 구간 계획을 세우고 봇빌더가 자동으로 이어 요청합니다", next.chunking !== false, (v) => next.chunking = v), this.field("응답당 출력 예산 · 토큰 (사고 토큰 제외, 1,000~30,000)", next.chunkTokens, (v) => next.chunkTokens = Number(v), { tag: "input", type: "number", min: CHUNK_MIN_TOKENS, max: CHUNK_MAX_TOKENS }), this.field("최대 구간 수 (2~12)", next.chunkMax, (v) => next.chunkMax = Number(v), { tag: "input", type: "number", min: 2, max: CHUNK_HARD_MAX }), this.h("p", { class: "muted" }, "구간마다 현재안을 다시 보내므로 입력 토큰은 구간 수에 비례해 늘어납니다. 구간 결과는 임시 원고에 쌓이고, 검토와 적용은 마지막에 한 번만 합니다. 중간에 취소하면 그때까지 완성된 구간만 수정안으로 남깁니다."), this.h("p", { class: "muted" }, "자동 저장은 3분 간격으로 최근 3개, 수동 임시 저장은 최근 1개를 보관합니다. 대기 중단은 실제 네트워크 취소를 보장하지 않습니다. 플러그인은 자동 재시도하지 않으며, 호스트 자체의 재시도 정책은 호스트 설정을 따릅니다."));
     }, [{ label: "취소", value: false }, { label: "저장", value: true, kind: "primary" }]);
     if (result) {
       assert(Number.isInteger(next.timeout) && next.timeout >= 10 && next.timeout <= 3600 && Number.isInteger(next.maxInputChars) && next.maxInputChars >= 1e3 && next.maxInputChars <= MAX_INPUT_CHARS, "설정 범위를 확인하세요.");
@@ -1263,10 +1302,14 @@ export class Workshop {
   file(accept) {
     return new Promise(resolve => {
       const input = this.h('input', { type: 'file', accept, style: 'display:none' }); this.doc.body.append(input);
-      let settled = false;
-      const done = value => { if (!settled) { settled = true; input.remove(); resolve(value); } };
+      const win = this.doc.defaultView;
+      let settled = false, timer;
+      const onFocus = () => { timer = setTimeout(() => { if (!settled && !input.files?.length) done(null); }, 400); };
+      const done = value => { if (!settled) { settled = true; clearTimeout(timer); win?.removeEventListener('focus', onFocus); input.remove(); resolve(value); } };
       input.addEventListener('change', () => done(input.files[0] ?? null), { once: true });
-      input.addEventListener('cancel', () => done(null), { once: true }); input.click();
+      input.addEventListener('cancel', () => done(null), { once: true });
+      input.click();
+      win?.addEventListener('focus', onFocus, { once: true });
     });
   }
   async chooseCharx() {

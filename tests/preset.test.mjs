@@ -220,3 +220,12 @@ test('workspace validation rejects corrupt switches and global data without muta
   assert.throws(()=>validatePresetState({...s,excluded:{regex:'yes'}}),/참\/거짓/);
   assert.throws(()=>validatePresetState({...s,environment:{...s.environment,globals:{x:7}}}),/키·값/);
 });
+test('assemblePreset respects historyTurns cap and records an omission note',()=>{
+  const s=stateFor(samplePreset()), session=newSession();
+  for(let i=0;i<10;i++) session.thread.push({role:'user',content:'질문'+i},{role:'assistant',content:'답변'+i});
+  const report=assemblePreset(s,session,'workshop',request,{historyTurns:2});
+  const body=report.messages.map(m=>m.content).join('\n');
+  assert.doesNotMatch(body,/질문0|답변7/);
+  assert.match(body,/질문8/); assert.match(body,/답변9/);
+  assert.ok(report.notes.some(n=>/이전 대화 16개/.test(n)));
+});

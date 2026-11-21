@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Independent preset assembly for the workshop. Never reads or mutates host chat state.
-import { assert, clone, bytes, parseVariables, MAX_INPUT_CHARS, CBS_BYTES_LIMIT, PROMPT_BYTES_LIMIT, requestLorebook } from './core.js';
+import { assert, clone, bytes, parseVariables, MAX_INPUT_CHARS, CBS_BYTES_LIMIT, PROMPT_BYTES_LIMIT, requestLorebook, historyOptions } from './core.js';
 import { normalizePreset, PRESET_LIMIT } from './preset-format.js';
 import { parseToggleTree, toggleDefault } from './preset-v2.js';
 import { calculatePreset } from './preset-calc.js';
@@ -203,14 +203,17 @@ const roles={system:'system',user:'user',bot:'assistant',assistant:'assistant'};
 const role = value => Object.hasOwn(roles,value)?roles[value]:undefined;
 export const BLOCK_TYPES = [['plain','일반 프롬프트'],['chat','제작 대화'],['description','캐릭터 설명'],['persona','페르소나'],['lorebook','로어북'],['authornote','작가 노트'],['postEverything','마지막 지시'],['memory','메모리 입력'],['chatML','ChatML'],['jailbreak','구형 추가 프롬프트'],['cot','구형 CoT 블록'],['cache','캐시 지점']];
 export const moduleReferences=preset=>[...new Set((preset?.moduleIntergration??'').split(',').map(id=>id.trim()).filter(Boolean))];
-export function assemblePreset(rawState,session,task,directMessages) {
+export function assemblePreset(rawState,session,task,directMessages,options={}) {
   const state=validatePresetState(rawState), p=state.preset;
   assert(p,'먼저 프리셋 파일을 가져오세요.');
   const globals=presetValues(state), variables={...parseVariables(p.templateDefaultVariables),...parseVariables(session.draft.defaultVariables??'')};
   const d=session.draft, env=state.environment;
   let lore=requestLorebook(session).map(({entry:l})=>'['+(l.comment||l.key)+']\n'+l.content).join('\n\n');
   const currentUser={role:'user',content:'[공방 작업 지침]\n'+directMessages[0].content+'\n\n'+directMessages[1].content};
-  const history=session.thread.filter(m=>!m.error&&['user','assistant'].includes(m.role)).map(m=>({role:m.role,content:m.content}));
+  const allHistory=session.thread.filter(m=>!m.error&&['user','assistant'].includes(m.role)).map(m=>({role:m.role,content:m.content}));
+  const keep=historyOptions(options).historyTurns*2;
+  const omittedHistory=Math.max(0,allHistory.length-keep);
+  const history=omittedHistory?allHistory.slice(-keep):allHistory;
   const chats=[...history,currentUser];
   const context={globals,variables,fields:{char:d.name??'',user:env.userName,description:d.desc??'',personality:d.personality??'',scenario:d.scenario??'',persona:env.persona,firstmessage:d.firstMessage??'',first_message:d.firstMessage??'',systemprompt:d.systemPrompt??'',lorebook:lore,chatindex:String(chats.length-1),lastusermessage:currentUser.content,lastcharmessage:history.findLast(m=>m.role==='assistant')?.content??'',original:p.mainPrompt,slot:''}};
   const messages=[],trace=[],issues=[],moduleTrace=[],presetRegexTrace=[],selectedModules=activeModules(state);let userCount=0;
@@ -302,6 +305,7 @@ export function assemblePreset(rawState,session,task,directMessages) {
   if(moduleLore.length&&!context.loreUsage.used)issues.push('선택 모듈의 로어북을 포함하는 블록이 없습니다. 로어북 블록 또는 {{lorebook}}을 사용하는 블록을 추가하세요.');
   for(const record of moduleTrace)if(record.status==='prepared')record.status=context.loreUsage.used?'included':'not-included';
   const notes=['로어북 블록은 공방에서 체크한 현재 원고 항목과 선택 모듈의 포함 항목을 사용합니다. 본체의 키워드 활성화·토큰 예산 계산은 실행하지 않습니다.','모듈 토글은 공방 값이며 선택한 모듈의 사본을 사용합니다. 본체 모듈 활성화와 자동 동기화하지 않습니다.','페르소나·작가 노트·메모리는 이 프리셋 화면에서 입력한 값을 사용합니다. 본체 상태와 자동 동기화하지 않습니다.'];
+  if(omittedHistory)notes.push(`이전 대화 ${omittedHistory}개는 대화 기록 전송 턴 수 상한에 따라 보내지 않았습니다.`);
   if(context.nativeLiterals.size)notes.push('공식 내장 CBS로 정의되지 않은 '+[...context.nativeLiterals].map(name=>'{{'+name+'}}').join(', ')+' 표기를 리스처럼 원문으로 유지했습니다. 현재 사용자 요청문으로 치환한 것이 아닙니다.');
   return {messages,trace,moduleTrace,presetRegexTrace,issues,globals,notes};
 }

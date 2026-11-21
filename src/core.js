@@ -1,9 +1,9 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.2.1';
 export const PREFIX = 'risu-character-editor:v1:';
-export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
+export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
 const dangerous = new Set(['__proto__', 'prototype', 'constructor']);
 export const clone = (x) => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
@@ -199,8 +199,9 @@ export function formatFor(task, session, options = {}) {
   const guide = examples.map((example, i) => "[올바른 출력 예시 " + (i + 1) + " — 새 작성·명시적 전체 재작성 또는 대화]\n" + exampleText(example)).join("\n\n");
   const invalid = "\n\n[잘못된 출력 예시 — 응답 객체 앞이나 뒤에 Markdown 제목, 인사말, 해설, 코드 펜스 중 하나라도 붙은 응답. 올바른 출력 예시 1을 아무 장식 없이 그대로 보낸다]";
   const patchExample = textEditExample(task);
-  const patchGuide = '\n\n[기존 원문 부분편집 예시 — 예시 전용 원문과 ref이며 실제 현재안으로 교체할 것]\n원문: ' + JSON.stringify(patchExample.source) + '\n응답: ' + exampleText(patchExample.packet);
-  return jsonContract(task, options) + patchGuide + "\n\n[새로 작성할 때의 데이터 구조 — 기존 텍스트 수정은 공통 edits 형식 사용]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges의 각 task는 description/lorebook/regex/lua/greeting/choiceGreeting 중 하나이며 해당 data 형식은 다음과 같다:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n허용 필드: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. 삭제 목록에는 현재 원고의 ref만 사용할 것.";
+  const contract = options.includeContract === false ? '' : jsonContract(task, options) + '\n\n';
+  const patchGuide = '[기존 원문 부분편집 예시 — 예시 전용 원문과 ref이며 실제 현재안으로 교체할 것]\n원문: ' + JSON.stringify(patchExample.source) + '\n응답: ' + exampleText(patchExample.packet);
+  return contract + patchGuide + "\n\n[새로 작성할 때의 데이터 구조 — 기존 텍스트 수정은 공통 edits 형식 사용]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges의 각 task는 description/lorebook/regex/lua/greeting/choiceGreeting 중 하나이며 해당 data 형식은 다음과 같다:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n허용 필드: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. 삭제 목록에는 현재 원고의 ref만 사용할 것.";
 }
 export const HISTORY_TURNS_DEFAULT = 12, HISTORY_TURNS_MIN = 1, HISTORY_TURNS_MAX = 100;
 export function historyOptions(settings = {}) {
@@ -231,15 +232,16 @@ export function draftSummary(session, context) {
     note: '요약 모드: 원고 본문은 보내지 않았다(필드마다 글자 수만). 기존 본문의 부분편집(edits)은 쓸 수 없고 기존 항목의 수정·삭제도 제안하지 마라. 설계 논의는 reply로 답하고, 새 항목(ref:null)의 완성 본문은 제안할 수 있다. 기존 본문을 고쳐야 하면 reply에서 사용자에게 요약 모드를 끄고 다시 요청하라고 안내하라.',
   };
 }
-// Focused context for a chunk step: fields and items the chain has already changed are sent whole, the rest as sizes.
+// Focused context for a chunk step: fields and items changed so far or targeted by this step are sent whole, the rest as sizes.
 const omittedText = (text) => ({ omitted: true, chars: chars(text) });
 export function focusContext(task, context, taskRef, focus) {
   const fields = new Set(focus.fields ?? []), lore = new Set(focus.lore ?? []), regex = new Set(focus.regex ?? []), scripts = new Set(focus.scripts ?? []);
-  const loreList = context.lorebook.map((item) => lore.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.entry.comment, key: item.entry.key, chars: chars(item.entry.content) } });
-  const regexList = context.regex.map((item) => regex.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.rule.comment, type: item.rule.type, chars: chars(item.rule.in) + chars(item.rule.out) } });
-  const scriptList = context.scripts.map((item) => scripts.has(item.ref) ? item : { ref: item.ref, summary: { comment: item.comment, chars: chars(item.code) } });
-  const text = (key, value) => fields.has(key) ? value : omittedText(value);
-  const note = '분할 작업 구간 요청: 이전 구간에서 바뀐 필드·항목만 본문을 보냈고, 나머지는 길이만 적었다(omitted·summary). 본문을 보내지 않은 필드·항목은 이번 구간에서 edits로 수정하거나 삭제하지 마라. 그 수정이 꼭 필요하면 plan에 남기고 reply에 적어라.';
+  const allFields = focus.allFields === true, allLore = focus.allLore === true, allRegex = focus.allRegex === true, allScripts = focus.allScripts === true;
+  const loreList = allLore ? context.lorebook : context.lorebook.map((item) => lore.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.entry.comment, key: item.entry.key, chars: chars(item.entry.content) } });
+  const regexList = allRegex ? context.regex : context.regex.map((item) => regex.has(Number(item.ref.slice(1))) ? item : { ref: item.ref, summary: { comment: item.rule.comment, type: item.rule.type, chars: chars(item.rule.in) + chars(item.rule.out) } });
+  const scriptList = allScripts ? context.scripts : context.scripts.map((item) => scripts.has(item.ref) ? item : { ref: item.ref, summary: { comment: item.comment, chars: chars(item.code) } });
+  const text = (key, value) => allFields || fields.has(key) ? value : omittedText(value);
+  const note = '분할 작업 구간 요청: 이전 구간에서 바뀐 필드·항목과 이번 구간 대상만 본문을 보냈고, 나머지는 길이만 적었다(omitted·summary). 본문을 보내지 않은 필드·항목은 이번 구간에서 edits로 수정하거나 삭제하지 마라. 그 수정이 꼭 필요하면 plan에 남기고 reply에 적어라.';
   if (task === 'workshop') return { ...context, description: text('description', context.description), personality: text('personality', context.personality), scenario: text('scenario', context.scenario), firstMessage: text('firstMessage', context.firstMessage), lorebook: loreList, regex: regexList, scripts: scriptList, focusNote: note };
   if (task === 'lorebook') return { entries: loreList, focusNote: note };
   if (task === 'regex') return { rules: regexList, focusNote: note };
@@ -259,7 +261,7 @@ export function composeMessages(session, task, request, prompt, options = {}) {
   const summary = options.draftSummary === true && task === "workshop" && !focus;
   const current = summary ? draftSummary(session, context) : focus ? focusContext(task, context, refs[task], focus) : task === "workshop" ? context : refs[task];
   const character = focus ? focusContext('workshop', context, null, focus) : context;
-  const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: "RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn=\"키\">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다." }), OUTPUT_FORMAT: formatFor(task, session, options) };
+  const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: "RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn=\"키\">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다." }), OUTPUT_FORMAT: formatFor(task, session, { ...options, includeContract: false }) };
   const reference = JSON.parse(values.REFERENCE_CONTEXT);
   if (task === "workshop") {
     delete reference.character;
@@ -292,7 +294,7 @@ export function composeMessages(session, task, request, prompt, options = {}) {
   }
   return [system, { role: "user", content: fill(prompt.user) }];
 }
-export const CACHE_ACK = "현재안·참고자료·출력 형식을 확인했다. 이어지는 설계 대화 기록과 요청에 따라 출력 형식대로 응답하겠다.";
+export const CACHE_ACK = '{"ack":true}';
 const LORE_KEYS = ['comment', 'key', 'secondkey', 'content', 'insertorder', 'mode', 'alwaysActive', 'selective', 'useRegex', 'activationPercent'];
 const REGEX_KEYS = ['comment', 'in', 'out', 'flag', 'ableFlag', 'type'];
 function validateEntry(entry, type, isNew) {
@@ -300,7 +302,7 @@ function validateEntry(entry, type, isNew) {
   const strings = type === 'lore' ? ['comment', 'key', 'secondkey', 'content'] : ['comment', 'in', 'out', 'flag', 'type'];
   for (const k of strings) if (k in entry) str(entry[k], k);
   for (const k of ['alwaysActive', 'selective', 'useRegex', 'ableFlag']) if (k in entry) assert(typeof entry[k] === 'boolean', k + ': 불리언이 필요합니다.');
-  if ('mode' in entry) assert(['multiple', 'constant', 'normal', 'child', 'folder'].includes(entry.mode), '지원하지 않는 로어북 모드입니다.');
+  if ('mode' in entry) assert(['multiple', 'constant', 'normal', 'child'].includes(entry.mode), '지원하지 않는 로어북 모드입니다.');
   if ('insertorder' in entry) assert(Number.isFinite(entry.insertorder), '삽입 순서가 올바르지 않습니다.');
   if ('activationPercent' in entry) assert(Number.isFinite(entry.activationPercent) && entry.activationPercent >= 0 && entry.activationPercent <= 100, '활성화 확률은 0~100입니다.');
   if ('type' in entry) assert(['editinput', 'editoutput', 'editprocess', 'editdisplay'].includes(entry.type), '정규식 적용 유형이 올바르지 않습니다.');
@@ -477,9 +479,9 @@ const BLOCK_NAME = /^[A-Za-z0-9_.-]{1,40}$/;
 export function extractBlocks(raw, options = {}) {
   const blocks = new Map(), parts = [];
   let unclosed = null;
-  // The opening tag sits on its own line (indentation allowed). The closing tag is accepted anywhere after it,
-  // including glued to the last code line or indented, because models often skip the newline before it.
-  const open = /^[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
+  // The opening tag sits on its own line (indentation allowed) or directly after a JSON closing brace at EOL.
+  // The closing tag is accepted anywhere after it, including glued to the last code line or indented.
+  const open = /(?:^|(?<=\}))[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
   let cursor = 0, m;
   while ((m = open.exec(raw))) {
     const name = m[1];
@@ -500,10 +502,10 @@ export function extractBlocks(raw, options = {}) {
   parts.push(raw.slice(cursor));
   return { text: parts.join(''), blocks, unclosed };
 }
-// A reference is {"block":"name"}; a bare string that is exactly the tag "<<<name>>>" of a block that did arrive is
-// accepted too, because models often write the tag where the object belongs. A block name alone is not a reference.
+// A reference is {"block":"name"}; a bare string that is exactly the tag "<<<name>>>" is also treated as a block
+// reference so missing/truncated blocks are caught rather than silently saved as literal "<<<name>>>" text.
 const blockName = (value) => typeof value === 'string' ? value.trim().replace(/^<<<(.+?)>>>$/, '$1') : null;
-const tagString = (value, blocks) => typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value) && blocks.has(blockName(value));
+const isTagString = (value) => typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value);
 const MISSING = '\u0000missing';
 const isMissing = (value) => !!value && typeof value === 'object' && Object.hasOwn(value, MISSING);
 function resolveBlocks(value, blocks, used, lenient = false) {
@@ -520,7 +522,14 @@ function resolveBlocks(value, blocks, used, lenient = false) {
     }
     return Object.fromEntries(names.map((k) => [k, resolveBlocks(value[k], blocks, used, lenient)]));
   }
-  if (tagString(value, blocks)) { const name = blockName(value); used.add(name); return blocks.get(name); }
+  if (isTagString(value)) {
+    const name = blockName(value);
+    if (!blocks.has(name)) {
+      if (lenient) return { [MISSING]: name };
+      throw new BlockReferenceError('참조한 블록이 응답에 없습니다: <<<' + name + '>>>', [...blocks.keys()]);
+    }
+    used.add(name); return blocks.get(name);
+  }
   return value;
 }
 function blockReferences(value, out = new Set()) {
@@ -529,7 +538,7 @@ function blockReferences(value, out = new Set()) {
     const names = Object.keys(value);
     if (names.length === 1 && names[0] === 'block' && typeof value.block === 'string') out.add(blockName(value.block));
     else names.forEach((k) => blockReferences(value[k], out));
-  } else if (typeof value === 'string' && /^\s*<<<[A-Za-z0-9_.-]{1,40}>>>\s*$/.test(value)) out.add(blockName(value));
+  } else if (isTagString(value)) out.add(blockName(value));
   return out;
 }
 export function applyBlocks(response, blocks, lenient = false) {
@@ -595,19 +604,27 @@ function salvageData(task, data, missing) {
     return upsert.length || (Array.isArray(data.remove) && data.remove.length) ? { ...data, upsert } : null;
   }
   if (task === 'lua') {
-    const scripts = salvageItems(data.scripts, ['comment', 'code'], ['code'], 'Lua', missing);
+    const scripts = salvageItems(data.scripts, ['comment', 'code'], ['comment', 'code'], 'Lua', missing);
     const variables = data.variables && typeof data.variables === 'object' ? Object.fromEntries(Object.entries(data.variables).flatMap(([k, v]) => { const value = textFieldStatus(v, '변수 ' + k, missing); return value === null ? [] : [[k, value]]; })) : data.variables;
     const left = scripts.length || Object.keys(variables ?? {}).length || (Array.isArray(data.removeScripts) && data.removeScripts.length) || (Array.isArray(data.removeVariables) && data.removeVariables.length);
     return left ? { ...data, scripts, variables } : null;
   }
   if (task === 'choiceGreeting') {
-    // The greeting, its choices and scripts form one unit; a hole anywhere makes the unit unusable.
+    // The greeting, its choices, scripts, variables and regex form one unit; a hole anywhere makes the unit unusable.
     const probe = [];
     const text = textFieldStatus(data.text, '시작 상황 본문', probe);
-    const scripts = salvageItems(data.scripts, ['comment', 'code'], ['code'], 'Lua', probe);
-    const choices = Array.isArray(data.choices) ? data.choices.filter((c) => !isMissing(c?.content)) : data.choices;
-    if (text === null || probe.length || (Array.isArray(data.choices) && choices.length !== data.choices.length)) { missing.push({ label: '시작 상황 선택 묶음', block: [...new Set(probe.map((p) => p.block))].join(', ') || '본문' }); return null; }
-    return { ...data, text, scripts };
+    const scripts = salvageItems(data.scripts, ['comment', 'code'], ['comment', 'code'], 'Lua', probe);
+    const regex = salvageItems(data.regex, ['comment', 'in', 'out'], ['in', 'out'], '정규식', probe);
+    if (data.variables && typeof data.variables === 'object' && !Array.isArray(data.variables)) {
+      for (const [k, v] of Object.entries(data.variables)) textFieldStatus(v, '변수 ' + k, probe);
+    }
+    if (Array.isArray(data.choices)) {
+      data.choices.forEach((c, i) => {
+        for (const k of ['id', 'label', 'content']) if (isMissing(c?.[k])) probe.push({ label: `선택 상황 ${i + 1} ${k}`, block: c[k][MISSING] });
+      });
+    }
+    if (text === null || probe.length) { missing.push({ label: '시작 상황 선택 묶음', block: [...new Set(probe.map((p) => p.block))].join(', ') || '본문' }); return null; }
+    return { ...data, text, scripts, regex };
   }
   return data;
 }
@@ -624,7 +641,7 @@ export function salvageResponse(response, blocks) {
   if ('plan' in out) { const plan = salvagePlan(out.plan, missing); if (plan === undefined) delete out.plan; else out.plan = plan; }
   return { response: out, missing };
 }
-// Why the JSON did not parse: the parser's own message plus the text around the reported position.
+// Why the JSON did not parse: engine-independent scanning plus the parser's own message.
 // Two mechanical slips that models make at the very end of an otherwise valid JSON: a trailing comma before
 // a closer, and one closing brace/bracket too many. Both are removed only when the result parses and validates,
 // and every removal is reported to the user. Nothing inside strings is ever touched.
@@ -639,24 +656,45 @@ function stripTrailingCommas(text) {
   }
   return { text: out, removed };
 }
+// Finds an unmatched closing brace/bracket outside strings without relying on V8-specific SyntaxError wording.
+function findExtraCloser(text) {
+  const stack = []; let quoted = false, escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) { if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false; continue; }
+    if (ch === '"') { quoted = true; continue; }
+    if (ch === '{' || ch === '[') { stack.push(ch); continue; }
+    if (ch === '}' || ch === ']') {
+      const expected = ch === '}' ? '{' : '[';
+      if (!stack.length || stack.at(-1) !== expected) return i;
+      stack.pop();
+    }
+  }
+  return -1;
+}
+function lineColumnOffset(text, line, column) {
+  let current = 1, offset = 0;
+  while (current < line && offset < text.length) {
+    const nl = text.indexOf('\n', offset);
+    if (nl < 0) return -1;
+    offset = nl + 1; current++;
+  }
+  return Math.min(text.length, offset + Math.max(0, column - 1));
+}
 export function repairJson(text) {
   const fixes = [];
   const commas = stripTrailingCommas(text);
   let current = commas.text;
   if (commas.removed) fixes.push(`후행 쉼표 ${commas.removed}개 제거`);
   for (let i = 0; i < 3; i++) {
-    let message;
-    try { JSON.parse(current); return { text: current, fixes }; } catch (error) { message = error.message; }
-    const at = /position (\d+)/.exec(message); if (!at) return null;
-    const pos = Number(at[1]), ch = current[pos];
-    if ((ch === '}' || ch === ']') && /after array element|after property value/.test(message)) {
-      current = current.slice(0, pos) + current.slice(pos + 1);
-      fixes.push(`여분 닫는 괄호 '${ch}' 1개 제거(${pos.toLocaleString('ko-KR')}자 부근)`);
-      continue;
-    }
-    return null;
+    try { JSON.parse(current); return { text: current, fixes }; } catch {}
+    const pos = findExtraCloser(current);
+    if (pos < 0) return null;
+    const ch = current[pos];
+    current = current.slice(0, pos) + current.slice(pos + 1);
+    fixes.push(`여분 닫는 괄호 '${ch}' 1개 제거(${pos.toLocaleString('ko-KR')}자 부근)`);
   }
-  return null;
+  try { JSON.parse(current); return { text: current, fixes }; } catch { return null; }
 }
 function jsonSyntaxError(text) {
   const broken = [...responseJsonChunks(text)].filter((chunk) => { try { JSON.parse(chunk); return false; } catch { return true; } });
@@ -664,7 +702,9 @@ function jsonSyntaxError(text) {
   const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
   if (candidate === null) return new Error('완성된 JSON 응답 객체를 찾지 못했습니다. 후행 쉼표와 여분 닫는 괄호 외에는 JSON 문법을 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
   let reason = ''; try { JSON.parse(candidate); } catch (error) { reason = error.message; }
-  const at = /position (\d+)/.exec(reason), pos = at ? Number(at[1]) : -1;
+  const atPos = /position (\d+)/.exec(reason);
+  const atLine = /line (\d+) column (\d+)/.exec(reason);
+  const pos = atPos ? Number(atPos[1]) : atLine ? lineColumnOffset(candidate, Number(atLine[1]), Number(atLine[2])) : findExtraCloser(candidate);
   const snippet = pos >= 0 ? candidate.slice(Math.max(0, pos - 40), pos + 40) : (/\.\.\."([\s\S]*?)"\.\.\./.exec(reason)?.[1] ?? '');
   const detail = (pos >= 0 ? pos.toLocaleString('ko-KR') + '자 부근' : '위치 불명') + (snippet ? ' ' + JSON.stringify(snippet) : '') + (reason ? ' · ' + reason.replace(/ in JSON at position \d+.*$/, '') : '');
   return new JsonSyntaxError('응답의 JSON 문법이 깨졌습니다 · ' + detail + '. 흔한 원인은 문자열 안의 이스케이프되지 않은 큰따옴표·줄바꿈·역슬래시, 후행 쉼표, 주석입니다. 긴 코드·본문은 <<<이름>>> 블록으로 보내면 이스케이프가 필요 없습니다. 후행 쉼표와 여분 닫는 괄호는 자동으로 걷어내지만 그 밖의 문법은 고치지 않습니다.', detail);
@@ -700,7 +740,10 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
   const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
   const validate=parsedResponse=>{
     let response, missing = [];
-    try { response = applyBlocks(parsedResponse, blocks); } catch (error) {
+    try {
+      response = applyBlocks(parsedResponse, blocks);
+      if (unclosed !== null) throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${unclosed}>>>이 닫히지 않았습니다(<<</${unclosed}>>>를 찾지 못함 · ${raw.length.toLocaleString('ko-KR')}자 수신). 잘린 응답은 복구하지 않습니다.`);
+    } catch (error) {
       // Every block that did arrive is referenced and the text stops at a block edge: the rest never came.
       const referenced = blockReferences(parsedResponse);
       const straggler = [...blocks.keys()].some((name) => !referenced.has(name));
@@ -712,7 +755,11 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
       const usable = partial.response.data !== null && partial.response.data !== undefined && (partial.response.task !== 'workshop' || partial.response.data.changes.length || partial.response.data.reply);
       if (!usable) throw strict;
       response = partial.response; missing = partial.missing;
-      if (unclosed !== null) missing.push({ label: '응답 끝', block: unclosed + ' (닫히지 않음, 이후 내용 없음)' });
+      if (unclosed !== null) {
+        const existing = missing.find((m) => typeof m.block === 'string' && m.block.split(/,\s*/).includes(unclosed));
+        if (existing) existing.block += ' (닫히지 않음)';
+        else missing.push({ label: '응답 끝', block: unclosed + ' (닫히지 않음, 이후 내용 없음)' });
+      }
     }
     const finish = (out) => { if (missing.length) out.missing = missing; return out; };
     keys(response,['schemaVersion','task','data'],['plan']);
@@ -742,9 +789,11 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
   }
   if(response!==null)return response;
   if(validationError)throw validationError;
-  // Before giving up: fix the two mechanical slips above, and accept only a validated envelope.
-  if(!jsonTruncated(text)) {
-    const repaired=repairJson(text);
+  // Before giving up: fix the two mechanical slips above (pure JSON or pure markdown code fence), and accept only a validated envelope.
+  const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
+  const repairTarget = fenced ? fenced[1] : text;
+  if(!jsonTruncated(repairTarget)) {
+    const repaired=repairJson(repairTarget);
     if(repaired&&repaired.fixes.length) {
       let fixed=null;try{fixed=JSON.parse(repaired.text);}catch{fixed=null;}
       if(fixed&&typeof fixed==='object'&&!Array.isArray(fixed)&&Object.hasOwn(fixed,'schemaVersion')) { const out=validate(fixed); out.repairs=repaired.fixes; return out; }
@@ -801,15 +850,20 @@ function* responseJsonChunks(raw) {
 }
 export function parseVariables(text) {
   const r = Object.create(null);
-  for (const line of text.split('\n')) { const [key, value] = line.split('='); if (key && value && !dangerous.has(key)) r[key] = value; }
+  for (const line of text.split(/\r?\n/)) {
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq), value = line.slice(eq + 1);
+    if (key && !dangerous.has(key)) r[key] = value;
+  }
   return r;
 }
 function applyVariables(text, changed, remove) {
   const used = new Set(), lines = [];
-  for (const line of text.split('\n')) {
-    const key = line.split('=')[0];
-    if (remove.includes(key)) continue;
-    if (Object.hasOwn(changed, key)) { if (!used.has(key)) lines.push(key + '=' + changed[key]); used.add(key); }
+  for (const line of text.split(/\r?\n/)) {
+    const eq = line.indexOf('='), key = eq > 0 ? line.slice(0, eq) : line;
+    if (eq > 0 && remove.includes(key)) continue;
+    if (eq > 0 && Object.hasOwn(changed, key)) { if (!used.has(key)) lines.push(key + '=' + changed[key]); used.add(key); }
     else lines.push(line);
   }
   for (const [key, value] of Object.entries(changed)) if (!used.has(key)) lines.push(key + '=' + value);
@@ -973,6 +1027,7 @@ export async function callModel(api, messages, mode, timeoutSeconds, job) {
   let timer;
   const stopped = new Promise((_, reject) => { job.stop = (message = '대기를 중단했습니다. 늦게 도착한 결과는 폐기합니다.') => { job.cancelled = true; job.reader?.cancel().catch(() => {}); reject(new Error(message)); }; timer = setTimeout(() => job.stop('요청 대기 시간이 초과되었습니다. 늦게 도착한 결과는 폐기합니다.'), timeoutSeconds * 1000); });
   const work = Promise.resolve().then(() => api.runLLMModel({ messages, mode, allowPlugins: true })).then(r => responseText(r, job));
+  work.catch(() => {});
   try { return await Promise.race([work, stopped]); } finally { clearTimeout(timer); job.stop = null; }
 }
 

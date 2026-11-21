@@ -54,5 +54,8 @@ test('direct-mode requests are sent split with the cache point; images ride on t
     await x.app.sendRequest();
     assert.equal(x.calls.length, 1); assert.equal(x.calls[0].messages.length, 4); assert.equal(x.calls[0].messages[1].cachePoint, true);
     assert.equal(x.app.s.candidates.length, 1);
+    assert.doesNotThrow(() => JSON.parse(CACHE_ACK), 'CACHE_ACK must itself be valid JSON');
+    const focused = x.app.previewRequest('description', false, { focus: { fields: ['description'] } });
+    assert.equal(focused.messages.length, 2); assert.ok(focused.messages.every(m => m.cachePoint === undefined));
   } finally { x.close(); }
 });

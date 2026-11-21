@@ -31,7 +31,7 @@ test('one missing edit is dropped while the other edits of the same field apply;
   assert.throws(() => parseResponse(raw, 'description', c), (e) => e instanceof TruncatedResponseError);
   const packet = parseResponse(raw, 'description', c, false, salvage);
   assert.equal(applyPacket(c, packet).desc, '1번 줄\n둘째 줄\n셋째 줄');
-  assert.equal(packet.missing.length, 2); assert.equal(packet.missing[0].label, '캐릭터 설명 본문 부분편집 2'); assert.match(packet.missing[1].block, /a2 \(닫히지 않음/);
+  assert.equal(packet.missing.length, 1); assert.equal(packet.missing[0].label, '캐릭터 설명 본문 부분편집 2'); assert.match(packet.missing[0].block, /a2 \(닫히지 않음\)/);
 });
 
 test('when nothing usable remains the strict error stands; unreferenced blocks are still a format error', () => {
@@ -58,6 +58,25 @@ test('inside a workshop answer a change that loses its only item is removed; oth
   assert.deepEqual(packet.missing, [{ label: '로어북 새 항목 1 content', block: 'c' }]);
 });
 
+test('missing tag-string reference is caught as truncation/missing rather than saved literally; lua comment and choiceGreeting subfields salvage cleanly', () => {
+  const c = loreDraft();
+  const tagCut = JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: '<<<t1>>>' } });
+  assert.throws(() => parseResponse(tagCut, 'description', c, false, salvage), (e) => e instanceof TruncatedResponseError);
+  assert.throws(() => parseResponse(tagCut + '\n<<<t1>>>\n잘림', 'description', c, false, salvage), (e) => e instanceof TruncatedResponseError);
+  // Missing comment on a new Lua script drops only that script while keeping variables.
+  const luaMissingComment = JSON.stringify({ schemaVersion: 2, task: 'lua', data: { scripts: [{ ref: null, comment: { block: 'cm' }, code: 'function onStart() end' }], removeScripts: [], variables: { day: '1' }, removeVariables: [] } });
+  const luaPacket = parseResponse(luaMissingComment, 'lua', c, false, salvage);
+  assert.equal(luaPacket.data.scripts.length, 0); assert.deepEqual(luaPacket.data.variables, { day: '1' });
+  // Missing regex block inside choiceGreeting drops the whole choiceGreeting change while keeping other workshop changes.
+  const wsChoice = JSON.stringify({ schemaVersion: 2, task: 'workshop', data: { reply: '안내', changes: [
+    { task: 'description', data: { text: '정상 설명' } },
+    { task: 'choiceGreeting', data: { text: '<button risu-btn="a">A</button>장면', choices: [{ id: 'a', label: 'A', content: '장면' }], scripts: [{ ref: null, comment: 's', code: 'function onButtonClick(id,k) if k=="a" then end end' }], variables: { v: '1' }, regex: [{ ref: null, rule: { comment: 'r', in: 'x', out: { block: 'missing_out' }, type: 'editdisplay', flag: 'g', ableFlag: true } }] } },
+  ] } });
+  const wsPacket = parseResponse(wsChoice, 'workshop', c, false, salvage);
+  assert.equal(wsPacket.data.changes.length, 1); assert.equal(wsPacket.data.changes[0].task, 'description');
+  assert.equal(wsPacket.missing[0].label, '시작 상황 선택 묶음');
+});
+
 const wait = () => new Promise(resolve => setTimeout(resolve, 12));
 const userText = options => options.messages.filter(m => m.role === 'user').map(m => m.content).join('\n');
 async function make(handlers, settings = {}) {
@@ -78,10 +97,10 @@ test('a missing block yields a usable card, then one follow-up for just the miss
     () => twoItems,
     (options) => { const text = userText(options); assert.match(text, /\[결손 보충\]/); assert.match(text, /로어북 새 항목 2 content \(블록 c2\)/); assert.match(text, /"ref":"l1"/, 'the staged draft already holds the first new entry'); return JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: null, entry: { comment: '둘', key: 'two', content: '둘 본문' } }], remove: [] } }); },
   ]);
-  x.app.confirmRetry = async (purpose, error, hint) => { asked.push({ purpose, message: error.message, hint }); return true; };
+  x.app.confirmRetry = async (purpose, error, hint, opts) => { asked.push({ purpose, message: error.message, hint, opts }); return true; };
   try {
     await x.app.sendRequest(); await wait();
-    assert.equal(x.calls.length, 2); assert.equal(asked.length, 1); assert.match(asked[0].purpose, /블록 1개가 오지 않았습니다/); assert.match(asked[0].hint, /결손 보충/);
+    assert.equal(x.calls.length, 2); assert.equal(asked.length, 1); assert.match(asked[0].purpose, /블록 1개가 오지 않았습니다/); assert.match(asked[0].hint, /결손 보충/); assert.equal(asked[0].opts?.keepPartial, true);
     const candidate = x.app.s.candidates[0]; assert.equal(candidatePackets(candidate).length, 2); assert.deepEqual(candidate.partLabels, ['구간 1', '결손 보충']);
     assert.match(x.app.s.thread.at(-1).content, /빠진 항목 1개를 다시 요청해 받았습니다/);
     await x.app.applyCandidate(candidate); assert.deepEqual(x.app.s.draft.globalLore.map(l => l.content), ['a 본문', '하나 본문', '둘 본문']);
@@ -96,6 +115,37 @@ test('a missing block yields a usable card, then one follow-up for just the miss
     assert.match(y.dom.window.document.querySelector('.candidate').textContent, /빠진 항목 1개/);
     await y.app.applyCandidate(candidate); assert.equal(y.app.s.draft.globalLore.length, 2);
   } finally { y.close(); }
+});
+
+test('salvage follow-up sends the full body of a missing existing ref and keeps partial notice accurate in confirmRetry', async () => {
+  const partialExisting = JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: 'l0', entry: { content: { block: 'c0' } } }, { ref: 'l1', entry: { content: { block: 'c1' } } }], remove: [] } }) + '\n' + block('c0', 'a 수정');
+  const x = await make([
+    () => partialExisting,
+    (options) => {
+      const text = userText(options);
+      assert.match(text, /"ref":"l1","entry":\{[^}]*"content":"b 기존 원문"/, 'missing existing ref l1 must be sent whole so edits can target it');
+      return JSON.stringify({ schemaVersion: 2, task: 'lorebook', data: { upsert: [{ ref: 'l1', entry: { content: { edits: [{ before: 'b 기존 원문', after: 'b 수정 원문' }] } } }], remove: [] } });
+    },
+  ]);
+  try {
+    x.app.s.draft.globalLore.push({ comment: 'B', key: 'b', content: 'b 기존 원문', secondkey: '' });
+    x.app.s.loreIncluded = [true, true];
+    const origConfirm = x.app.confirmRetry.bind(x.app);
+    let modalText = '';
+    x.app.confirmRetry = async (purpose, error, hint, opts) => {
+      const p = origConfirm(purpose, error, hint, opts);
+      await wait();
+      const modal = x.dom.window.document.querySelector('.modal');
+      modalText = modal.textContent;
+      [...modal.querySelectorAll('button')].find(b => b.textContent === '다시 요청').click();
+      return p;
+    };
+    await x.app.sendRequest(); await wait();
+    assert.match(modalText, /이미 받은 항목만 수정안으로 남습니다/);
+    assert.doesNotMatch(modalText, /이번 응답은 폐기됩니다/);
+    await x.app.applyCandidate(x.app.s.candidates[0]);
+    assert.equal(x.app.s.draft.globalLore[1].content, 'b 수정 원문');
+  } finally { x.close(); }
 });
 
 test('the follow-up counts toward the part budget and is skipped when the budget is spent', async () => {

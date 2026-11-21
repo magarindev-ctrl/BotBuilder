@@ -113,7 +113,7 @@ function renderBlocks(app,host) {
     list.push(b);state.selected=list.length-1;change();redraw();
   },'small')));
   const i=Math.min(Math.max(Number(state.selected)||0,0),Math.max(0,list.length-1));state.selected=i;
-  const nav=h('div',{class:'itemlist preset-block-list'},list.map((b,index)=>app.b((b.enabled===false?'○ ':'● ')+(index+1)+'. '+(b.name||b.type),()=>{state.selected=index;app.touch(false);redraw();},'listitem'+(i===index?' active':''))));
+  const nav=h('div',{class:'itemlist preset-block-list'},list.map((b,index)=>app.b((b.enabled===false?'○ ':'● ')+(index+1)+'. '+(b.name||b.type),()=>{const scrollTop=nav.scrollTop,editorScrollTop=app.editor?.scrollTop??0;state.selected=index;app.touch(false);redraw();if(app.editor)app.editor.scrollTop=editorScrollTop;const replacement=app.editor?.querySelector('.preset-block-list');if(replacement)replacement.scrollTop=scrollTop;},'listitem'+(i===index?' active':''))));
   const edit=h('div',{class:'stack'}),pane=h('div',{class:'list-editor','data-list':'preset'},nav,app.listSplitter(),edit);
   host.append(h('div',{class:'row'},h('span',{class:'muted'},list.length+'개 블록'),app.listCollapseButton('preset',pane)),pane);
   const b=list[i];if(!b){edit.append(h('div',{class:'empty'},'블록을 추가하세요. 이번 요청을 포함하는 제작 대화 블록이 필요합니다.'));return;}

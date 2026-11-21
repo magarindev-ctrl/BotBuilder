@@ -56,11 +56,13 @@ test('unknown keys, throwing actions and oversized results are reported without 
     { key: 'open', label: '열기', run: async () => ({ opened: true }) },
     { key: 'boom', run: async () => { throw new Error('터짐'); } },
     { key: 'big', run: async () => ({ blob: 'x'.repeat(1048576) }) },
+    { key: 'bigko', run: async () => ({ blob: '가'.repeat(400000) }) },
   ] });
   h.request('nope', 1); await handle.poll(); assert.equal(h.reg().actionError, 'unknown action: nope');
   h.request('boom', 2); await handle.poll(); assert.equal(h.reg().actionError, '터짐');
   h.request('big', 3); await handle.poll(); assert.equal(h.reg().actionError, 'result too large'); assert.equal(h.reg().actionResult, null);
-  h.request('open', 4); await handle.poll(); assert.deepEqual([h.reg().actionError, h.reg().actionResult], [null, { opened: true }]);
+  h.request('bigko', 4); await handle.poll(); assert.equal(h.reg().actionError, 'result too large'); assert.equal(h.reg().actionResult, null);
+  h.request('open', 5); await handle.poll(); assert.deepEqual([h.reg().actionError, h.reg().actionResult], [null, { opened: true }]);
   handle.stop();
 });
 
