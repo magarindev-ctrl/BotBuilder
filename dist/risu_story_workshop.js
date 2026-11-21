@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.2.2
+//@version 1.2.3
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-21: v1.2.3 input token efficiency improvements: composeMessages deduplicates CURRENT_DRAFT fields from REFERENCE_CONTEXT.character across all tasks (description, greeting, lorebook, regex, lua, choiceGreeting, workshop) with zero information loss; jsonContract, formatFor allowed-field footers, compatibility notes and lorebookSelection notes are scoped per task to cut fixed overhead (~1,688 chars saved on lorebook, down to 6,523 chars; 5,431 chars on description); non-workshop tasks gain an opt-in referenceSummary toggle ("다른 영역 참고자료는 요약만 보내기", default off) that keeps CURRENT_DRAFT full while summarizing untouched reference sections as lengths/indexes (persisted in session snapshots and indicated in mode-strip).
 Modified 2026-11-21: v1.2.2 safe lenient JSON normalization for weaker LLMs: repairJson strips // and closed /* * / comments outside strings, escapes raw newline/CR/tab control characters inside strings, and doubles non-standard backslash escapes (\d, \s, \', etc.) without touching valid escapes or guessing unescaped double quotes; parseResponse fills omitted empty collection defaults (changes:[], upsert/remove:[], Lua empty arrays/variables:{}, choiceGreeting variables:{}/regex:[]) when real payload keys exist, and in lenient/salvage mode restores missing schemaVersion or bare task data envelopes while still rejecting arrays, wrappers and mismatched tasks; all repairs and normalizations are transparently reported in the chat note; workshop plain-text replies with no JSON prompt the user via confirmPlainReply to accept as reply-only (zero draft changes), retry once for JSON, or stop.
 Modified 2026-11-21: v1.2.1 protocol & reliability fixes: focused chunk/salvage requests include targeted existing refs and fall back to full draft after plan-only responses (and track deletions without index-shift drift); missing "<<<name>>>" tag-string references are caught as truncation/missing rather than saved literally; unclosed block salvage no longer double-counts and now handles Lua comment and choiceGreeting subfields cleanly; jsonContract is no longer duplicated in OUTPUT_FORMAT (~4,300 chars saved per request), CACHE_ACK uses minimal JSON, focused steps omit cachePoint, and preset mode applies historyTurns; repairJson and jsonSyntaxError use engine-independent bracket scanning (Safari/Firefox) and handle pure code-fenced JSON; callModel suppresses late unhandled rejections; parseVariables preserves '=' and empty values and CRLF; LLM lorebook responses forbid mode 'folder' and folder scopeOnly is blocked; CHARX preserves lorebook enabled:false and FIELDS preserves replaceGlobalNote; applied/discarded candidates prune duplicate before snapshots (restored on undo); DA Interop enforces UTF-8 byte limits; file picker adds focus cancel fallback and UI notices align with actual behavior (including RisuBard-only lorebook hide).
 Modified 2026-11-02: v1.2.0 protocol work: blocks are the default carrier for prose and code (thin JSON envelope, examples rendered as blocks), block-level salvage (items whose block never arrived are dropped and listed, one user-confirmed follow-up request for just those items), a prompt-cache split for direct requests (stable material in its own user message with cachePoint, an assistant acknowledgement, then the changing tail), a history-turn cap, a workshop summary mode and focused chunk requests. Lorebook index tables were measured (15% overall) and not adopted.
@@ -9931,7 +9932,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.2.2";
+  var VERSION = "1.2.3";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10189,7 +10190,12 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const patchExample = textEditExample(task);
     const contract = options.includeContract === false ? "" : jsonContract(task, options) + "\n\n";
     const patchGuide = "[\uAE30\uC874 \uC6D0\uBB38 \uBD80\uBD84\uD3B8\uC9D1 \uC608\uC2DC \u2014 \uC608\uC2DC \uC804\uC6A9 \uC6D0\uBB38\uACFC ref\uC774\uBA70 \uC2E4\uC81C \uD604\uC7AC\uC548\uC73C\uB85C \uAD50\uCCB4\uD560 \uAC83]\n\uC6D0\uBB38: " + JSON.stringify(patchExample.source) + "\n\uC751\uB2F5: " + exampleText(patchExample.packet);
-    return contract + patchGuide + "\n\n[\uC0C8\uB85C \uC791\uC131\uD560 \uB54C\uC758 \uB370\uC774\uD130 \uAD6C\uC870 \u2014 \uAE30\uC874 \uD14D\uC2A4\uD2B8 \uC218\uC815\uC740 \uACF5\uD1B5 edits \uD615\uC2DD \uC0AC\uC6A9]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n\uD5C8\uC6A9 \uD544\uB4DC: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. \uC0AD\uC81C \uBAA9\uB85D\uC5D0\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD560 \uAC83.";
+    const allowedParts = [];
+    if (task === "lorebook" || task === "workshop") allowedParts.push("lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent");
+    if (task === "regex" || task === "choiceGreeting" || task === "workshop") allowedParts.push("regex rule=comment,in,out,type,flag,ableFlag");
+    const refTail = ["lorebook", "regex", "lua", "workshop"].includes(task) ? "\uC0AD\uC81C \uBAA9\uB85D\uC5D0\uB294 \uD604\uC7AC \uC6D0\uACE0\uC758 ref\uB9CC \uC0AC\uC6A9\uD560 \uAC83." : "";
+    const fieldFooter = (allowedParts.length ? "\n\uD5C8\uC6A9 \uD544\uB4DC: " + allowedParts.join("; ") + "." : "") + (refTail ? (allowedParts.length ? " " : "\n") + refTail : "");
+    return contract + patchGuide + "\n\n[\uC0C8\uB85C \uC791\uC131\uD560 \uB54C\uC758 \uB370\uC774\uD130 \uAD6C\uC870 \u2014 \uAE30\uC874 \uD14D\uC2A4\uD2B8 \uC218\uC815\uC740 \uACF5\uD1B5 edits \uD615\uC2DD \uC0AC\uC6A9]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges\uC758 \uAC01 task\uB294 description/lorebook/regex/lua/greeting/choiceGreeting \uC911 \uD558\uB098\uC774\uBA70 \uD574\uB2F9 data \uD615\uC2DD\uC740 \uB2E4\uC74C\uACFC \uAC19\uB2E4:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + fieldFooter;
   }
   var HISTORY_TURNS_DEFAULT = 12;
   var HISTORY_TURNS_MIN = 1;
@@ -10221,6 +10227,21 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     };
   }
   var omittedText = (text) => ({ omitted: true, chars: chars(text) });
+  function referenceSummaryContext(context) {
+    return {
+      summaryMode: true,
+      name: context.name,
+      description: omittedText(context.description),
+      personality: omittedText(context.personality),
+      scenario: omittedText(context.scenario),
+      firstMessage: omittedText(context.firstMessage),
+      lorebook: context.lorebook.map(({ ref, entry }) => ({ ref, summary: { comment: entry.comment, key: entry.key, chars: chars(entry.content) } })),
+      regex: context.regex.map(({ ref, rule }) => ({ ref, summary: { comment: rule.comment, type: rule.type, chars: chars(rule.in) + chars(rule.out) } })),
+      scripts: context.scripts.map((s) => ({ ref: s.ref, summary: { comment: s.comment, chars: chars(s.code) } })),
+      defaultVariables: context.defaultVariables,
+      assets: context.assets.length
+    };
+  }
   function focusContext(task, context, taskRef, focus) {
     const fields = new Set(focus.fields ?? []), lore = new Set(focus.lore ?? []), regex = new Set(focus.regex ?? []), scripts2 = new Set(focus.scripts ?? []);
     const allFields = focus.allFields === true, allLore = focus.allLore === true, allRegex = focus.allRegex === true, allScripts = focus.allScripts === true;
@@ -10236,6 +10257,19 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if (task === "choiceGreeting") return { text: context.firstMessage, scripts: scriptList, variables: context.defaultVariables, regex: regexList, focusNote: note };
     return taskRef;
   }
+  function compatibilityNote(task) {
+    if (["lua", "choiceGreeting", "workshop"].includes(task)) return 'RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. \uB2E8\uCD94\uB294 <button risu-btn="\uD0A4">\uC774\uBA70 Lua\uC758 onButtonClick(accessKey, buttonKey)\uC5D0\uC11C buttonKey\uB85C \uBC1B\uB294\uB2E4. getChatVar/setChatVar\uB85C \uBCC0\uC218\uB97C \uC77D\uACE0 \uC4F4\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.';
+    if (["greeting", "regex"].includes(task)) return "RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.";
+    return "RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4.";
+  }
+  var TASK_DRAFT_DEDUP = {
+    description: { drop: ["description"], note: "\uD604\uC7AC \uCE90\uB9AD\uD130 \uC124\uBA85\uC740 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4." },
+    greeting: { drop: ["firstMessage"], note: "\uD604\uC7AC \uCCAB \uBA54\uC2DC\uC9C0\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4." },
+    lorebook: { drop: ["lorebook"], note: "\uD604\uC7AC \uB85C\uC5B4\uBD81\uACFC ref\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4. \uBCC0\uACBD\xB7\uCD94\uAC00 \uD56D\uBAA9\uB9CC \uBC18\uD658\uD558\uB77C." },
+    regex: { drop: ["regex"], note: "\uD604\uC7AC \uC815\uADDC\uC2DD\uACFC ref\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4." },
+    lua: { drop: ["scripts", "defaultVariables"], note: "\uD604\uC7AC Lua \uC2A4\uD06C\uB9BD\uD2B8\xB7ref\uC640 \uCD08\uAE30 \uBCC0\uC218\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4." },
+    choiceGreeting: { drop: ["firstMessage", "scripts", "defaultVariables", "regex"], note: "\uD604\uC7AC \uCCAB \uBA54\uC2DC\uC9C0\xB7Lua\xB7\uCD08\uAE30 \uBCC0\uC218\xB7\uC815\uADDC\uC2DD\uC740 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4." }
+  };
   function composeMessages(session, task, request, prompt, options = {}) {
     assert(TASKS[task], "\uC54C \uC218 \uC5C6\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
     str(prompt.system, "\uC2DC\uC2A4\uD15C \uD504\uB86C\uD504\uD2B8");
@@ -10246,23 +10280,29 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const refs = { description: context.description, lorebook: context.lorebook, regex: context.regex, lua: { scripts: context.scripts, variables: context.defaultVariables }, greeting: context.firstMessage, choiceGreeting: { text: context.firstMessage, scripts: context.scripts, variables: context.defaultVariables, regex: context.regex } };
     const focus = options.focus && typeof options.focus === "object" ? options.focus : null;
     const summary = options.draftSummary === true && task === "workshop" && !focus;
+    const refSummary = options.referenceSummary === true && task !== "workshop" && !focus;
     const current = summary ? draftSummary(session, context) : focus ? focusContext(task, context, refs[task], focus) : task === "workshop" ? context : refs[task];
-    const character = focus ? focusContext("workshop", context, null, focus) : context;
-    const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: 'RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. \uB2E8\uCD94\uB294 <button risu-btn="\uD0A4">\uC774\uBA70 Lua\uC758 onButtonClick(accessKey, buttonKey)\uC5D0\uC11C buttonKey\uB85C \uBC1B\uB294\uB2E4. getChatVar/setChatVar\uB85C \uBCC0\uC218\uB97C \uC77D\uACE0 \uC4F4\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.' }), OUTPUT_FORMAT: formatFor(task, session, { ...options, includeContract: false }) };
+    const character = focus ? focusContext("workshop", context, null, focus) : refSummary ? referenceSummaryContext(context) : clone(context);
+    const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: compatibilityNote(task) }), OUTPUT_FORMAT: formatFor(task, session, { ...options, includeContract: false }) };
     const reference = JSON.parse(values.REFERENCE_CONTEXT);
     if (task === "workshop") {
       delete reference.character;
       reference.currentDraftNote = summary ? "\uD604\uC7AC \uC6D0\uACE0\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uC694\uC57D(\uD544\uB4DC \uAE38\uC774\uC640 \uD56D\uBAA9 \uC0C9\uC778)\uC73C\uB85C\uB9CC \uC81C\uACF5\uD588\uB2E4." : "\uD604\uC7AC \uC6D0\uACE0 \uC804\uCCB4\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4.";
-    } else if (task === "lorebook") {
-      delete reference.character.lorebook;
-      reference.currentDraftNote = "\uD604\uC7AC \uB85C\uC5B4\uBD81\uACFC ref\uB294 [\uD604\uC7AC\uC548]\uC5D0 \uD55C \uBC88\uB9CC \uC81C\uACF5\uD588\uB2E4. \uBCC0\uACBD\xB7\uCD94\uAC00 \uD56D\uBAA9\uB9CC \uBC18\uD658\uD558\uB77C.";
+    } else {
+      const dedup = TASK_DRAFT_DEDUP[task];
+      if (dedup && reference.character) {
+        for (const k of dedup.drop) delete reference.character[k];
+        reference.currentDraftNote = dedup.note;
+      }
+      if (refSummary) reference.referenceSummaryNote = "\uCC38\uACE0\uC790\uB8CC \uC694\uC57D \uBAA8\uB4DC: \uD604\uC7AC \uC791\uC5C5 \uC678\uC758 \uB2E4\uB978 \uC6D0\uACE0 \uC601\uC5ED\uC740 \uBCF8\uBB38 \uB300\uC2E0 \uAE00\uC790 \uC218\uC640 \uD56D\uBAA9 \uC0C9\uC778(summary)\uB9CC \uC81C\uACF5\uD588\uB2E4. \uB2E4\uB978 \uC601\uC5ED \uBCF8\uBB38\uC774 \uD544\uC694\uD558\uBA74 \uC0AC\uC6A9\uC790\uC5D0\uAC8C \uCC38\uACE0\uC790\uB8CC \uC694\uC57D \uBAA8\uB4DC\uB97C \uB044\uACE0 \uB2E4\uC2DC \uC694\uCCAD\uD558\uB77C\uACE0 \uC548\uB0B4\uD558\uB77C.";
     }
     const pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => {
       const packets = candidatePackets(c);
       return packets.map((p, i) => ({ id: packets.length > 1 ? c.id + "#" + (i + 1) : c.id, task: p.task, data: filterLoreProposal(p, session).data }));
     });
     const pendingProposalNote = "\uBBF8\uC801\uC6A9 \uC81C\uC548\uC774\uB2E4. \uD604\uC7AC \uC6D0\uACE0\uC640 \uAD6C\uBD84\uD558\uACE0, \uC0C8 \uC218\uC815\uC548\uC758 \uCC38\uC870\uB294 \uD604\uC7AC \uC6D0\uACE0 \uAE30\uC900\uC73C\uB85C \uC791\uC131\uD558\uB77C.";
-    reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length, note: "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB85C\uC5B4\uBD81\uC740 \uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC81C\uACF5\uD588\uB2E4. ref\uB294 \uC6D0\uBCF8 \uC778\uB371\uC2A4\uC774\uBA70 \uBE60\uC9C4 \uBC88\uD638\uB97C \uC7AC\uC815\uB82C\uD558\uAC70\uB098 \uB204\uB77D \uD56D\uBAA9\uC744 \uCD94\uCE21\uD574 \uC218\uC815\xB7\uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uC774\uC804 \uB300\uD654\uC5D0 \uB0A8\uC544 \uC788\uB294 \uC790\uB8CC\uB294 \uD604\uC7AC \uD3EC\uD568 \uC0C1\uD0DC\uB97C \uC758\uBBF8\uD558\uC9C0 \uC54A\uB294\uB2E4." };
+    const totalLore = (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length;
+    reference.lorebookSelection = { included: context.lorebook.length, total: totalLore, ...context.lorebook.length < totalLore || task === "lorebook" || task === "workshop" ? { note: "\uD604\uC7AC \uC6D0\uACE0\uC758 \uB85C\uC5B4\uBD81\uC740 \uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC81C\uACF5\uD588\uB2E4. ref\uB294 \uC6D0\uBCF8 \uC778\uB371\uC2A4\uC774\uBA70 \uBE60\uC9C4 \uBC88\uD638\uB97C \uC7AC\uC815\uB82C\uD558\uAC70\uB098 \uB204\uB77D \uD56D\uBAA9\uC744 \uCD94\uCE21\uD574 \uC218\uC815\xB7\uC0AD\uC81C\uD558\uC9C0 \uB9C8\uB77C. \uC774\uC804 \uB300\uD654\uC5D0 \uB0A8\uC544 \uC788\uB294 \uC790\uB8CC\uB294 \uD604\uC7AC \uD3EC\uD568 \uC0C1\uD0DC\uB97C \uC758\uBBF8\uD558\uC9C0 \uC54A\uB294\uB2E4." } : {} };
     if (prompt.user.includes("<<CONVERSATION>>")) {
       values.CONVERSATION = JSON.stringify(reference.conversation);
       delete reference.conversation;
@@ -11650,12 +11690,37 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     return "[\uBD84\uD560 \uC791\uC5C5]\n\uC751\uB2F5\uB2F9 \uCD9C\uB825 \uC608\uC0B0\uC740 \uC0AC\uACE0 \uACFC\uC815\uC744 \uBE80 \uC57D " + chunkTokens.toLocaleString("en-US") + '\uD1A0\uD070\uC774\uB2E4. \uACB0\uACFC \uC804\uCCB4\uAC00 \uC608\uC0B0\uC744 \uB118\uC744 \uAC83 \uAC19\uC73C\uBA74 \uD55C \uC751\uB2F5\uC5D0 \uB2E4 \uC4F0\uC9C0 \uB9C8\uB77C.\n\uCCAB \uC790\uB9BD \uAD6C\uAC04\uB9CC data\uC5D0 \uC644\uC131\uD558\uACE0, \uB0A8\uC740 \uAD6C\uAC04\uC740 \uCD5C\uC0C1\uC704 "plan" \uBC30\uC5F4\uC5D0 {"title":"\uAD6C\uAC04 \uC774\uB984","instruction":"\uADF8 \uAD6C\uAC04\uC5D0\uC11C \uC791\uC131\uD560 \uB0B4\uC6A9\uACFC \uC704\uCE58"} \uC21C\uC11C\uB300\uB85C \uC801\uC5B4\uB77C. \uACC4\uD68D\uB9CC \uC138\uC6B0\uACE0 \uC544\uC9C1 \uC544\uBB34\uAC83\uB3C4 \uC4F0\uC9C0 \uC54A\uC744 \uB54C\uB294 data\uB97C null\uB85C \uB454\uB2E4.\n\uAD6C\uAC04\uC740 \uC804\uCCB4 \uCD5C\uB300 ' + chunkMax + "\uAC1C\uC774\uBA70 \uAC01 \uAD6C\uAC04\uC740 \uC608\uC0B0 \uC548\uC5D0\uC11C \uB05D\uB098\uC57C \uD55C\uB2E4. \uB2E4\uC74C \uAD6C\uAC04 \uC694\uCCAD\uC5D0\uC11C\uB294 \uC774\uC804 \uAD6C\uAC04\uC758 \uACB0\uACFC\uAC00 \uC774\uBBF8 \uD604\uC7AC\uC548\uC5D0 \uBC18\uC601\uB418\uC5B4 \uC788\uC73C\uBBC0\uB85C edits(before/after)\uB85C \uC774\uC5B4 \uBD99\uC774\uACE0, \uC774\uBC88 \uAD6C\uAC04\uB9CC \uC791\uC131\uD55C \uB4A4 \uC544\uC9C1 \uB0A8\uC740 \uAD6C\uAC04\uC774 \uC788\uC73C\uBA74 plan\uC5D0 \uB0A8\uC740 \uAC83\uB9CC \uB2E4\uC2DC \uC801\uC5B4\uB77C. \uB0A8\uC740 \uAD6C\uAC04\uC774 \uC5C6\uC73C\uBA74 plan\uC744 \uC0DD\uB7B5\uD55C\uB2E4.\n\uC608\uC0B0 \uC548\uC5D0 \uB05D\uB098\uB294 \uC791\uC5C5\uC740 plan \uC5C6\uC774 \uD55C \uBC88\uC5D0 \uC644\uC131\uD558\uB77C.";
   }
   function jsonContract(task, options = {}) {
+    const hasRef = ["lorebook", "regex", "lua", "choiceGreeting", "workshop"].includes(task);
+    const hasVars = ["lua", "choiceGreeting", "workshop"].includes(task);
+    const hasRegex = ["regex", "choiceGreeting", "workshop"].includes(task);
+    const hasLore = ["lorebook", "workshop"].includes(task);
+    const isWorkshop = task === "workshop";
+    const taskRules = [
+      hasVars ? '\uCD9C\uB825 \uD615\uC2DD\uC758 \uD544\uC218 \uD0A4\uB97C \uBE60\uB728\uB9AC\uC9C0 \uB9C8\uB77C. \uBE48 \uBAA9\uB85D\uC740 [], \uBE48 \uBCC0\uC218 \uAC1D\uCCB4\uB294 {}\uB85C \uC4F4\uB2E4. \uC0C8 variables \uAC12\uC740 \uC22B\uC790\uC5EC\uB3C4 "0" \uAC19\uC740 \uBB38\uC790\uC5F4\uC774\uB2E4. \uBCC0\uC218 \uAC12\uC5D0 \uAC1D\uCCB4\xB7\uBC30\uC5F4\uC744 \uB123\uC9C0 \uB9C8\uB77C. \uC5EC\uB7EC \uAC12\uC740 \uBCC0\uC218\uB97C \uB098\uB220\uB77C.' : hasRef ? "\uCD9C\uB825 \uD615\uC2DD\uC758 \uD544\uC218 \uD0A4\uB97C \uBE60\uB728\uB9AC\uC9C0 \uB9C8\uB77C. \uBE48 \uBAA9\uB85D\uC740 []\uB85C \uC4F4\uB2E4." : "\uCD9C\uB825 \uD615\uC2DD\uC758 \uD544\uC218 \uD0A4\uB97C \uBE60\uB728\uB9AC\uC9C0 \uB9C8\uB77C.",
+      hasRef ? "\uC0C8 \uD56D\uBAA9\uC758 ref\uB294 null, \uAE30\uC874 \uD56D\uBAA9 \uC218\uC815\xB7\uC0AD\uC81C\uC758 ref\uB294 \uD604\uC7AC\uC548\uC5D0 \uC2E4\uC81C\uB85C \uC788\uB294 \uAC12\uB9CC \uC0AC\uC6A9\uD55C\uB2E4." : "",
+      isWorkshop ? "workshop\uC758 \uB300\uD654 \uB2F5\uBCC0\uC740 data.reply\uC5D0\uB9CC \uB123\uACE0, \uC218\uC815 \uC694\uCCAD\uC774 \uC5C6\uC73C\uBA74 data.changes\uB294 []\uB85C \uB454\uB2E4. changes\uB294 task/data \uAC1D\uCCB4 \uBAA9\uB85D\uC774\uBA70 task\uB294 \uC911\uBCF5 \uC5C6\uC774 \uCD5C\uB300 6\uAC1C\uB2E4. choiceGreeting\uACFC lua/regex/greeting\uC744 \uD568\uAED8 \uB123\uC9C0 \uB9C8\uB77C." : ""
+    ].filter(Boolean).join("\n");
+    const editFields = {
+      description: "\uC801\uC6A9 \uD544\uB4DC: description\uC758 text.",
+      greeting: "\uC801\uC6A9 \uD544\uB4DC: greeting\uC758 text.",
+      lorebook: "\uC801\uC6A9 \uD544\uB4DC: lorebook entry\uC758 comment\xB7key\xB7secondkey\xB7content. \uC124\uC815(type/mode/\uBD88\uB9AC\uC5B8/\uC22B\uC790)\uC740 \uAE30\uC874 \uAC12 \uD615\uC2DD\uC744 \uB530\uB978\uB2E4.",
+      regex: "\uC801\uC6A9 \uD544\uB4DC: regex rule\uC758 comment\xB7in\xB7out. \uC124\uC815(type/flag/ableFlag)\uC740 \uAE30\uC874 \uAC12 \uD615\uC2DD\uC744 \uB530\uB978\uB2E4.",
+      lua: "\uC801\uC6A9 \uD544\uB4DC: Lua scripts\uC758 comment\xB7code, \uAE30\uC874 variables\uC758 \uAC01 \uAC12.",
+      choiceGreeting: "\uC801\uC6A9 \uD544\uB4DC: text, regex rule\uC758 comment\xB7in\xB7out, Lua scripts\uC758 comment\xB7code, \uAE30\uC874 variables\uC758 \uAC01 \uAC12. choices \uC548\uB0B4\uB294 \uC77C\uBC18 \uBB38\uC790\uC5F4\uC774\uB2E4.",
+      workshop: "\uC801\uC6A9 \uD544\uB4DC: description\xB7greeting\xB7choiceGreeting\uC758 text, lorebook entry\uC758 comment\xB7key\xB7secondkey\xB7content, regex rule\uC758 comment\xB7in\xB7out, Lua scripts\uC758 comment\xB7code, \uAE30\uC874 variables\uC758 \uAC01 \uAC12. reply\xB7choices \uC548\uB0B4\uB294 \uC77C\uBC18 \uBB38\uC790\uC5F4\uC774\uACE0, \uC124\uC815\uAC12\uC740 \uAE30\uC874 \uD615\uC2DD\uC744 \uB530\uB978\uB2E4."
+    }[task] ?? "";
+    const refEditRules = [
+      hasRef ? "\uAE30\uC874 \uD56D\uBAA9\uC740 \uC6D0\uB798 ref\uB97C \uC720\uC9C0\uD558\uACE0 \uBCC0\uACBD\uD560 \uD544\uB4DC\uB9CC \uB123\uC73C\uBA70, \uC0DD\uB7B5\uD55C \uD56D\uBAA9\xB7\uD544\uB4DC\uB294 \uBCF4\uC874\uB41C\uB2E4. \uC0AD\uC81C \uBAA9\uB85D\uC740 \uBA85\uC2DC\uC801\uC73C\uB85C \uC694\uCCAD\uBC1B\uC740 ref\uB9CC \uD3EC\uD568\uD558\uB77C." : "",
+      hasVars ? "\uAE30\uC874 Lua\uB294 ref\uC640 code \uB610\uB294 comment\uB9CC \uBCF4\uB0BC \uC218 \uC788\uACE0, \uC0C8 Lua\uB294 ref:null\xB7comment\xB7code\uAC00 \uBAA8\uB450 \uD544\uC694\uD558\uB2E4." : "",
+      hasLore ? "\uC0C8 \uB85C\uC5B4\uBD81\uC740 ref:null\xB7key\xB7content\uAC00 \uD544\uC694\uD558\uB2E4. [\uB85C\uC5B4\uBD81] upsert\uC5D0\uB294 \uCD94\uAC00\xB7\uC218\uC815 \uD56D\uBAA9\uB9CC \uB123\uACE0 \uBCC0\uACBD\uC774 \uC5C6\uC73C\uBA74 upsert:[],remove:[]\uC774\uB2E4." : "",
+      isWorkshop ? "reply\uC5D0 \uCF54\uB4DC\uB098 \uBCC0\uACBD JSON\uC744 \uC911\uBCF5\uD558\uC9C0 \uB9C8\uB77C." : ""
+    ].filter(Boolean).join("\n");
     return String.raw`[필수 JSON 응답 규칙]
 응답 전체는 JSON 객체 하나여야 한다. 첫 문자는 {이고, 블록을 쓰지 않으면 마지막 문자는 }이다.
 최상위 필드는 "schemaVersion", "task", "data"${chunkOptions(options).chunking ? '\uB97C \uC0AC\uC6A9\uD558\uACE0, \uBD84\uD560 \uC791\uC5C5\uC774 \uD544\uC694\uD560 \uB54C\uB9CC "plan"\uC744 \uCD94\uAC00\uD55C\uB2E4.' : "\uB9CC \uC0AC\uC6A9\uD55C\uB2E4."}
 "schemaVersion"은 숫자 2, "task"는 정확히 "${task}", "data"는 해당 작업의 객체다. 이전 템플릿의 schemaVersion:1·완성 본문 지시보다 이 출력 계약을 우선한다.
-JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
-모든 키와 문자열은 큰따옴표를 사용한다. JSON 문자열 안의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다(블록 안은 제외).
+JSON을 문자열로 감싸거나 배열로 반환하지 말고, 설명·인사·사고 과정·코드 펜스를 객체 밖에 쓰지 마라.
+모든 키와 문자열은 큰따옴표를 쓰며, 문자열 안의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다(블록 안은 제외). 주석·후행 쉼표·작은따옴표 문자열·undefined·NaN·Infinity·생략 기호는 금지한다.
 [원문 블록 — 기본 규칙] 본문과 코드는 JSON 문자열이 아니라 블록으로 보낸다: 설명·첫 메시지의 text, 로어북 content, 정규식 out, Lua code, edits의 before/after. JSON에는 ref·comment·key·설정값·plan 같은 짧은 값만 둔다. 한 줄 80자 이하의 짧은 값은 문자열로 써도 된다. JSON 안의 그 자리에는 반드시 {"block":"이름"} 객체를 쓰고(이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라), JSON 객체가 끝난 뒤 새 줄에 <<<이름>>> 한 줄, 원문 그대로, <<</이름>>> 한 줄을 쓴다. 블록 안은 이스케이프하지 않고 코드 펜스도 쓰지 않는다. 이름은 영문·숫자·_만 쓰고 응답 안에서 유일해야 하며, 어떤 문자열 필드에도 쓸 수 있다. 블록은 JSON이 참조하는 것만 쓴다. 예:
 {"schemaVersion":2,"task":"lua","data":{"scripts":[{"ref":null,"comment":"시작","code":{"block":"lua1"}}],"removeScripts":[],"variables":{},"removeVariables":[]}}
 <<<lua1>>>
@@ -11663,30 +11728,18 @@ function onStart(accessKey)
   setChatVar(accessKey, "day", "1")
 end
 <<</lua1>>>
-주석, 후행 쉼표, 작은따옴표 문자열, undefined, 생략 기호는 금지한다. null/true/false는 문자열이 아니다.
-출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다. 변수 값에 객체·배열을 넣지 마라. 여러 값은 변수를 나눠라.
-새 항목의 ref는 null, 기존 항목 수정·삭제의 ref는 현재안에 실제로 있는 값만 사용한다.
-workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
-workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
-아래 예시는 구조와 이스케이프 참고용이다. 예시 내용 자체를 복사하지 말고 사용자 요청에 맞는 실제 완성 데이터로 교체하라.
+${taskRules}
+아래 예시는 구조 참고용이다. 예시 내용을 복사하지 말고 사용자 요청에 맞는 실제 데이터로 교체하라.
 [출력 직전 필수 점검 — 점검 과정은 출력하지 않음]
-1. JSON.parse로 읽을 수 있는 표준 JSON 하나를 완성한다. 문법과 구조를 모두 맞춘 뒤 응답한다.
-2. 본문·코드는 블록으로 보내므로 이스케이프가 없다. JSON 문자열에 남긴 짧은 값 안의 큰따옴표는 \", 실제 줄바꿈은 \n, 정규식의 역슬래시는 \\로 쓴다. 데이터의 따옴표나 공백을 삭제해서 문법을 맞추지 마라.
-3. 괄호는 연 순서의 역순으로 닫는다. edits는 배열이고 각 원소는 before/after 객체다. 마지막 after 문자열 뒤에는 edit 객체 }, edits 배열 ], in 객체 }, rule 객체 }, upsert 항목 객체 } 순으로 닫는다. 배열을 닫기 전에 불필요한 }를 추가하지 마라.
-4. 항목 사이에만 쉼표를 넣고 마지막 항목 뒤에는 넣지 마라. 중복 키, 주석, 생략 기호, NaN, Infinity는 쓰지 마라.
-5. schemaVersion/task/data와 작업별 필수 키·자료형·ref를 다시 확인한다. before는 블록에 원문 그대로 적되 짧고 유일한 구간으로 잡는다. JSON 문자열에 남긴 짧은 before는 디코딩 후 원문과 같아야 한다.
-6. reply는 짧은 요약으로 쓰고 실제 수정 데이터는 changes에 한 번만 넣는다. 검토 전 제안이므로 이미 적용·저장했다고 말하지 마라. 요청량이 너무 크면 완결된 항목 단위의 수정안을 제안하고 미완료 범위를 reply에 명시한다. 내용·문자열·배열·객체를 중간에 끊거나 나머지를 생략 기호로 대체하지 마라.
+1. JSON.parse로 읽히는 표준 JSON 하나를 완성한다. 데이터의 따옴표나 공백을 삭제해 문법을 맞추지 말고, 괄호는 연 순서의 역순으로 닫으며 마지막 항목 뒤에 쉼표를 넣지 마라.${hasRegex ? " edits \uBC30\uC5F4\uC740 edit }, edits ], in }, rule }, upsert } \uC21C\uC73C\uB85C \uB2EB\uACE0 \uC5EC\uBD84 }\uB97C \uB123\uC9C0 \uB9C8\uB77C." : ""}
+2. schemaVersion·task·data와 필수 키·자료형${hasRef ? "\xB7ref" : ""}을 확인하고, 내용·배열·객체를 중간에 끊지 마라.${isWorkshop ? " reply\uB294 \uC9E7\uC740 \uC694\uC57D\uC73C\uB85C \uC4F0\uACE0 \uC2E4\uC81C \uC218\uC815 \uB370\uC774\uD130\uB294 changes\uC5D0 \uD55C \uBC88\uB9CC \uB123\uB294\uB2E4. \uAC80\uD1A0 \uC804 \uC81C\uC548\uC774\uBBC0\uB85C \uC774\uBBF8 \uC801\uC6A9\xB7\uC800\uC7A5\uD588\uB2E4\uACE0 \uB9D0\uD558\uC9C0 \uB9C8\uB77C." : ""}
 ${chunkRules(options)}
 ${jsonSyntaxExamples(task)}
 [공통 텍스트 부분편집]
-기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":{"block":"b1"},"after":{"block":"a1"}}]}를 넣고 before/after 본문은 블록으로 보내라(한 줄 80자 이하면 문자열도 된다). 한 필드당 1~100개다. 줄 번호를 출력하거나 적용 위치로 사용하지 마라.
-적용 필드: description/greeting/choiceGreeting의 text; lorebook entry의 comment/key/secondkey/content; regex rule의 comment/in/out; Lua scripts의 comment/code; 기존 variables의 각 값. workshop 내부의 각 작업에도 같은 형식을 쓴다. reply와 choices의 안내 정보는 일반 문자열이다. type/mode/flag/불리언/숫자 등 설정은 기존 값 형식을 따른다.
-before는 공백·들여쓰기·줄바꿈·기호까지 현재 원문과 정확히 같아야 하며 한 곳에만 있어야 한다. 바꿀 부분을 포함하는 가장 짧은 유일 구간을 잡아라. 몇 줄이면 충분하고, 긴 본문 전체를 before로 옮기지 마라. 반복되는 구간이면 유일해질 만큼만 주변 문맥을 더하라. 빈 before는 금지한다. 삽입은 기존 문맥을 before로 잡고 after에 문맥과 새 내용을 함께 넣는다. 삭제는 after:""를 쓴다.
-여러 edits는 모두 요청 당시 원문 기준이다. 앞 edit의 결과를 다음 before로 참조하지 마라. 구간이 겹치면 하나로 합쳐라. 원문은 최대한 정확히 복사하라. 일반 문장의 원문 불일치·중복 매칭은 사용자가 실제 구간을 비교해서 선택하며, 코드·정규식과 겹치는 수정 구간은 엄격히 검증한다.
-새 항목이나 빈 필드의 첫 작성, 사용자가 명시한 전체 재작성은 완성 문자열을 사용한다. 부분 수정 요청에는 긴 본문·코드 전체를 다시 출력하지 마라. 원문과 새 문자열을 함께 반복하는 전체 교체 edits도 피하라.
-기존 항목은 원래 ref를 유지하고 변경할 필드만 넣어라. 기존 Lua는 ref와 code 또는 comment만 보낼 수 있으며 생략한 필드는 보존된다. 새 Lua는 ref:null, comment, code가 모두 필요하다. 새 로어북은 ref:null, key, content가 필요하다.
-생략한 항목·필드는 보존된다. 삭제 목록은 명시적으로 요청받은 ref만 포함하라. reply에 코드나 변경 JSON을 중복하지 마라.
-${task === "lorebook" || task === "workshop" ? "[\uB85C\uC5B4\uBD81] upsert\uC5D0\uB294 \uC0C8\uB85C \uCD94\uAC00\uD558\uAC70\uB098 \uC2E4\uC81C\uB85C \uC218\uC815\uD55C \uD56D\uBAA9\uB9CC \uB123\uB294\uB2E4. \uAE30\uC874 content\uC758 \uBD80\uBD84 \uC218\uC815\uB3C4 edits\uB85C \uBC18\uD658\uD55C\uB2E4. \uBCC0\uACBD\uC774 \uC5C6\uC73C\uBA74 upsert:[],remove:[]\uC774\uB2E4." : ""}`;
+기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":{"block":"b1"},"after":{"block":"a1"}}]}를 넣고 before/after 본문은 블록으로 보내라(한 줄 80자 이하면 문자열도 된다). 한 필드당 1~100개이며 줄 번호는 쓰지 마라.
+${editFields}
+before는 공백·들여쓰기·줄바꿈·기호까지 현재 원문과 정확히 같아야 하며 한 곳에만 있어야 한다. 바꿀 부분을 포함하는 가장 짧은 유일 구간을 잡아라(긴 본문 전체 복사 금지, 빈 before 금지). 삽입은 기존 문맥을 before로 잡고 after에 문맥과 새 내용을 함께 넣으며, 삭제는 after:""를 쓴다.
+여러 edits는 모두 요청 당시 원문 기준이며 겹치면 하나로 합쳐라. 일반 문장의 불일치·중복은 사용자가 선택해 검토하고, 코드·정규식 구간은 엄격히 검증한다. 새 항목·빈 필드·명시적 전체 재작성은 완성 문자열을 쓰고, 부분 수정에 전체 본문·코드를 다시 출력하거나 전체 교체 edits를 쓰지 마라.${refEditRules ? "\n" + refEditRules : ""}`;
   }
   function loreDeltaExample(task, session) {
     if (!["lorebook", "workshop"].includes(task)) return "";
@@ -16938,7 +16991,11 @@ details[open] > summary { margin-bottom: 9px; }
         s.workshopSummary = v;
         this.touch(false);
         this.render();
-      }) : null;
+      }) : this.check("\uB2E4\uB978 \uC601\uC5ED \uCC38\uACE0\uC790\uB8CC\uB294 \uC694\uC57D\uB9CC \uBCF4\uB0B4\uAE30 \xB7 \uD604\uC7AC \uC791\uC5C5 \uC6D0\uACE0\uB294 \uC804\uCCB4 \uC720\uC9C0, \uC785\uB825 \uD1A0\uD070 \uC808\uAC10", s.referenceSummary === true, (v) => {
+        s.referenceSummary = v;
+        this.touch(false);
+        this.render();
+      });
       const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
       const toggleLabel = TASKS[this.task].label + " \u25BE";
       const settingsToggle = this.b(toggleLabel, () => {
@@ -16949,7 +17006,8 @@ details[open] > summary { margin-bottom: 9px; }
       }, "request-settings-toggle", { "aria-expanded": "false", title: "\uC694\uCCAD \uC124\uC815 \xB7 \uC885\uB958\xB7\uBAA8\uB378\xB7\uAD6C\uC131\uC744 \uBC14\uAFC9\uB2C8\uB2E4." });
       const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
       const summaryOn = this.task === "workshop" && s.workshopSummary === true;
-      const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " \uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\uD569\uB2C8\uB2E4." : "") + (summaryOn ? " \xB7 \uC694\uC57D \uBAA8\uB4DC(\uAE30\uC874 \uBCF8\uBB38 \uD3B8\uC9D1 \uBD88\uAC00)" : "")));
+      const refSummaryOn = this.task !== "workshop" && s.referenceSummary === true;
+      const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " \uD604\uC7AC \uC120\uD0DD\uD55C \uD56D\uBAA9\uB9CC \uC218\uC815\uD569\uB2C8\uB2E4." : "") + (summaryOn ? " \xB7 \uC694\uC57D \uBAA8\uB4DC(\uAE30\uC874 \uBCF8\uBB38 \uD3B8\uC9D1 \uBD88\uAC00)" : "") + (refSummaryOn ? " \xB7 \uCC38\uACE0\uC790\uB8CC \uC694\uC57D" : "")));
       requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, summaryOnly, this.b("\uD504\uB86C\uD504\uD2B8 \uD3B8\uC9D1", () => this.showPrompt(this.task), "small mobile-prompt")));
       panel.append(messages, h(
         "div",
@@ -17063,7 +17121,7 @@ details[open] > summary { margin-bottom: 9px; }
     // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
     previewRequest(task = this.task, forcePreset = false, override = {}) {
       const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
-      const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset && !override.focus, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
+      const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset && !override.focus, draftSummary: task === "workshop" && session.workshopSummary === true, referenceSummary: task !== "workshop" && session.referenceSummary === true, focus: override.focus });
       const report = usePreset ? assemblePreset(session.preset, session, task, direct, historyOptions(this.settings)) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
       return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
     }

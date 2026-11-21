@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.2.2';
+export const VERSION = '1.2.3';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -201,7 +201,12 @@ export function formatFor(task, session, options = {}) {
   const patchExample = textEditExample(task);
   const contract = options.includeContract === false ? '' : jsonContract(task, options) + '\n\n';
   const patchGuide = '[기존 원문 부분편집 예시 — 예시 전용 원문과 ref이며 실제 현재안으로 교체할 것]\n원문: ' + JSON.stringify(patchExample.source) + '\n응답: ' + exampleText(patchExample.packet);
-  return contract + patchGuide + "\n\n[새로 작성할 때의 데이터 구조 — 기존 텍스트 수정은 공통 edits 형식 사용]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges의 각 task는 description/lorebook/regex/lua/greeting/choiceGreeting 중 하나이며 해당 data 형식은 다음과 같다:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + "\n허용 필드: lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent; regex rule=comment,in,out,type,flag,ableFlag. 삭제 목록에는 현재 원고의 ref만 사용할 것.";
+  const allowedParts = [];
+  if (task === 'lorebook' || task === 'workshop') allowedParts.push('lore entry=comment,key,secondkey,content,insertorder,mode,alwaysActive,selective,useRegex,activationPercent');
+  if (task === 'regex' || task === 'choiceGreeting' || task === 'workshop') allowedParts.push('regex rule=comment,in,out,type,flag,ableFlag');
+  const refTail = ['lorebook', 'regex', 'lua', 'workshop'].includes(task) ? '삭제 목록에는 현재 원고의 ref만 사용할 것.' : '';
+  const fieldFooter = (allowedParts.length ? '\n허용 필드: ' + allowedParts.join('; ') + '.' : '') + (refTail ? (allowedParts.length ? ' ' : '\n') + refTail : '');
+  return contract + patchGuide + "\n\n[새로 작성할 때의 데이터 구조 — 기존 텍스트 수정은 공통 edits 형식 사용]\n" + JSON.stringify(format, null, 2) + "\n\n" + guide + invalid + loreDeltaExample(task, session) + (task === "workshop" ? "\nchanges의 각 task는 description/lorebook/regex/lua/greeting/choiceGreeting 중 하나이며 해당 data 형식은 다음과 같다:\n" + JSON.stringify(Object.fromEntries(Object.entries(TASKS).filter(([k]) => k !== "workshop").map(([k, v]) => [k, v.format]))) : "") + fieldFooter;
 }
 export const HISTORY_TURNS_DEFAULT = 12, HISTORY_TURNS_MIN = 1, HISTORY_TURNS_MAX = 100;
 export function historyOptions(settings = {}) {
@@ -232,8 +237,19 @@ export function draftSummary(session, context) {
     note: '요약 모드: 원고 본문은 보내지 않았다(필드마다 글자 수만). 기존 본문의 부분편집(edits)은 쓸 수 없고 기존 항목의 수정·삭제도 제안하지 마라. 설계 논의는 reply로 답하고, 새 항목(ref:null)의 완성 본문은 제안할 수 있다. 기존 본문을 고쳐야 하면 reply에서 사용자에게 요약 모드를 끄고 다시 요청하라고 안내하라.',
   };
 }
-// Focused context for a chunk step: fields and items changed so far or targeted by this step are sent whole, the rest as sizes.
+// Opt-in reference summary for non-workshop tasks: keeps the active task's CURRENT_DRAFT full while summarizing other areas.
 const omittedText = (text) => ({ omitted: true, chars: chars(text) });
+export function referenceSummaryContext(context) {
+  return {
+    summaryMode: true, name: context.name,
+    description: omittedText(context.description), personality: omittedText(context.personality), scenario: omittedText(context.scenario), firstMessage: omittedText(context.firstMessage),
+    lorebook: context.lorebook.map(({ ref, entry }) => ({ ref, summary: { comment: entry.comment, key: entry.key, chars: chars(entry.content) } })),
+    regex: context.regex.map(({ ref, rule }) => ({ ref, summary: { comment: rule.comment, type: rule.type, chars: chars(rule.in) + chars(rule.out) } })),
+    scripts: context.scripts.map((s) => ({ ref: s.ref, summary: { comment: s.comment, chars: chars(s.code) } })),
+    defaultVariables: context.defaultVariables, assets: context.assets.length,
+  };
+}
+// Focused context for a chunk step: fields and items changed so far or targeted by this step are sent whole, the rest as sizes.
 export function focusContext(task, context, taskRef, focus) {
   const fields = new Set(focus.fields ?? []), lore = new Set(focus.lore ?? []), regex = new Set(focus.regex ?? []), scripts = new Set(focus.scripts ?? []);
   const allFields = focus.allFields === true, allLore = focus.allLore === true, allRegex = focus.allRegex === true, allScripts = focus.allScripts === true;
@@ -249,6 +265,19 @@ export function focusContext(task, context, taskRef, focus) {
   if (task === 'choiceGreeting') return { text: context.firstMessage, scripts: scriptList, variables: context.defaultVariables, regex: regexList, focusNote: note };
   return taskRef;
 }
+function compatibilityNote(task) {
+  if (['lua', 'choiceGreeting', 'workshop'].includes(task)) return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn="키">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다.';
+  if (['greeting', 'regex'].includes(task)) return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다.';
+  return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다.';
+}
+const TASK_DRAFT_DEDUP = {
+  description: { drop: ['description'], note: '현재 캐릭터 설명은 [현재안]에 한 번만 제공했다.' },
+  greeting: { drop: ['firstMessage'], note: '현재 첫 메시지는 [현재안]에 한 번만 제공했다.' },
+  lorebook: { drop: ['lorebook'], note: '현재 로어북과 ref는 [현재안]에 한 번만 제공했다. 변경·추가 항목만 반환하라.' },
+  regex: { drop: ['regex'], note: '현재 정규식과 ref는 [현재안]에 한 번만 제공했다.' },
+  lua: { drop: ['scripts', 'defaultVariables'], note: '현재 Lua 스크립트·ref와 초기 변수는 [현재안]에 한 번만 제공했다.' },
+  choiceGreeting: { drop: ['firstMessage', 'scripts', 'defaultVariables', 'regex'], note: '현재 첫 메시지·Lua·초기 변수·정규식은 [현재안]에 한 번만 제공했다.' },
+};
 export function composeMessages(session, task, request, prompt, options = {}) {
   assert(TASKS[task], "알 수 없는 요청입니다.");
   str(prompt.system, "시스템 프롬프트");
@@ -259,20 +288,26 @@ export function composeMessages(session, task, request, prompt, options = {}) {
   const refs = { description: context.description, lorebook: context.lorebook, regex: context.regex, lua: { scripts: context.scripts, variables: context.defaultVariables }, greeting: context.firstMessage, choiceGreeting: { text: context.firstMessage, scripts: context.scripts, variables: context.defaultVariables, regex: context.regex } };
   const focus = options.focus && typeof options.focus === 'object' ? options.focus : null;
   const summary = options.draftSummary === true && task === "workshop" && !focus;
+  const refSummary = options.referenceSummary === true && task !== "workshop" && !focus;
   const current = summary ? draftSummary(session, context) : focus ? focusContext(task, context, refs[task], focus) : task === "workshop" ? context : refs[task];
-  const character = focus ? focusContext('workshop', context, null, focus) : context;
-  const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: "RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn=\"키\">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다." }), OUTPUT_FORMAT: formatFor(task, session, { ...options, includeContract: false }) };
+  const character = focus ? focusContext('workshop', context, null, focus) : refSummary ? referenceSummaryContext(context) : clone(context);
+  const values = { TASK_NAME: TASKS[task].label, CURRENT_DRAFT: JSON.stringify(current), USER_REQUEST: request, REFERENCE_CONTEXT: JSON.stringify({ project: session.kind, brief: session.brief, character, conversation: recentConversation(session.thread, historyOptions(options).historyTurns), compatibility: compatibilityNote(task) }), OUTPUT_FORMAT: formatFor(task, session, { ...options, includeContract: false }) };
   const reference = JSON.parse(values.REFERENCE_CONTEXT);
   if (task === "workshop") {
     delete reference.character;
     reference.currentDraftNote = summary ? "현재 원고는 [현재안]에 요약(필드 길이와 항목 색인)으로만 제공했다." : "현재 원고 전체는 [현재안]에 한 번만 제공했다.";
-  } else if (task === "lorebook") {
-    delete reference.character.lorebook;
-    reference.currentDraftNote = "현재 로어북과 ref는 [현재안]에 한 번만 제공했다. 변경·추가 항목만 반환하라.";
+  } else {
+    const dedup = TASK_DRAFT_DEDUP[task];
+    if (dedup && reference.character) {
+      for (const k of dedup.drop) delete reference.character[k];
+      reference.currentDraftNote = dedup.note;
+    }
+    if (refSummary) reference.referenceSummaryNote = "참고자료 요약 모드: 현재 작업 외의 다른 원고 영역은 본문 대신 글자 수와 항목 색인(summary)만 제공했다. 다른 영역 본문이 필요하면 사용자에게 참고자료 요약 모드를 끄고 다시 요청하라고 안내하라.";
   }
   const pendingProposals = session.candidates.filter((c) => !c.status).flatMap((c) => { const packets = candidatePackets(c); return packets.map((p, i) => ({ id: packets.length > 1 ? c.id + "#" + (i + 1) : c.id, task: p.task, data: filterLoreProposal(p, session).data })); });
   const pendingProposalNote = "미적용 제안이다. 현재 원고와 구분하고, 새 수정안의 참조는 현재 원고 기준으로 작성하라.";
-  reference.lorebookSelection = { included: context.lorebook.length, total: (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length, note: "현재 원고의 로어북은 체크한 항목만 제공했다. ref는 원본 인덱스이며 빠진 번호를 재정렬하거나 누락 항목을 추측해 수정·삭제하지 마라. 이전 대화에 남아 있는 자료는 현재 포함 상태를 의미하지 않는다." };
+  const totalLore = (session.draft.globalLore ?? []).filter((entry) => !isLoreFolder(entry)).length;
+  reference.lorebookSelection = { included: context.lorebook.length, total: totalLore, ...(context.lorebook.length < totalLore || task === 'lorebook' || task === 'workshop' ? { note: "현재 원고의 로어북은 체크한 항목만 제공했다. ref는 원본 인덱스이며 빠진 번호를 재정렬하거나 누락 항목을 추측해 수정·삭제하지 마라. 이전 대화에 남아 있는 자료는 현재 포함 상태를 의미하지 않는다." } : {}) };
   // The changing parts move to their own slots when the template has them; an older custom template keeps them inside the reference.
   if (prompt.user.includes("<<CONVERSATION>>")) { values.CONVERSATION = JSON.stringify(reference.conversation); delete reference.conversation; }
   if (prompt.user.includes("<<PENDING_PROPOSALS>>")) values.PENDING_PROPOSALS = JSON.stringify({ note: pendingProposalNote, proposals: pendingProposals });
@@ -1305,12 +1340,41 @@ function chunkRules(options) {
   return '[분할 작업]\n응답당 출력 예산은 사고 과정을 뺀 약 ' + chunkTokens.toLocaleString('en-US') + '토큰이다. 결과 전체가 예산을 넘을 것 같으면 한 응답에 다 쓰지 마라.\n첫 자립 구간만 data에 완성하고, 남은 구간은 최상위 "plan" 배열에 {"title":"구간 이름","instruction":"그 구간에서 작성할 내용과 위치"} 순서대로 적어라. 계획만 세우고 아직 아무것도 쓰지 않을 때는 data를 null로 둔다.\n구간은 전체 최대 ' + chunkMax + '개이며 각 구간은 예산 안에서 끝나야 한다. 다음 구간 요청에서는 이전 구간의 결과가 이미 현재안에 반영되어 있으므로 edits(before/after)로 이어 붙이고, 이번 구간만 작성한 뒤 아직 남은 구간이 있으면 plan에 남은 것만 다시 적어라. 남은 구간이 없으면 plan을 생략한다.\n예산 안에 끝나는 작업은 plan 없이 한 번에 완성하라.';
 }
 export function jsonContract(task, options = {}) {
+  const hasRef = ['lorebook', 'regex', 'lua', 'choiceGreeting', 'workshop'].includes(task);
+  const hasVars = ['lua', 'choiceGreeting', 'workshop'].includes(task);
+  const hasRegex = ['regex', 'choiceGreeting', 'workshop'].includes(task);
+  const hasLore = ['lorebook', 'workshop'].includes(task);
+  const isWorkshop = task === 'workshop';
+  const taskRules = [
+    hasVars
+      ? '출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다. 변수 값에 객체·배열을 넣지 마라. 여러 값은 변수를 나눠라.'
+      : hasRef
+        ? '출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 []로 쓴다.'
+        : '출력 형식의 필수 키를 빠뜨리지 마라.',
+    hasRef ? '새 항목의 ref는 null, 기존 항목 수정·삭제의 ref는 현재안에 실제로 있는 값만 사용한다.' : '',
+    isWorkshop ? 'workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다. changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.' : '',
+  ].filter(Boolean).join('\n');
+  const editFields = {
+    description: '적용 필드: description의 text.',
+    greeting: '적용 필드: greeting의 text.',
+    lorebook: '적용 필드: lorebook entry의 comment·key·secondkey·content. 설정(type/mode/불리언/숫자)은 기존 값 형식을 따른다.',
+    regex: '적용 필드: regex rule의 comment·in·out. 설정(type/flag/ableFlag)은 기존 값 형식을 따른다.',
+    lua: '적용 필드: Lua scripts의 comment·code, 기존 variables의 각 값.',
+    choiceGreeting: '적용 필드: text, regex rule의 comment·in·out, Lua scripts의 comment·code, 기존 variables의 각 값. choices 안내는 일반 문자열이다.',
+    workshop: '적용 필드: description·greeting·choiceGreeting의 text, lorebook entry의 comment·key·secondkey·content, regex rule의 comment·in·out, Lua scripts의 comment·code, 기존 variables의 각 값. reply·choices 안내는 일반 문자열이고, 설정값은 기존 형식을 따른다.',
+  }[task] ?? '';
+  const refEditRules = [
+    hasRef ? '기존 항목은 원래 ref를 유지하고 변경할 필드만 넣으며, 생략한 항목·필드는 보존된다. 삭제 목록은 명시적으로 요청받은 ref만 포함하라.' : '',
+    hasVars ? '기존 Lua는 ref와 code 또는 comment만 보낼 수 있고, 새 Lua는 ref:null·comment·code가 모두 필요하다.' : '',
+    hasLore ? '새 로어북은 ref:null·key·content가 필요하다. [로어북] upsert에는 추가·수정 항목만 넣고 변경이 없으면 upsert:[],remove:[]이다.' : '',
+    isWorkshop ? 'reply에 코드나 변경 JSON을 중복하지 마라.' : '',
+  ].filter(Boolean).join('\n');
   return String.raw`[필수 JSON 응답 규칙]
 응답 전체는 JSON 객체 하나여야 한다. 첫 문자는 {이고, 블록을 쓰지 않으면 마지막 문자는 }이다.
 최상위 필드는 "schemaVersion", "task", "data"${chunkOptions(options).chunking ? '를 사용하고, 분할 작업이 필요할 때만 "plan"을 추가한다.' : '만 사용한다.'}
 "schemaVersion"은 숫자 2, "task"는 정확히 "${task}", "data"는 해당 작업의 객체다. 이전 템플릿의 schemaVersion:1·완성 본문 지시보다 이 출력 계약을 우선한다.
-JSON을 문자열로 한 번 더 감싸거나 배열로 반환하지 마라. 설명, 인사, 사고 과정, Markdown 코드 펜스는 객체 밖에 쓰지 마라.
-모든 키와 문자열은 큰따옴표를 사용한다. JSON 문자열 안의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다(블록 안은 제외).
+JSON을 문자열로 감싸거나 배열로 반환하지 말고, 설명·인사·사고 과정·코드 펜스를 객체 밖에 쓰지 마라.
+모든 키와 문자열은 큰따옴표를 쓰며, 문자열 안의 큰따옴표는 \", 역슬래시는 \\, 줄바꿈은 \n으로 이스케이프한다(블록 안은 제외). 주석·후행 쉼표·작은따옴표 문자열·undefined·NaN·Infinity·생략 기호는 금지한다.
 [원문 블록 — 기본 규칙] 본문과 코드는 JSON 문자열이 아니라 블록으로 보낸다: 설명·첫 메시지의 text, 로어북 content, 정규식 out, Lua code, edits의 before/after. JSON에는 ref·comment·key·설정값·plan 같은 짧은 값만 둔다. 한 줄 80자 이하의 짧은 값은 문자열로 써도 된다. JSON 안의 그 자리에는 반드시 {"block":"이름"} 객체를 쓰고(이름만 쓰거나 "<<<이름>>>" 문자열로 쓰지 마라), JSON 객체가 끝난 뒤 새 줄에 <<<이름>>> 한 줄, 원문 그대로, <<</이름>>> 한 줄을 쓴다. 블록 안은 이스케이프하지 않고 코드 펜스도 쓰지 않는다. 이름은 영문·숫자·_만 쓰고 응답 안에서 유일해야 하며, 어떤 문자열 필드에도 쓸 수 있다. 블록은 JSON이 참조하는 것만 쓴다. 예:
 {"schemaVersion":2,"task":"lua","data":{"scripts":[{"ref":null,"comment":"시작","code":{"block":"lua1"}}],"removeScripts":[],"variables":{},"removeVariables":[]}}
 <<<lua1>>>
@@ -1318,30 +1382,18 @@ function onStart(accessKey)
   setChatVar(accessKey, "day", "1")
 end
 <<</lua1>>>
-주석, 후행 쉼표, 작은따옴표 문자열, undefined, 생략 기호는 금지한다. null/true/false는 문자열이 아니다.
-출력 형식의 필수 키를 빠뜨리지 마라. 빈 목록은 [], 빈 변수 객체는 {}로 쓴다. 새 variables 값은 숫자여도 "0" 같은 문자열이다. 변수 값에 객체·배열을 넣지 마라. 여러 값은 변수를 나눠라.
-새 항목의 ref는 null, 기존 항목 수정·삭제의 ref는 현재안에 실제로 있는 값만 사용한다.
-workshop의 대화 답변은 data.reply에만 넣고, 수정 요청이 없으면 data.changes는 []로 둔다.
-workshop의 changes는 task/data 객체 목록이며 task는 중복 없이 최대 6개다. choiceGreeting과 lua/regex/greeting을 함께 넣지 마라.
-아래 예시는 구조와 이스케이프 참고용이다. 예시 내용 자체를 복사하지 말고 사용자 요청에 맞는 실제 완성 데이터로 교체하라.
+${taskRules}
+아래 예시는 구조 참고용이다. 예시 내용을 복사하지 말고 사용자 요청에 맞는 실제 데이터로 교체하라.
 [출력 직전 필수 점검 — 점검 과정은 출력하지 않음]
-1. JSON.parse로 읽을 수 있는 표준 JSON 하나를 완성한다. 문법과 구조를 모두 맞춘 뒤 응답한다.
-2. 본문·코드는 블록으로 보내므로 이스케이프가 없다. JSON 문자열에 남긴 짧은 값 안의 큰따옴표는 \", 실제 줄바꿈은 \n, 정규식의 역슬래시는 \\로 쓴다. 데이터의 따옴표나 공백을 삭제해서 문법을 맞추지 마라.
-3. 괄호는 연 순서의 역순으로 닫는다. edits는 배열이고 각 원소는 before/after 객체다. 마지막 after 문자열 뒤에는 edit 객체 }, edits 배열 ], in 객체 }, rule 객체 }, upsert 항목 객체 } 순으로 닫는다. 배열을 닫기 전에 불필요한 }를 추가하지 마라.
-4. 항목 사이에만 쉼표를 넣고 마지막 항목 뒤에는 넣지 마라. 중복 키, 주석, 생략 기호, NaN, Infinity는 쓰지 마라.
-5. schemaVersion/task/data와 작업별 필수 키·자료형·ref를 다시 확인한다. before는 블록에 원문 그대로 적되 짧고 유일한 구간으로 잡는다. JSON 문자열에 남긴 짧은 before는 디코딩 후 원문과 같아야 한다.
-6. reply는 짧은 요약으로 쓰고 실제 수정 데이터는 changes에 한 번만 넣는다. 검토 전 제안이므로 이미 적용·저장했다고 말하지 마라. 요청량이 너무 크면 완결된 항목 단위의 수정안을 제안하고 미완료 범위를 reply에 명시한다. 내용·문자열·배열·객체를 중간에 끊거나 나머지를 생략 기호로 대체하지 마라.
+1. JSON.parse로 읽히는 표준 JSON 하나를 완성한다. 데이터의 따옴표나 공백을 삭제해 문법을 맞추지 말고, 괄호는 연 순서의 역순으로 닫으며 마지막 항목 뒤에 쉼표를 넣지 마라.${hasRegex ? ' edits 배열은 edit }, edits ], in }, rule }, upsert } 순으로 닫고 여분 }를 넣지 마라.' : ''}
+2. schemaVersion·task·data와 필수 키·자료형${hasRef ? '·ref' : ''}을 확인하고, 내용·배열·객체를 중간에 끊지 마라.${isWorkshop ? ' reply는 짧은 요약으로 쓰고 실제 수정 데이터는 changes에 한 번만 넣는다. 검토 전 제안이므로 이미 적용·저장했다고 말하지 마라.' : ''}
 ${chunkRules(options)}
 ${jsonSyntaxExamples(task)}
 [공통 텍스트 부분편집]
-기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":{"block":"b1"},"after":{"block":"a1"}}]}를 넣고 before/after 본문은 블록으로 보내라(한 줄 80자 이하면 문자열도 된다). 한 필드당 1~100개다. 줄 번호를 출력하거나 적용 위치로 사용하지 마라.
-적용 필드: description/greeting/choiceGreeting의 text; lorebook entry의 comment/key/secondkey/content; regex rule의 comment/in/out; Lua scripts의 comment/code; 기존 variables의 각 값. workshop 내부의 각 작업에도 같은 형식을 쓴다. reply와 choices의 안내 정보는 일반 문자열이다. type/mode/flag/불리언/숫자 등 설정은 기존 값 형식을 따른다.
-before는 공백·들여쓰기·줄바꿈·기호까지 현재 원문과 정확히 같아야 하며 한 곳에만 있어야 한다. 바꿀 부분을 포함하는 가장 짧은 유일 구간을 잡아라. 몇 줄이면 충분하고, 긴 본문 전체를 before로 옮기지 마라. 반복되는 구간이면 유일해질 만큼만 주변 문맥을 더하라. 빈 before는 금지한다. 삽입은 기존 문맥을 before로 잡고 after에 문맥과 새 내용을 함께 넣는다. 삭제는 after:""를 쓴다.
-여러 edits는 모두 요청 당시 원문 기준이다. 앞 edit의 결과를 다음 before로 참조하지 마라. 구간이 겹치면 하나로 합쳐라. 원문은 최대한 정확히 복사하라. 일반 문장의 원문 불일치·중복 매칭은 사용자가 실제 구간을 비교해서 선택하며, 코드·정규식과 겹치는 수정 구간은 엄격히 검증한다.
-새 항목이나 빈 필드의 첫 작성, 사용자가 명시한 전체 재작성은 완성 문자열을 사용한다. 부분 수정 요청에는 긴 본문·코드 전체를 다시 출력하지 마라. 원문과 새 문자열을 함께 반복하는 전체 교체 edits도 피하라.
-기존 항목은 원래 ref를 유지하고 변경할 필드만 넣어라. 기존 Lua는 ref와 code 또는 comment만 보낼 수 있으며 생략한 필드는 보존된다. 새 Lua는 ref:null, comment, code가 모두 필요하다. 새 로어북은 ref:null, key, content가 필요하다.
-생략한 항목·필드는 보존된다. 삭제 목록은 명시적으로 요청받은 ref만 포함하라. reply에 코드나 변경 JSON을 중복하지 마라.
-${task === "lorebook" || task === "workshop" ? "[로어북] upsert에는 새로 추가하거나 실제로 수정한 항목만 넣는다. 기존 content의 부분 수정도 edits로 반환한다. 변경이 없으면 upsert:[],remove:[]이다." : ""}`;
+기존 원문의 일부를 수정할 때는 해당 문자열 필드 값 자리에 {"edits":[{"before":{"block":"b1"},"after":{"block":"a1"}}]}를 넣고 before/after 본문은 블록으로 보내라(한 줄 80자 이하면 문자열도 된다). 한 필드당 1~100개이며 줄 번호는 쓰지 마라.
+${editFields}
+before는 공백·들여쓰기·줄바꿈·기호까지 현재 원문과 정확히 같아야 하며 한 곳에만 있어야 한다. 바꿀 부분을 포함하는 가장 짧은 유일 구간을 잡아라(긴 본문 전체 복사 금지, 빈 before 금지). 삽입은 기존 문맥을 before로 잡고 after에 문맥과 새 내용을 함께 넣으며, 삭제는 after:""를 쓴다.
+여러 edits는 모두 요청 당시 원문 기준이며 겹치면 하나로 합쳐라. 일반 문장의 불일치·중복은 사용자가 선택해 검토하고, 코드·정규식 구간은 엄격히 검증한다. 새 항목·빈 필드·명시적 전체 재작성은 완성 문자열을 쓰고, 부분 수정에 전체 본문·코드를 다시 출력하거나 전체 교체 edits를 쓰지 마라.${refEditRules ? '\n' + refEditRules : ''}`;
 }
 
 export function loreDeltaExample(task, session) {

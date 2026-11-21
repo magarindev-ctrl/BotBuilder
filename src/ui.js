@@ -838,7 +838,9 @@ export class Workshop {
       }
       this.render();
     }, "요청 구성");
-    const summaryOnly = this.task === "workshop" ? this.check("원고 전체 대신 요약만 보내기 · 설계 논의용, 기존 본문의 부분편집은 불가", s.workshopSummary === true, (v) => { s.workshopSummary = v; this.touch(false); this.render(); }) : null;
+    const summaryOnly = this.task === "workshop"
+      ? this.check("원고 전체 대신 요약만 보내기 · 설계 논의용, 기존 본문의 부분편집은 불가", s.workshopSummary === true, (v) => { s.workshopSummary = v; this.touch(false); this.render(); })
+      : this.check("다른 영역 참고자료는 요약만 보내기 · 현재 작업 원고는 전체 유지, 입력 토큰 절감", s.referenceSummary === true, (v) => { s.referenceSummary = v; this.touch(false); this.render(); });
     const requestSettings = h("div", { class: "request-settings", "data-open": "false" });
     const toggleLabel = TASKS[this.task].label + " ▾";
     const settingsToggle = this.b(toggleLabel, () => {
@@ -849,7 +851,8 @@ export class Workshop {
     }, "request-settings-toggle", { "aria-expanded": "false", title: "요청 설정 · 종류·모델·구성을 바꿉니다." });
     const scopeOn = this.scopeOnly && ["lorebook", "regex"].includes(this.task) && (s.draft[this.task === "lorebook" ? "globalLore" : "customscript"] ?? []).length;
     const summaryOn = this.task === "workshop" && s.workshopSummary === true;
-    const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "") + (summaryOn ? " · 요약 모드(기존 본문 편집 불가)" : "")));
+    const refSummaryOn = this.task !== "workshop" && s.referenceSummary === true;
+    const modeStrip = h("div", { class: "mode-strip", role: "status", "data-task": this.task }, h("span", { class: "mode-pill" }, TASKS[this.task].label), h("span", { class: "mode-scope" }, TASK_SCOPE[this.task] + (scopeOn ? " 현재 선택한 항목만 수정합니다." : "") + (summaryOn ? " · 요약 모드(기존 본문 편집 불가)" : "") + (refSummaryOn ? " · 참고자료 요약" : "")));
     requestSettings.append(settingsToggle, h("div", { class: "request-settings-body" }, h("div", { class: "request-options" }, taskSelect, model, composition), scope, summaryOnly, this.b("프롬프트 편집", () => this.showPrompt(this.task), "small mobile-prompt")));
     panel.append(messages, h(
       "div",
@@ -947,7 +950,7 @@ export class Workshop {
   // override.session / override.text let a chunk step compose against the staged draft with the step instruction.
   previewRequest(task = this.task, forcePreset = false, override = {}) {
     const usePreset = forcePreset || this.s.preset.mode === "preset", session = override.session ?? this.s;
-    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset && !override.focus, draftSummary: task === "workshop" && session.workshopSummary === true, focus: override.focus });
+    const direct = composeMessages(usePreset ? { ...session, thread: [] } : session, task, override.text ?? this.requestWithScope(task).text, this.prompts[task] ?? defaultPrompt(task), { ...chunkOptions(this.settings), ...historyOptions(this.settings), cacheSplit: !usePreset && !override.focus, draftSummary: task === "workshop" && session.workshopSummary === true, referenceSummary: task !== "workshop" && session.referenceSummary === true, focus: override.focus });
     const report = usePreset ? assemblePreset(session.preset, session, task, direct, historyOptions(this.settings)) : { messages: direct, trace: [], issues: [], notes: [], globals: {} };
     return { ...report, messages: withRequestImages(report.messages, override.images ?? requestImages(this.s, task)) };
   }

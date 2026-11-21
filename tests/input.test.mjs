@@ -150,3 +150,103 @@ test('focused chunk steps include targeted existing refs, keep full draft after 
     assert.equal(z.calls.length, 2);
   } finally { z.close(); }
 });
+
+test('v1.2.3 #1: CURRENT_DRAFT fields are never duplicated inside REFERENCE_CONTEXT.character for any task', () => {
+  const s = newSession();
+  s.draft.desc = 'UNIQUE_DESC_BODY';
+  s.draft.firstMessage = 'UNIQUE_GREETING_BODY';
+  s.draft.globalLore = [{ comment: 'L', key: 'k', content: 'UNIQUE_LORE_BODY', secondkey: '' }];
+  s.loreIncluded = [true];
+  s.draft.customscript = [{ comment: 'R', in: 'in_pat', out: 'UNIQUE_REGEX_BODY', type: 'editdisplay', flag: 'g', ableFlag: true }];
+  s.draft.triggerscript = [{ comment: 'S', type: 'start', conditions: [], effect: [{ type: 'triggerlua', code: 'UNIQUE_LUA_BODY' }] }];
+  s.draft.defaultVariables = 'hp=UNIQUE_VAR_VAL';
+
+  const extractRef = (task, options = {}) => {
+    const text = userText(composeMessages(s, task, '수정', defaultPrompt(task), options));
+    const start = text.indexOf('[참고자료]\n') + '[참고자료]\n'.length;
+    const end = text.indexOf('\n\n[출력 형식]');
+    return { text, ref: JSON.parse(text.slice(start, end)) };
+  };
+  const count = (haystack, needle) => haystack.split(needle).length - 1;
+
+  for (const [task, dropped, uniqueTokens] of [
+    ['description', ['description'], ['UNIQUE_DESC_BODY']],
+    ['greeting', ['firstMessage'], ['UNIQUE_GREETING_BODY']],
+    ['lorebook', ['lorebook'], ['UNIQUE_LORE_BODY']],
+    ['regex', ['regex'], ['UNIQUE_REGEX_BODY']],
+    ['lua', ['scripts', 'defaultVariables'], ['UNIQUE_LUA_BODY', 'UNIQUE_VAR_VAL']],
+    ['choiceGreeting', ['firstMessage', 'scripts', 'defaultVariables', 'regex'], ['UNIQUE_GREETING_BODY', 'UNIQUE_LUA_BODY', 'UNIQUE_VAR_VAL', 'UNIQUE_REGEX_BODY']],
+  ]) {
+    const { text, ref } = extractRef(task);
+    for (const k of dropped) assert.equal(ref.character[k], undefined, `${task} must drop ${k} from reference.character`);
+    assert.ok(ref.currentDraftNote, `${task} should carry currentDraftNote`);
+    for (const tok of uniqueTokens) assert.equal(count(text, tok), 1, `${task} must send ${tok} exactly once`);
+  }
+});
+
+test('v1.2.3 #2: opt-in referenceSummary summarizes other areas while keeping CURRENT_DRAFT full and persists via UI toggle', async () => {
+  const { referenceSummaryContext, snapshot, restoreSnapshot } = await import('../src/core.js');
+  const s = newSession();
+  s.draft.desc = 'ACTIVE_DESC_BODY '.repeat(100);
+  s.draft.firstMessage = 'OTHER_GREETING_BODY '.repeat(100);
+  s.draft.globalLore = lore(20, 600);
+  s.loreIncluded = Array(20).fill(true);
+  s.draft.customscript = [{ comment: 'R0', in: 'a', out: 'OTHER_REGEX_BODY '.repeat(80), type: 'editdisplay', flag: 'g', ableFlag: true }];
+  s.draft.triggerscript = [{ comment: 'S0', type: 'start', conditions: [], effect: [{ type: 'triggerlua', code: 'OTHER_LUA_BODY '.repeat(200) }] }];
+  s.draft.defaultVariables = 'day=1';
+
+  const fullDesc = userText(composeMessages(s, 'description', '다듬기', defaultPrompt('description')));
+  const sumDesc = userText(composeMessages(s, 'description', '다듬기', defaultPrompt('description'), { referenceSummary: true }));
+  assert.match(sumDesc, /ACTIVE_DESC_BODY/, 'CURRENT_DRAFT stays 100% full');
+  assert.doesNotMatch(sumDesc, /OTHER_GREETING_BODY|OTHER_REGEX_BODY|OTHER_LUA_BODY|로어 0 로어 0/, 'other areas are summarized');
+  assert.match(sumDesc, /"defaultVariables":"day=1"/, 'tiny defaultVariables stays available for cross-reference');
+  assert.match(sumDesc, /참고자료 요약 모드/);
+  assert.ok(sumDesc.length < fullDesc.length * 0.4, `expected <40% size, got ${sumDesc.length} vs ${fullDesc.length}`);
+
+  // Workshop ignores referenceSummary (it uses draftSummary instead).
+  const wsNormal = userText(composeMessages(s, 'workshop', '의논', defaultPrompt('workshop')));
+  const wsWithRefSum = userText(composeMessages(s, 'workshop', '의논', defaultPrompt('workshop'), { referenceSummary: true }));
+  assert.equal(wsWithRefSum, wsNormal);
+  assert.equal(referenceSummaryContext(contextOf(s.draft)).summaryMode, true);
+
+  // UI opt-in toggle on non-workshop tasks: default off, toggleable, shown in mode-strip, persisted in snapshot.
+  const x = await make([]);
+  try {
+    x.app.task = 'description'; x.app.s.draft.desc = '설명'; x.app.s.draft.globalLore = lore(3, 400); x.app.s.loreIncluded = [true, true, true]; x.app.s.requests.description = '요청';
+    x.app.render();
+    const doc = x.dom.window.document;
+    assert.doesNotMatch(doc.querySelector('.mode-strip').textContent, /참고자료 요약/);
+    assert.match(userText(x.app.previewRequest('description').messages), /로어 0 로어 0/, 'default off keeps full reference');
+    const toggle = [...doc.querySelectorAll('.request-settings label')].find(l => /다른 영역 참고자료는 요약만 보내기/.test(l.textContent))?.querySelector('input');
+    assert.ok(toggle, 'non-workshop task shows referenceSummary checkbox');
+    toggle.click();
+    assert.equal(x.app.s.referenceSummary, true);
+    assert.match(doc.querySelector('.mode-strip').textContent, /참고자료 요약/);
+    assert.doesNotMatch(userText(x.app.previewRequest('description').messages), /로어 0 로어 0/, 'toggle on summarizes other areas');
+    const restored = restoreSnapshot(snapshot(x.app.s));
+    assert.equal(restored.referenceSummary, true);
+  } finally { x.close(); }
+});
+
+test('v1.2.3 #3: jsonContract and formatFor only include rules relevant to the requested task', async () => {
+  const { jsonContract, formatFor } = await import('../src/core.js');
+  const s = newSession();
+  const descContract = jsonContract('description');
+  const loreContract = jsonContract('lorebook');
+  const luaContract = jsonContract('lua');
+  const wsContract = jsonContract('workshop');
+
+  assert.doesNotMatch(descContract, /data\.changes|choiceGreeting과|새 variables 값은|새 항목의 ref는 null/);
+  assert.doesNotMatch(formatFor('description', s, { includeContract: false }), /허용 필드: lore entry=|regex rule=|삭제 목록에는/);
+  assert.doesNotMatch(loreContract, /data\.changes|새 variables 값은/);
+  assert.match(loreContract, /새 항목의 ref는 null/);
+  assert.match(formatFor('lorebook', s, { includeContract: false }), /허용 필드: lore entry=/);
+  assert.doesNotMatch(formatFor('lorebook', s, { includeContract: false }), /regex rule=/);
+  assert.match(luaContract, /새 variables 값은/);
+  assert.doesNotMatch(luaContract, /data\.changes|\[로어북\]/);
+  assert.match(wsContract, /data\.changes/);
+  assert.match(wsContract, /새 variables 값은/);
+  assert.match(wsContract, /\[로어북\]/);
+  assert.ok(descContract.length < wsContract.length - 1000, `expected slim description contract (${descContract.length} vs ${wsContract.length})`);
+});
+
