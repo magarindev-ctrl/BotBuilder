@@ -397,9 +397,11 @@ try {
   assert.ok(after>before+100,`list column grew by drag: ${before} -> ${after}`);
   await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:settings'))?.listNavWidth>200);
   await frame.getByRole('button',{name:'목록 접기',exact:true}).click();
-  assert.equal(await frame.evaluate(()=>getComputedStyle(document.querySelector('.lore-request-list')).display),'none');
+  await frame.waitForFunction(()=>getComputedStyle(document.querySelector('.lore-request-list')).display==='none');
   await frame.getByRole('button',{name:'목록 펼치기',exact:true}).click();
+  await frame.waitForFunction(()=>getComputedStyle(document.querySelector('.lore-request-list')).display!=='none');
   await handle.dblclick();
+  await frame.waitForFunction(b=>Math.abs(document.querySelector('.lore-request-list').getBoundingClientRect().width-b)<2,before);
   assert.ok(Math.abs(await frame.evaluate(()=>document.querySelector('.lore-request-list').getBoundingClientRect().width)-before)<2,'double-click restores the default width');
   results.push({name:'lorebook folders group entries with one checkbox and fold; the list column resizes by drag, folds and resets',passed:true,widths:{before,after}});
   await frame.getByRole('combobox',{name:'LLM 요청 종류'}).selectOption('description');

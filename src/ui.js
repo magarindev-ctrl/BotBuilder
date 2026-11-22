@@ -296,6 +296,7 @@ export class Workshop {
     this.layoutMedia?.removeEventListener?.("change", this.layoutListener);
     this.job?.stop?.();
     this.activeModal?.close(null);
+    this.pendingFileCancel?.();
   }
   applyTheme() { this.doc.documentElement.dataset.theme = this.settings.theme === 'system' ? this.themeMedia?.matches ? 'dark' : 'light' : this.settings.theme; }
   async readSlots() {
@@ -1332,16 +1333,23 @@ export class Workshop {
     }
   }
   file(accept) {
+    this.pendingFileCancel?.();
     return new Promise(resolve => {
       const input = this.h('input', { type: 'file', accept, style: 'display:none' }); this.doc.body.append(input);
-      const win = this.doc.defaultView;
-      let settled = false, timer;
-      const onFocus = () => { timer = setTimeout(() => { if (!settled && !input.files?.length) done(null); }, 400); };
-      const done = value => { if (!settled) { settled = true; clearTimeout(timer); win?.removeEventListener('focus', onFocus); input.remove(); resolve(value); } };
+      let settled = false;
+      const done = value => {
+        if (!settled) {
+          settled = true;
+          if (this.pendingFileCancel === cancel) this.pendingFileCancel = null;
+          input.remove();
+          resolve(value);
+        }
+      };
+      const cancel = () => done(null);
+      this.pendingFileCancel = cancel;
       input.addEventListener('change', () => done(input.files[0] ?? null), { once: true });
-      input.addEventListener('cancel', () => done(null), { once: true });
+      input.addEventListener('cancel', cancel, { once: true });
       input.click();
-      win?.addEventListener('focus', onFocus, { once: true });
     });
   }
   async chooseCharx() {

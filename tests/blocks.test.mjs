@@ -296,3 +296,50 @@ test('parseResponse fills omitted empty collection defaults and lenient mode res
   assert.throws(() => parseResponse(JSON.stringify({ schemaVersion: 2, task: 'greeting', data: { text: 'x' } }), 'description', c, false, { lenient: true }), /작업 종류/);
 });
 
+test('v1.2.4 regressions: no regex lookbehind, \\b/\\f repair guard, prose bare-object rejection, and {{user}} noJson detection', async () => {
+  const { readFileSync } = await import('node:fs');
+  const coreSrc = readFileSync(new URL('../src/core.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(coreSrc, /\(\?<[=!]/, 'src/core.js must not use regex lookbehind literals (Safari < 16.4)');
+
+  const c = blankCharacter();
+  // Glued opening tag after "}" works with spaces and in lenient unclosed-block salvage without losing "}".
+  const gluedSpaced = JSON.stringify({ schemaVersion: 2, task: 'description', data: { text: { block: 't1' } } }) + '  <<<t1>>>\n본문\n<<</t1>>>';
+  assert.equal(parseResponse(gluedSpaced, 'description', c).data.text, '본문');
+  const gluedUnclosed = extractBlocks('{"schemaVersion":2}<<<t1>>>\n잘림', { lenient: true });
+  assert.equal(gluedUnclosed.text, '{"schemaVersion":2}');
+  assert.equal(gluedUnclosed.unclosed, 't1');
+
+  // \b or \f alongside non-standard escapes (e.g. unescaped regex "\bHP: (\d+)\b") is declined instead of turning \b into U+0008.
+  const regexWithWordBoundary = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"체력","in":"\bHP: (\d+)\b","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  assert.equal(repairJson(regexWithWordBoundary), null);
+  assert.throws(() => parseResponse(regexWithWordBoundary, 'regex', c, false, { salvage: true }), e => e instanceof JsonSyntaxError);
+
+  const regexWithFormFeed = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"줄","in":"\f(\d+)","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  assert.equal(repairJson(regexWithFormFeed), null);
+  assert.throws(() => parseResponse(regexWithFormFeed, 'regex', c, false, { salvage: true }), e => e instanceof JsonSyntaxError);
+
+  // Properly escaped \\b alongside a single \d still repairs safely to \b...\d.
+  const escapedBoundary = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"체력","in":"\\bHP: (\d+)\\b","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  const repairedBoundary = parseResponse(escapedBoundary, 'regex', c, false, { salvage: true });
+  assert.equal(repairedBoundary.data.upsert[0].rule.in, String.raw`\bHP: (\d+)\b`);
+
+  // Inline example objects inside prose must never be promoted to bare envelopes.
+  assert.throws(() => parseResponse('형식 예: {"text":"예시"}처럼 보내면 됩니다.', 'description', c, false, { salvage: true }), e => e.noJson === true);
+  assert.throws(() => parseResponse('대화 예시는 {"reply":"예시"} 형태입니다.', 'workshop', c, false, { salvage: true }), e => e.noJson === true);
+
+  // Whole-response bare JSON and single-fenced bare JSON still restore in lenient/salvage mode.
+  const wholeBare = parseResponse('{"text":"단독 본문"}', 'description', c, false, { salvage: true });
+  assert.equal(wholeBare.data.text, '단독 본문');
+  assert.deepEqual(wholeBare.repairs, ['누락된 응답 봉투(schemaVersion·task·data) 복원']);
+  const fencedBare = parseResponse('```json\n{"text":"펜스 본문"}\n```', 'description', c, false, { salvage: true });
+  assert.equal(fencedBare.data.text, '펜스 본문');
+  assert.deepEqual(fencedBare.repairs, ['누락된 응답 봉투(schemaVersion·task·data) 복원']);
+
+  // Plain prose mentioning {{user}}, {{char}}, or {{#if ...}} is classified as noJson (not JsonSyntaxError).
+  assert.throws(
+    () => parseResponse('좋아요! {{user}}와 {{char}}가 처음 만나는 장면을 먼저 정해볼까요?', 'workshop', c, false, { salvage: true }),
+    e => e.noJson === true && !(e instanceof JsonSyntaxError)
+  );
+});
+
+

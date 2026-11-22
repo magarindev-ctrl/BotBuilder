@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.2.3';
+export const VERSION = '1.2.4';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -267,7 +267,7 @@ export function focusContext(task, context, taskRef, focus) {
 }
 function compatibilityNote(task) {
   if (['lua', 'choiceGreeting', 'workshop'].includes(task)) return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn="키">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. getChatVar/setChatVar로 변수를 읽고 쓴다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다.';
-  if (['greeting', 'regex'].includes(task)) return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다.';
+  if (['greeting', 'regex'].includes(task)) return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다. 변수는 {{getvar::키}}, 비교는 {{equal::a::b}}, 조건의 참 값은 1 또는 true다. 단추는 <button risu-btn="키">이며 Lua의 onButtonClick(accessKey, buttonKey)에서 buttonKey로 받는다. HTML/CSS 미리보기와 코드 실행은 제공하지 않는다.';
   return 'RisuAI API v3 / RisuBard. CBS 조건문은 {{#if 조건}}…{{:else}}…{{/if}}이며 {{else}}·{{elseif}}·{{#else}}는 지원하지 않는다.';
 }
 const TASK_DRAFT_DEDUP = {
@@ -516,10 +516,11 @@ export function extractBlocks(raw, options = {}) {
   let unclosed = null;
   // The opening tag sits on its own line (indentation allowed) or directly after a JSON closing brace at EOL.
   // The closing tag is accepted anywhere after it, including glued to the last code line or indented.
-  const open = /(?:^|(?<=\}))[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
+  const open = /(^|\})[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
   let cursor = 0, m;
   while ((m = open.exec(raw))) {
-    const name = m[1];
+    const tagStart = m.index + m[1].length;
+    const name = m[2];
     assert(BLOCK_NAME.test(name), '블록 이름은 영문·숫자·_ 1~40자여야 합니다: ' + name);
     assert(!blocks.has(name), '블록 이름이 중복됩니다: <<<' + name + '>>>');
     const bodyStart = m.index + m[0].length;
@@ -528,11 +529,11 @@ export function extractBlocks(raw, options = {}) {
     const c = close.exec(raw);
     if (!c) {
       // Salvage: the body after this opening tag is the cut-off tail; the block is simply absent.
-      if (options.lenient) { unclosed = name; parts.push(raw.slice(cursor, m.index)); cursor = raw.length; break; }
+      if (options.lenient) { unclosed = name; parts.push(raw.slice(cursor, tagStart)); cursor = raw.length; break; }
       throw new TruncatedResponseError(`응답이 중간에 끊겼습니다 · 블록 <<<${name}>>>이 닫히지 않았습니다(<<</${name}>>>를 찾지 못함 · ${raw.length.toLocaleString('ko-KR')}자 수신). 잘린 응답은 복구하지 않습니다.`);
     }
     blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, '').replace(/\r?\n[ \t]*$/, '').replace(/[ \t]+$/, ''));
-    parts.push(raw.slice(cursor, m.index)); cursor = c.index + c[0].length; open.lastIndex = cursor;
+    parts.push(raw.slice(cursor, tagStart)); cursor = c.index + c[0].length; open.lastIndex = cursor;
   }
   parts.push(raw.slice(cursor));
   return { text: parts.join(''), blocks, unclosed };
@@ -678,9 +679,11 @@ export function salvageResponse(response, blocks) {
 }
 // Safe mechanical JSON repairs: comments outside strings, raw control chars / non-standard backslash escapes
 // inside strings, trailing commas before closers, and up to 3 unmatched closing braces/brackets.
-// Unescaped double quotes inside strings are never guessed; every applied fix is reported to the user.
+// Unescaped double quotes inside strings are never guessed; if \b or \f appears alongside non-standard
+// escapes (e.g. an unescaped regex like "\bHP: (\d+)\b"), repair is declined so \b never turns into BS.
+// Every applied fix is reported to the user.
 function sanitizeJsonMechanics(text) {
-  let out = '', quoted = false, comments = 0, controls = 0, escapes = 0;
+  let out = '', quoted = false, comments = 0, controls = 0, escapes = 0, ambiguous = 0;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (quoted) {
@@ -688,7 +691,7 @@ function sanitizeJsonMechanics(text) {
         const next = text[i + 1];
         if (next === undefined) { out += ch; continue; }
         if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(i + 2, i + 6))) { out += text.slice(i, i + 6); i += 5; continue; }
-        if ('"\\/bfnrt'.includes(next)) { out += ch + next; i++; continue; }
+        if ('"\\/bfnrt'.includes(next)) { if (next === 'b' || next === 'f') ambiguous++; out += ch + next; i++; continue; }
         if (next === '\n' || next === '\r' || next === '\t') { out += '\\\\'; escapes++; continue; }
         out += '\\\\' + next; escapes++; i++; continue;
       }
@@ -711,7 +714,7 @@ function sanitizeJsonMechanics(text) {
     }
     out += ch;
   }
-  return { text: out, comments, controls, escapes };
+  return { text: out, comments, controls, escapes, ambiguous };
 }
 function stripTrailingCommas(text) {
   let out = '', quoted = false, escaped = false, removed = 0;
@@ -752,6 +755,7 @@ function lineColumnOffset(text, line, column) {
 export function repairJson(text) {
   const fixes = [];
   const sanitized = sanitizeJsonMechanics(text);
+  if (sanitized.escapes && sanitized.ambiguous) return null;
   if (sanitized.comments) fixes.push(`주석 ${sanitized.comments}개 제거`);
   if (sanitized.controls) fixes.push(`문자열 안 제어문자 ${sanitized.controls}개 이스케이프`);
   if (sanitized.escapes) fixes.push(`비표준 역슬래시 ${sanitized.escapes}개 보정`);
@@ -812,22 +816,32 @@ function looksLikeAnswer(candidate, task, lenient) {
   if (['schemaVersion', 'task', 'data'].some((key) => Object.hasOwn(candidate, key))) return true;
   return lenient && isBareTaskData(candidate, task);
 }
-function normalizeEnvelope(candidate, task, lenient, fixes) {
+function normalizeEnvelope(candidate, task, lenient, fixes, allowBare = lenient) {
   if (!lenient || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate;
   if (!Object.hasOwn(candidate, 'schemaVersion') && candidate.task === task && Object.hasOwn(candidate, 'data')) {
     fixes.push('누락된 schemaVersion(2) 보완');
     return { schemaVersion: 2, ...candidate };
   }
-  if (isBareTaskData(candidate, task)) {
+  if (allowBare && isBareTaskData(candidate, task)) {
     const { plan, ...rest } = candidate;
     fixes.push('누락된 응답 봉투(schemaVersion·task·data) 복원');
     return { schemaVersion: 2, task, data: rest, ...plan !== undefined ? { plan } : {} };
   }
   return candidate;
 }
+function findJsonObjectStart(text) {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '{') continue;
+    let next = i + 1;
+    while (next < text.length && /\s/.test(text[next])) next++;
+    if (text[next] === '"' || text[next] === '}') return i;
+  }
+  return -1;
+}
 function jsonSyntaxError(text) {
-  const broken = [...responseJsonChunks(text)].filter((chunk) => { try { JSON.parse(chunk); return false; } catch { return true; } });
-  const first = text.indexOf('{');
+  const chunks = [...responseJsonChunks(text)];
+  const broken = chunks.filter((chunk) => { try { JSON.parse(chunk); return false; } catch { return true; } });
+  const first = chunks.length ? -1 : findJsonObjectStart(text);
   const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
   if (candidate === null) {
     const err = new Error('완성된 JSON 응답 객체를 찾지 못했습니다. 후행 쉼표·여분 닫는 괄호·주석·문자열 제어문자 외에는 JSON 문법을 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
@@ -871,9 +885,9 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
   const { text, blocks, unclosed } = extractBlocks(raw, { lenient: salvage });
   // The answer stops right after a block close (or after the JSON) while the JSON still points at a block that never came.
   const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
-  const validate=parsedResponse=>{
+  const validate=(parsedResponse, allowBare = lenient)=>{
     const normFixes = [];
-    const shaped = normalizeEnvelope(parsedResponse, task, lenient, normFixes);
+    const shaped = normalizeEnvelope(parsedResponse, task, lenient, normFixes, allowBare);
     let response, missing = [];
     try {
       response = applyBlocks(shaped, blocks);
@@ -911,9 +925,11 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
     validateData(task,response.data,draft);
     const out=compactLorePacket(response,draft); if(response.plan) out.plan=response.plan; return finish(out);
   };
+  const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
+  const wholeTarget = fenced ? fenced[1] : text;
   let exact,parsed=false;
-  try{exact=JSON.parse(text);parsed=true;}catch{/* Headers, fences and trailing prose are handled below. */}
-  if(parsed)return validate(exact);
+  try{exact=JSON.parse(wholeTarget);parsed=true;}catch{/* Headers, fences and trailing prose are handled below. */}
+  if(parsed)return validate(exact, lenient);
   let response=null,validationError=null,index=0;
   for(const chunk of responseJsonChunks(text)) {
     const first=index++===0;
@@ -923,20 +939,19 @@ export function parseResponse(raw, task, draft, review = false, options = {}) {
       if(first)break;
       continue;
     }
-    if(!looksLikeAnswer(candidate, task, lenient))continue;
-    try{candidate=validate(candidate);}catch(error){validationError??=error;continue;}
+    // Never promote bare payload objects (e.g. {"text":"example"} inside prose) to full envelopes.
+    if(!looksLikeAnswer(candidate, task, false))continue;
+    try{candidate=validate(candidate, false);}catch(error){validationError??=error;continue;}
     assert(response===null,'유효한 JSON 응답이 여러 개입니다. 하나의 응답 객체만 반환해야 합니다.');response=candidate;
   }
   if(response!==null)return response;
   if(validationError)throw validationError;
   // Before giving up: fix mechanical slips above (pure JSON or pure markdown code fence), and accept only a validated envelope.
-  const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
-  const repairTarget = fenced ? fenced[1] : text;
-  const repaired=repairJson(repairTarget);
+  const repaired=repairJson(wholeTarget);
   if(repaired&&repaired.fixes.length) {
     let fixed=null;try{fixed=JSON.parse(repaired.text);}catch{fixed=null;}
     if(looksLikeAnswer(fixed, task, lenient) && (lenient || Object.hasOwn(fixed, 'schemaVersion'))) {
-      const out=validate(fixed);
+      const out=validate(fixed, lenient);
       out.repairs=[...repaired.fixes, ...(out.repairs ?? [])];
       return out;
     }

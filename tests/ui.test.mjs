@@ -885,3 +885,41 @@ test('sendRequest transparently normalizes bare task data with missing empty def
   } finally { x.close(); }
 });
 
+test('v1.2.4 UI regressions: {{user}} plain reply opens confirmPlainReply and file picker does not drop slow selections on window focus', async () => {
+  const x = await make();
+  try {
+    // Plain prose containing {{user}} and {{char}} must open confirmPlainReply in workshop.
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '도입부 아이디어';
+    x.app.api.runLLMModel = async (opts) => { x.calls.push(opts); return { type: 'success', result: '{{user}}와 {{char}}가 비 오는 정거장에서 만나는 도입부를 추천합니다.' }; };
+    let seen = null;
+    x.app.confirmPlainReply = async (text) => { seen = text; return 'reply'; };
+    await x.app.sendRequest();
+    assert.equal(seen, '{{user}}와 {{char}}가 비 오는 정거장에서 만나는 도입부를 추천합니다.');
+    assert.equal(x.app.s.thread.at(-1).error, undefined);
+    assert.match(x.app.s.thread.at(-1).content, /대화 답변\(원고 변경 없음\)으로 반영/);
+
+    // File picker survives window focus returning well before the change event fires.
+    const firstPick = x.app.file('.charx');
+    const firstInput = x.dom.window.document.querySelector('input[type=file][accept=".charx"]');
+    assert.ok(firstInput);
+    x.dom.window.dispatchEvent(new x.dom.window.Event('focus'));
+    await new Promise(r => setTimeout(r, 450));
+    assert.ok(firstInput.isConnected, 'file input must stay alive while waiting for slow file selection');
+    const fakeFile = { name: 'big.charx', size: 1024 };
+    Object.defineProperty(firstInput, 'files', { value: [fakeFile], configurable: true });
+    firstInput.dispatchEvent(new x.dom.window.Event('change'));
+    assert.equal(await firstPick, fakeFile);
+    assert.equal(firstInput.isConnected, false);
+
+    // Opening another picker or destroying the app cleans up an unsettled picker.
+    const secondPick = x.app.file('.charx');
+    const thirdPick = x.app.file('.charx');
+    assert.equal(await secondPick, null);
+    assert.equal(x.dom.window.document.querySelectorAll('input[type=file][accept=".charx"]').length, 1);
+    x.app.destroy();
+    assert.equal(await thirdPick, null);
+    assert.equal(x.dom.window.document.querySelectorAll('input[type=file][accept=".charx"]').length, 0);
+  } finally { x.close(); }
+});
+
+

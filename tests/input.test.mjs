@@ -248,5 +248,17 @@ test('v1.2.3 #3: jsonContract and formatFor only include rules relevant to the r
   assert.match(wsContract, /새 variables 값은/);
   assert.match(wsContract, /\[로어북\]/);
   assert.ok(descContract.length < wsContract.length - 1000, `expected slim description contract (${descContract.length} vs ${wsContract.length})`);
+
+  // v1.2.4: greeting and regex include risu-btn / onButtonClick button syntax guidance while description/lorebook stay slim.
+  for (const task of ['greeting', 'regex', 'lua', 'choiceGreeting', 'workshop']) {
+    const text = userText(composeMessages(s, task, '요청', defaultPrompt(task)));
+    assert.match(text, /risu-btn/, `${task} should include risu-btn button syntax`);
+    assert.match(text, /onButtonClick/, `${task} should include onButtonClick guidance`);
+  }
+  for (const task of ['description', 'lorebook']) {
+    const text = userText(composeMessages(s, task, '요청', defaultPrompt(task)));
+    assert.doesNotMatch(text, /risu-btn/, `${task} should stay slim without button syntax`);
+  }
 });
+
 

@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.2.3
+//@version 1.2.4
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-22: v1.2.4 post-review hardening fixes: removed the sole regex lookbehind literal from extractBlocks for Safari < 16.4 compatibility; repairJson now declines automatic backslash repair when \b or \f co-occurs with non-standard escapes so regex word boundaries never silently turn into backspace control characters; bare-envelope restoration in lenient/salvage mode is restricted to whole-response JSON or single fenced code blocks so inline prose examples are never adopted; jsonSyntaxError ignores non-JSON braces such as {{user}}/{{char}} so workshop confirmPlainReply triggers reliably; file() drops the 400ms focus-cancel timer in favor of change/cancel events with cleanup on next open or destroy; restored risu-btn/onButtonClick button syntax guidance in greeting and regex compatibility notes; stabilized list collapse/reset waits in tools/verify-browser.mjs.
 Modified 2026-11-21: v1.2.3 input token efficiency improvements: composeMessages deduplicates CURRENT_DRAFT fields from REFERENCE_CONTEXT.character across all tasks (description, greeting, lorebook, regex, lua, choiceGreeting, workshop) with zero information loss; jsonContract, formatFor allowed-field footers, compatibility notes and lorebookSelection notes are scoped per task to cut fixed overhead (~1,688 chars saved on lorebook, down to 6,523 chars; 5,431 chars on description); non-workshop tasks gain an opt-in referenceSummary toggle ("다른 영역 참고자료는 요약만 보내기", default off) that keeps CURRENT_DRAFT full while summarizing untouched reference sections as lengths/indexes (persisted in session snapshots and indicated in mode-strip).
 Modified 2026-11-21: v1.2.2 safe lenient JSON normalization for weaker LLMs: repairJson strips // and closed /* * / comments outside strings, escapes raw newline/CR/tab control characters inside strings, and doubles non-standard backslash escapes (\d, \s, \', etc.) without touching valid escapes or guessing unescaped double quotes; parseResponse fills omitted empty collection defaults (changes:[], upsert/remove:[], Lua empty arrays/variables:{}, choiceGreeting variables:{}/regex:[]) when real payload keys exist, and in lenient/salvage mode restores missing schemaVersion or bare task data envelopes while still rejecting arrays, wrappers and mismatched tasks; all repairs and normalizations are transparently reported in the chat note; workshop plain-text replies with no JSON prompt the user via confirmPlainReply to accept as reply-only (zero draft changes), retry once for JSON, or stop.
 Modified 2026-11-21: v1.2.1 protocol & reliability fixes: focused chunk/salvage requests include targeted existing refs and fall back to full draft after plan-only responses (and track deletions without index-shift drift); missing "<<<name>>>" tag-string references are caught as truncation/missing rather than saved literally; unclosed block salvage no longer double-counts and now handles Lua comment and choiceGreeting subfields cleanly; jsonContract is no longer duplicated in OUTPUT_FORMAT (~4,300 chars saved per request), CACHE_ACK uses minimal JSON, focused steps omit cachePoint, and preset mode applies historyTurns; repairJson and jsonSyntaxError use engine-independent bracket scanning (Safari/Firefox) and handle pure code-fenced JSON; callModel suppresses late unhandled rejections; parseVariables preserves '=' and empty values and CRLF; LLM lorebook responses forbid mode 'folder' and folder scopeOnly is blocked; CHARX preserves lorebook enabled:false and FIELDS preserves replaceGlobalNote; applied/discarded candidates prune duplicate before snapshots (restored on undo); DA Interop enforces UTF-8 byte limits; file picker adds focus cancel fallback and UI notices align with actual behavior (including RisuBard-only lorebook hide).
@@ -9932,7 +9933,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.2.3";
+  var VERSION = "1.2.4";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10259,7 +10260,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   }
   function compatibilityNote(task) {
     if (["lua", "choiceGreeting", "workshop"].includes(task)) return 'RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. \uB2E8\uCD94\uB294 <button risu-btn="\uD0A4">\uC774\uBA70 Lua\uC758 onButtonClick(accessKey, buttonKey)\uC5D0\uC11C buttonKey\uB85C \uBC1B\uB294\uB2E4. getChatVar/setChatVar\uB85C \uBCC0\uC218\uB97C \uC77D\uACE0 \uC4F4\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.';
-    if (["greeting", "regex"].includes(task)) return "RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.";
+    if (["greeting", "regex"].includes(task)) return 'RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4. \uBCC0\uC218\uB294 {{getvar::\uD0A4}}, \uBE44\uAD50\uB294 {{equal::a::b}}, \uC870\uAC74\uC758 \uCC38 \uAC12\uC740 1 \uB610\uB294 true\uB2E4. \uB2E8\uCD94\uB294 <button risu-btn="\uD0A4">\uC774\uBA70 Lua\uC758 onButtonClick(accessKey, buttonKey)\uC5D0\uC11C buttonKey\uB85C \uBC1B\uB294\uB2E4. HTML/CSS \uBBF8\uB9AC\uBCF4\uAE30\uC640 \uCF54\uB4DC \uC2E4\uD589\uC740 \uC81C\uACF5\uD558\uC9C0 \uC54A\uB294\uB2E4.';
     return "RisuAI API v3 / RisuBard. CBS \uC870\uAC74\uBB38\uC740 {{#if \uC870\uAC74}}\u2026{{:else}}\u2026{{/if}}\uC774\uBA70 {{else}}\xB7{{elseif}}\xB7{{#else}}\uB294 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294\uB2E4.";
   }
   var TASK_DRAFT_DEDUP = {
@@ -10579,10 +10580,11 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   function extractBlocks(raw, options = {}) {
     const blocks = /* @__PURE__ */ new Map(), parts = [];
     let unclosed = null;
-    const open = /(?:^|(?<=\}))[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
+    const open = /(^|\})[ \t]*<<<\s*([^<>\r\n\/]{1,60}?)\s*>>>[ \t\r]*$/gm;
     let cursor = 0, m;
     while (m = open.exec(raw)) {
-      const name = m[1];
+      const tagStart = m.index + m[1].length;
+      const name = m[2];
       assert(BLOCK_NAME.test(name), "\uBE14\uB85D \uC774\uB984\uC740 \uC601\uBB38\xB7\uC22B\uC790\xB7_ 1~40\uC790\uC5EC\uC57C \uD569\uB2C8\uB2E4: " + name);
       assert(!blocks.has(name), "\uBE14\uB85D \uC774\uB984\uC774 \uC911\uBCF5\uB429\uB2C8\uB2E4: <<<" + name + ">>>");
       const bodyStart = m.index + m[0].length;
@@ -10592,14 +10594,14 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       if (!c) {
         if (options.lenient) {
           unclosed = name;
-          parts.push(raw.slice(cursor, m.index));
+          parts.push(raw.slice(cursor, tagStart));
           cursor = raw.length;
           break;
         }
         throw new TruncatedResponseError(`\uC751\uB2F5\uC774 \uC911\uAC04\uC5D0 \uB04A\uACBC\uC2B5\uB2C8\uB2E4 \xB7 \uBE14\uB85D <<<${name}>>>\uC774 \uB2EB\uD788\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(<<</${name}>>>\uB97C \uCC3E\uC9C0 \uBABB\uD568 \xB7 ${raw.length.toLocaleString("ko-KR")}\uC790 \uC218\uC2E0). \uC798\uB9B0 \uC751\uB2F5\uC740 \uBCF5\uAD6C\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
       }
       blocks.set(name, raw.slice(bodyStart, c.index).replace(/^\r?\n/, "").replace(/\r?\n[ \t]*$/, "").replace(/[ \t]+$/, ""));
-      parts.push(raw.slice(cursor, m.index));
+      parts.push(raw.slice(cursor, tagStart));
       cursor = c.index + c[0].length;
       open.lastIndex = cursor;
     }
@@ -10765,7 +10767,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     return { response: out, missing };
   }
   function sanitizeJsonMechanics(text) {
-    let out = "", quoted = false, comments = 0, controls = 0, escapes = 0;
+    let out = "", quoted = false, comments = 0, controls = 0, escapes = 0, ambiguous = 0;
     for (let i = 0; i < text.length; i++) {
       const ch = text[i];
       if (quoted) {
@@ -10781,6 +10783,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
             continue;
           }
           if ('"\\/bfnrt'.includes(next)) {
+            if (next === "b" || next === "f") ambiguous++;
             out += ch + next;
             i++;
             continue;
@@ -10840,7 +10843,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       }
       out += ch;
     }
-    return { text: out, comments, controls, escapes };
+    return { text: out, comments, controls, escapes, ambiguous };
   }
   function stripTrailingCommas(text) {
     let out = "", quoted = false, escaped = false, removed = 0;
@@ -10910,6 +10913,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
   function repairJson(text) {
     const fixes = [];
     const sanitized = sanitizeJsonMechanics(text);
+    if (sanitized.escapes && sanitized.ambiguous) return null;
     if (sanitized.comments) fixes.push(`\uC8FC\uC11D ${sanitized.comments}\uAC1C \uC81C\uAC70`);
     if (sanitized.controls) fixes.push(`\uBB38\uC790\uC5F4 \uC548 \uC81C\uC5B4\uBB38\uC790 ${sanitized.controls}\uAC1C \uC774\uC2A4\uCF00\uC774\uD504`);
     if (sanitized.escapes) fixes.push(`\uBE44\uD45C\uC900 \uC5ED\uC2AC\uB798\uC2DC ${sanitized.escapes}\uAC1C \uBCF4\uC815`);
@@ -11001,21 +11005,31 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if (["schemaVersion", "task", "data"].some((key2) => Object.hasOwn(candidate, key2))) return true;
     return lenient && isBareTaskData(candidate, task);
   }
-  function normalizeEnvelope(candidate, task, lenient, fixes) {
+  function normalizeEnvelope(candidate, task, lenient, fixes, allowBare = lenient) {
     if (!lenient || !candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
     if (!Object.hasOwn(candidate, "schemaVersion") && candidate.task === task && Object.hasOwn(candidate, "data")) {
       fixes.push("\uB204\uB77D\uB41C schemaVersion(2) \uBCF4\uC644");
       return { schemaVersion: 2, ...candidate };
     }
-    if (isBareTaskData(candidate, task)) {
+    if (allowBare && isBareTaskData(candidate, task)) {
       const { plan, ...rest } = candidate;
       fixes.push("\uB204\uB77D\uB41C \uC751\uB2F5 \uBD09\uD22C(schemaVersion\xB7task\xB7data) \uBCF5\uC6D0");
       return { schemaVersion: 2, task, data: rest, ...plan !== void 0 ? { plan } : {} };
     }
     return candidate;
   }
+  function findJsonObjectStart(text) {
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== "{") continue;
+      let next = i + 1;
+      while (next < text.length && /\s/.test(text[next])) next++;
+      if (text[next] === '"' || text[next] === "}") return i;
+    }
+    return -1;
+  }
   function jsonSyntaxError(text) {
-    const broken = [...responseJsonChunks(text)].filter((chunk) => {
+    const chunks = [...responseJsonChunks(text)];
+    const broken = chunks.filter((chunk) => {
       try {
         JSON.parse(chunk);
         return false;
@@ -11023,7 +11037,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         return true;
       }
     });
-    const first = text.indexOf("{");
+    const first = chunks.length ? -1 : findJsonObjectStart(text);
     const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
     if (candidate === null) {
       const err2 = new Error("\uC644\uC131\uB41C JSON \uC751\uB2F5 \uAC1D\uCCB4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\xB7\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\xB7\uC8FC\uC11D\xB7\uBB38\uC790\uC5F4 \uC81C\uC5B4\uBB38\uC790 \uC678\uC5D0\uB294 JSON \uBB38\uBC95\uC744 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8\uC640 \uC751\uB2F5 \uC6D0\uBB38\uC744 \uD655\uC778\uD558\uC138\uC694.");
@@ -11073,9 +11087,9 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     const salvage = options.salvage === true, lenient = salvage || options.lenient === true;
     const { text, blocks, unclosed } = extractBlocks(raw, { lenient: salvage });
     const endsAtBlockEdge = /(?:>>>|\})[ \t\r\n]*$/.test(raw);
-    const validate = (parsedResponse) => {
+    const validate = (parsedResponse, allowBare = lenient) => {
       const normFixes = [];
-      const shaped = normalizeEnvelope(parsedResponse, task, lenient, normFixes);
+      const shaped = normalizeEnvelope(parsedResponse, task, lenient, normFixes, allowBare);
       let response2, missing = [];
       try {
         response2 = applyBlocks(shaped, blocks);
@@ -11117,13 +11131,15 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       if (response2.plan) out.plan = response2.plan;
       return finish(out);
     };
+    const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
+    const wholeTarget = fenced ? fenced[1] : text;
     let exact, parsed = false;
     try {
-      exact = JSON.parse(text);
+      exact = JSON.parse(wholeTarget);
       parsed = true;
     } catch {
     }
-    if (parsed) return validate(exact);
+    if (parsed) return validate(exact, lenient);
     let response = null, validationError = null, index = 0;
     for (const chunk of responseJsonChunks(text)) {
       const first = index++ === 0;
@@ -11134,9 +11150,9 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         if (first) break;
         continue;
       }
-      if (!looksLikeAnswer(candidate, task, lenient)) continue;
+      if (!looksLikeAnswer(candidate, task, false)) continue;
       try {
-        candidate = validate(candidate);
+        candidate = validate(candidate, false);
       } catch (error) {
         validationError ??= error;
         continue;
@@ -11146,9 +11162,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     if (response !== null) return response;
     if (validationError) throw validationError;
-    const fenced = /^\uFEFF?\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*\r?\n?\s*$/i.exec(text);
-    const repairTarget = fenced ? fenced[1] : text;
-    const repaired = repairJson(repairTarget);
+    const repaired = repairJson(wholeTarget);
     if (repaired && repaired.fixes.length) {
       let fixed = null;
       try {
@@ -11157,7 +11171,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         fixed = null;
       }
       if (looksLikeAnswer(fixed, task, lenient) && (lenient || Object.hasOwn(fixed, "schemaVersion"))) {
-        const out = validate(fixed);
+        const out = validate(fixed, lenient);
         out.repairs = [...repaired.fixes, ...out.repairs ?? []];
         return out;
       }
@@ -16252,6 +16266,7 @@ details[open] > summary { margin-bottom: 9px; }
       this.layoutMedia?.removeEventListener?.("change", this.layoutListener);
       this.job?.stop?.();
       this.activeModal?.close(null);
+      this.pendingFileCancel?.();
     }
     applyTheme() {
       this.doc.documentElement.dataset.theme = this.settings.theme === "system" ? this.themeMedia?.matches ? "dark" : "light" : this.settings.theme;
@@ -17592,29 +17607,24 @@ ${next.instruction}
       }
     }
     file(accept) {
+      this.pendingFileCancel?.();
       return new Promise((resolve) => {
         const input = this.h("input", { type: "file", accept, style: "display:none" });
         this.doc.body.append(input);
-        const win = this.doc.defaultView;
-        let settled = false, timer;
-        const onFocus = () => {
-          timer = setTimeout(() => {
-            if (!settled && !input.files?.length) done(null);
-          }, 400);
-        };
+        let settled = false;
         const done = (value) => {
           if (!settled) {
             settled = true;
-            clearTimeout(timer);
-            win?.removeEventListener("focus", onFocus);
+            if (this.pendingFileCancel === cancel) this.pendingFileCancel = null;
             input.remove();
             resolve(value);
           }
         };
+        const cancel = () => done(null);
+        this.pendingFileCancel = cancel;
         input.addEventListener("change", () => done(input.files[0] ?? null), { once: true });
-        input.addEventListener("cancel", () => done(null), { once: true });
+        input.addEventListener("cancel", cancel, { once: true });
         input.click();
-        win?.addEventListener("focus", onFocus, { once: true });
       });
     }
     async chooseCharx() {
