@@ -1332,14 +1332,19 @@ export class Workshop {
       this.ioBusy = false;
     }
   }
-  file(accept) {
+  file(accept, cancelFallbackMs = 3000) {
     this.pendingFileCancel?.();
     return new Promise(resolve => {
       const input = this.h('input', { type: 'file', accept, style: 'display:none' }); this.doc.body.append(input);
-      let settled = false;
+      const win = this.doc.defaultView;
+      const supportsCancel = 'oncancel' in input;
+      let settled = false, timer;
+      const onFocus = () => { timer = setTimeout(() => { if (!settled && !input.files?.length) done(null); }, cancelFallbackMs); };
       const done = value => {
         if (!settled) {
           settled = true;
+          clearTimeout(timer);
+          win?.removeEventListener('focus', onFocus);
           if (this.pendingFileCancel === cancel) this.pendingFileCancel = null;
           input.remove();
           resolve(value);
@@ -1350,6 +1355,8 @@ export class Workshop {
       input.addEventListener('change', () => done(input.files[0] ?? null), { once: true });
       input.addEventListener('cancel', cancel, { once: true });
       input.click();
+      // Only legacy browsers without the input cancel event need a generous focus fallback to unlock the button.
+      if (!supportsCancel) win?.addEventListener('focus', onFocus, { once: true });
     });
   }
   async chooseCharx() {

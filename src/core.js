@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.2.4';
+export const VERSION = '1.2.5';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -341,6 +341,7 @@ function validateEntry(entry, type, isNew) {
   if ('insertorder' in entry) assert(Number.isFinite(entry.insertorder), '삽입 순서가 올바르지 않습니다.');
   if ('activationPercent' in entry) assert(Number.isFinite(entry.activationPercent) && entry.activationPercent >= 0 && entry.activationPercent <= 100, '활성화 확률은 0~100입니다.');
   if ('type' in entry) assert(['editinput', 'editoutput', 'editprocess', 'editdisplay'].includes(entry.type), '정규식 적용 유형이 올바르지 않습니다.');
+  if (type === 'regex' && 'in' in entry) assert(!/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(entry.in), '정규식 패턴(in)에 제어문자가 포함되어 있습니다. \\b·\\f 같은 역슬래시는 JSON 문자열에서 \\\\b·\\\\f로 이스케이프하거나 <<<블록>>>으로 보내세요.');
   if (isNew) for (const k of (type === 'lore' ? ['key', 'content'] : ['in', 'out', 'type'])) assert(k in entry, '새 항목 필수 값 누락: ' + k);
 }
 function updates(list, field, prefix, draft, remove = []) {
@@ -829,19 +830,26 @@ function normalizeEnvelope(candidate, task, lenient, fixes, allowBare = lenient)
   }
   return candidate;
 }
-function findJsonObjectStart(text) {
+function findJsonObjectStart(text, skipSpans = []) {
   for (let i = 0; i < text.length; i++) {
-    if (text[i] !== '{') continue;
+    const skip = skipSpans.find((s) => i >= s.start && i < s.end);
+    if (skip) { i = skip.end - 1; continue; }
+    if (text[i] !== '{' || (i > 0 && text[i - 1] === '{')) continue;
     let next = i + 1;
     while (next < text.length && /\s/.test(text[next])) next++;
-    if (text[next] === '"' || text[next] === '}') return i;
+    const ch = text[next];
+    if (ch === '"' || ch === '}' || ch === "'") return i;
+    if (/^[A-Za-z_$][A-Za-z0-9_$-]*\s*:(?!:)/.test(text.slice(next, next + 80))) return i;
   }
   return -1;
 }
 function jsonSyntaxError(text) {
-  const chunks = [...responseJsonChunks(text)];
-  const broken = chunks.filter((chunk) => { try { JSON.parse(chunk); return false; } catch { return true; } });
-  const first = chunks.length ? -1 : findJsonObjectStart(text);
+  const spans = [...responseJsonSpans(text)];
+  const broken = [], validSpans = [];
+  for (const span of spans) {
+    try { JSON.parse(span.chunk); validSpans.push(span); } catch { broken.push(span.chunk); }
+  }
+  const first = broken.length ? -1 : findJsonObjectStart(text, validSpans);
   const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
   if (candidate === null) {
     const err = new Error('완성된 JSON 응답 객체를 찾지 못했습니다. 후행 쉼표·여분 닫는 괄호·주석·문자열 제어문자 외에는 JSON 문법을 자동 수정하지 않습니다. 프롬프트와 응답 원문을 확인하세요.');
@@ -982,7 +990,7 @@ export function jsonTruncated(raw) {
   }
   return start>=0&&stack.length>0;
 }
-function* responseJsonChunks(raw) {
+function* responseJsonSpans(raw) {
   let start=-1,stack=[],quoted=false,escaped=false;
   for(let i=0;i<raw.length;i++) {
     const char=raw[i];
@@ -1001,9 +1009,12 @@ function* responseJsonChunks(raw) {
     if(char==='}'||char===']') {
       if(stack.at(-1)!==(char==='}'?'{':'[')){start=-1;stack=[];continue;}
       stack.pop();
-      if(!stack.length){yield raw.slice(start,i+1);start=-1;}
+      if(!stack.length){yield { chunk: raw.slice(start,i+1), start, end: i+1 };start=-1;}
     }
   }
+}
+function* responseJsonChunks(raw) {
+  for (const span of responseJsonSpans(raw)) yield span.chunk;
 }
 export function parseVariables(text) {
   const r = Object.create(null);

@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.2.4
+//@version 1.2.5
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-22: v1.2.5 follow-up fixes: findJsonObjectStart and jsonSyntaxError now detect single-quoted and unquoted-key JS-style objects (including outer non-standard objects wrapping valid inner JSON) as JsonSyntaxError while still ignoring CBS {{...}} macros (including {{getvar::...}}) and valid prose example spans; validateEntry rejects C0 control characters (except tab/CR/LF) inside regex "in" patterns so valid JSON like "\bHP\b" can never slip through as backspace/form-feed; file() adds a 3-second focus cancel fallback strictly when !('oncancel' in input) so legacy browsers unlock cancelled buttons without risking dropped selections on modern browsers.
 Modified 2026-11-22: v1.2.4 post-review hardening fixes: removed the sole regex lookbehind literal from extractBlocks for Safari < 16.4 compatibility; repairJson now declines automatic backslash repair when \b or \f co-occurs with non-standard escapes so regex word boundaries never silently turn into backspace control characters; bare-envelope restoration in lenient/salvage mode is restricted to whole-response JSON or single fenced code blocks so inline prose examples are never adopted; jsonSyntaxError ignores non-JSON braces such as {{user}}/{{char}} so workshop confirmPlainReply triggers reliably; file() drops the 400ms focus-cancel timer in favor of change/cancel events with cleanup on next open or destroy; restored risu-btn/onButtonClick button syntax guidance in greeting and regex compatibility notes; stabilized list collapse/reset waits in tools/verify-browser.mjs.
 Modified 2026-11-21: v1.2.3 input token efficiency improvements: composeMessages deduplicates CURRENT_DRAFT fields from REFERENCE_CONTEXT.character across all tasks (description, greeting, lorebook, regex, lua, choiceGreeting, workshop) with zero information loss; jsonContract, formatFor allowed-field footers, compatibility notes and lorebookSelection notes are scoped per task to cut fixed overhead (~1,688 chars saved on lorebook, down to 6,523 chars; 5,431 chars on description); non-workshop tasks gain an opt-in referenceSummary toggle ("다른 영역 참고자료는 요약만 보내기", default off) that keeps CURRENT_DRAFT full while summarizing untouched reference sections as lengths/indexes (persisted in session snapshots and indicated in mode-strip).
 Modified 2026-11-21: v1.2.2 safe lenient JSON normalization for weaker LLMs: repairJson strips // and closed /* * / comments outside strings, escapes raw newline/CR/tab control characters inside strings, and doubles non-standard backslash escapes (\d, \s, \', etc.) without touching valid escapes or guessing unescaped double quotes; parseResponse fills omitted empty collection defaults (changes:[], upsert/remove:[], Lua empty arrays/variables:{}, choiceGreeting variables:{}/regex:[]) when real payload keys exist, and in lenient/salvage mode restores missing schemaVersion or bare task data envelopes while still rejecting arrays, wrappers and mismatched tasks; all repairs and normalizations are transparently reported in the chat note; workshop plain-text replies with no JSON prompt the user via confirmPlainReply to accept as reply-only (zero draft changes), retry once for JSON, or stop.
@@ -9933,7 +9934,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.2.4";
+  var VERSION = "1.2.5";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -10338,6 +10339,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     if ("insertorder" in entry) assert(Number.isFinite(entry.insertorder), "\uC0BD\uC785 \uC21C\uC11C\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     if ("activationPercent" in entry) assert(Number.isFinite(entry.activationPercent) && entry.activationPercent >= 0 && entry.activationPercent <= 100, "\uD65C\uC131\uD654 \uD655\uB960\uC740 0~100\uC785\uB2C8\uB2E4.");
     if ("type" in entry) assert(["editinput", "editoutput", "editprocess", "editdisplay"].includes(entry.type), "\uC815\uADDC\uC2DD \uC801\uC6A9 \uC720\uD615\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (type === "regex" && "in" in entry) assert(!/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(entry.in), "\uC815\uADDC\uC2DD \uD328\uD134(in)\uC5D0 \uC81C\uC5B4\uBB38\uC790\uAC00 \uD3EC\uD568\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \\b\xB7\\f \uAC19\uC740 \uC5ED\uC2AC\uB798\uC2DC\uB294 JSON \uBB38\uC790\uC5F4\uC5D0\uC11C \\\\b\xB7\\\\f\uB85C \uC774\uC2A4\uCF00\uC774\uD504\uD558\uAC70\uB098 <<<\uBE14\uB85D>>>\uC73C\uB85C \uBCF4\uB0B4\uC138\uC694.");
     if (isNew) for (const k of type === "lore" ? ["key", "content"] : ["in", "out", "type"]) assert(k in entry, "\uC0C8 \uD56D\uBAA9 \uD544\uC218 \uAC12 \uB204\uB77D: " + k);
   }
   function updates(list, field, prefix, draft, remove = []) {
@@ -11018,26 +11020,34 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return candidate;
   }
-  function findJsonObjectStart(text) {
+  function findJsonObjectStart(text, skipSpans = []) {
     for (let i = 0; i < text.length; i++) {
-      if (text[i] !== "{") continue;
+      const skip = skipSpans.find((s) => i >= s.start && i < s.end);
+      if (skip) {
+        i = skip.end - 1;
+        continue;
+      }
+      if (text[i] !== "{" || i > 0 && text[i - 1] === "{") continue;
       let next = i + 1;
       while (next < text.length && /\s/.test(text[next])) next++;
-      if (text[next] === '"' || text[next] === "}") return i;
+      const ch = text[next];
+      if (ch === '"' || ch === "}" || ch === "'") return i;
+      if (/^[A-Za-z_$][A-Za-z0-9_$-]*\s*:(?!:)/.test(text.slice(next, next + 80))) return i;
     }
     return -1;
   }
   function jsonSyntaxError(text) {
-    const chunks = [...responseJsonChunks(text)];
-    const broken = chunks.filter((chunk) => {
+    const spans = [...responseJsonSpans(text)];
+    const broken = [], validSpans = [];
+    for (const span of spans) {
       try {
-        JSON.parse(chunk);
-        return false;
+        JSON.parse(span.chunk);
+        validSpans.push(span);
       } catch {
-        return true;
+        broken.push(span.chunk);
       }
-    });
-    const first = chunks.length ? -1 : findJsonObjectStart(text);
+    }
+    const first = broken.length ? -1 : findJsonObjectStart(text, validSpans);
     const candidate = broken.find((c) => c.includes('"schemaVersion"')) ?? broken.sort((a, b) => b.length - a.length)[0] ?? (first >= 0 ? text.slice(first) : null);
     if (candidate === null) {
       const err2 = new Error("\uC644\uC131\uB41C JSON \uC751\uB2F5 \uAC1D\uCCB4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD6C4\uD589 \uC27C\uD45C\xB7\uC5EC\uBD84 \uB2EB\uB294 \uAD04\uD638\xB7\uC8FC\uC11D\xB7\uBB38\uC790\uC5F4 \uC81C\uC5B4\uBB38\uC790 \uC678\uC5D0\uB294 JSON \uBB38\uBC95\uC744 \uC790\uB3D9 \uC218\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB86C\uD504\uD2B8\uC640 \uC751\uB2F5 \uC6D0\uBB38\uC744 \uD655\uC778\uD558\uC138\uC694.");
@@ -11223,7 +11233,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return start >= 0 && stack.length > 0;
   }
-  function* responseJsonChunks(raw) {
+  function* responseJsonSpans(raw) {
     let start = -1, stack = [], quoted = false, escaped = false;
     for (let i = 0; i < raw.length; i++) {
       const char = raw[i];
@@ -11261,11 +11271,14 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
         }
         stack.pop();
         if (!stack.length) {
-          yield raw.slice(start, i + 1);
+          yield { chunk: raw.slice(start, i + 1), start, end: i + 1 };
           start = -1;
         }
       }
     }
+  }
+  function* responseJsonChunks(raw) {
+    for (const span of responseJsonSpans(raw)) yield span.chunk;
   }
   function parseVariables(text) {
     const r = /* @__PURE__ */ Object.create(null);
@@ -17606,15 +17619,24 @@ ${next.instruction}
         this.ioBusy = false;
       }
     }
-    file(accept) {
+    file(accept, cancelFallbackMs = 3e3) {
       this.pendingFileCancel?.();
       return new Promise((resolve) => {
         const input = this.h("input", { type: "file", accept, style: "display:none" });
         this.doc.body.append(input);
-        let settled = false;
+        const win = this.doc.defaultView;
+        const supportsCancel = "oncancel" in input;
+        let settled = false, timer;
+        const onFocus = () => {
+          timer = setTimeout(() => {
+            if (!settled && !input.files?.length) done(null);
+          }, cancelFallbackMs);
+        };
         const done = (value) => {
           if (!settled) {
             settled = true;
+            clearTimeout(timer);
+            win?.removeEventListener("focus", onFocus);
             if (this.pendingFileCancel === cancel) this.pendingFileCancel = null;
             input.remove();
             resolve(value);
@@ -17625,6 +17647,7 @@ ${next.instruction}
         input.addEventListener("change", () => done(input.files[0] ?? null), { once: true });
         input.addEventListener("cancel", cancel, { once: true });
         input.click();
+        if (!supportsCancel) win?.addEventListener("focus", onFocus, { once: true });
       });
     }
     async chooseCharx() {

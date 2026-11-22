@@ -922,4 +922,43 @@ test('v1.2.4 UI regressions: {{user}} plain reply opens confirmPlainReply and fi
   } finally { x.close(); }
 });
 
+test('v1.2.5 UI regressions: JS-style JSON prompts syntax retry instead of plain reply, and file picker uses focus fallback only when cancel is unsupported', async () => {
+  const x = await make();
+  try {
+    // Workshop response with single-quoted JSON must prompt syntax retry, never confirmPlainReply.
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '장르 정리해 줘';
+    x.app.api.runLLMModel = async (opts) => { x.calls.push(opts); return { type: 'success', result: "{'schemaVersion': 2, 'task': 'workshop', 'data': {'reply': '안녕', 'changes': []}}" }; };
+    let plainOpened = false, retryPurpose = null;
+    x.app.confirmPlainReply = async () => { plainOpened = true; return 'reply'; };
+    x.app.confirmRetry = async (purpose) => { retryPurpose = purpose; return false; };
+    await x.app.sendRequest();
+    assert.equal(plainOpened, false);
+    assert.match(retryPurpose, /JSON 문법이 깨졌습니다/);
+
+    // Modern browser ('oncancel' in input): focus never triggers timer cancel; explicit cancel event settles immediately.
+    const modernPick = x.app.file('.charx', 30);
+    const modernInput = x.dom.window.document.querySelector('input[type=file][accept=".charx"]');
+    x.dom.window.dispatchEvent(new x.dom.window.Event('focus'));
+    await new Promise(r => setTimeout(r, 80));
+    assert.ok(modernInput.isConnected, 'modern browser with oncancel must not cancel via focus timer');
+    modernInput.dispatchEvent(new x.dom.window.Event('cancel'));
+    assert.equal(await modernPick, null);
+    assert.equal(modernInput.isConnected, false);
+
+    // Legacy browser (!('oncancel' in input)): focus fallback unlocks cancelled picker after cancelFallbackMs.
+    const proto = x.dom.window.HTMLElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, 'oncancel');
+    delete proto.oncancel;
+    try {
+      const legacyPick = x.app.file('.charx', 50);
+      x.dom.window.dispatchEvent(new x.dom.window.Event('focus'));
+      assert.equal(await legacyPick, null);
+      assert.equal(x.dom.window.document.querySelectorAll('input[type=file][accept=".charx"]').length, 0);
+    } finally {
+      if (desc) Object.defineProperty(proto, 'oncancel', desc);
+    }
+  } finally { x.close(); }
+});
+
+
 

@@ -57,6 +57,14 @@ try {
     if (!(await button.isVisible())) await frame.getByRole('button',{name:'작업 메뉴',exact:true}).click();
     await frame.getByRole('button',{name,exact:true}).click();
   };
+  const waitUntil = async (fn, timeout = 10000) => {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      if (await frame.evaluate(fn).catch(() => false)) return;
+      await new Promise(r => setTimeout(r, 25));
+    }
+    throw new Error('waitUntil timed out');
+  };
   await frame.waitForFunction(() => typeof window.__open === 'function');
   await frame.evaluate(() => window.__open());
   await page.locator('#plugin').waitFor({ state: 'visible' });
@@ -192,6 +200,7 @@ try {
   await page.locator('#plugin').screenshot({path:'artifacts/workshop-preset-blocks.png',animations:'disabled'});
   await frame.getByRole('textbox',{name:'LLM에게 보낼 요청'}).fill('프리셋을 적용해서 기록관 설명을 다듬어줘.');
   await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();
+  await frame.locator('.editor details.preview-message').first().waitFor();
   const previewCards=await frame.locator('.editor details.preview-message').evaluateAll(sections=>sections.map(s=>({role:s.querySelector('summary').textContent.split('. ')[1].split(' · ')[0],content:s.querySelector('pre').textContent,open:s.open})));
   assert.ok(previewCards.every(m=>m.open),'preview messages start open and can be folded');
   const preview=previewCards.map(({role,content})=>({role,content}));
@@ -203,7 +212,7 @@ try {
   assert.deepEqual(await frame.evaluate(()=>window.__calls[2].messages),preview);
   await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
   // The key already exists from the import's own save, so wait for the edited values to land, not just for the key.
-  await frame.waitForFunction(async()=>{const raw=await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace');try{return Boolean(raw)&&JSON.parse(raw).values?.toggle_tone==='1';}catch{return false;}});
+  await waitUntil(async()=>{const raw=await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace');try{return Boolean(raw)&&JSON.parse(raw).values?.toggle_tone==='1';}catch{return false;}});
   const savedPreset=await frame.evaluate(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')));
   assert.equal(savedPreset.values.toggle_tone,'1');assert.equal(savedPreset.preset.promptTemplate[1].role,'bot');
   results.push({name:'block text, role and order edits match transmitted messages; local preset selections save',passed:true});
@@ -279,7 +288,7 @@ try {
   await frame.getByRole('button',{name:'모듈',exact:true}).click();
   await frame.getByRole('checkbox',{name:'이 모듈의 요청 관련 미지원 처리를 제외',exact:true}).check();
   await frame.getByRole('button',{name:'프리셋 설정 저장',exact:true}).click();
-  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['script-id'].skipRuntime===true);
+  await waitUntil(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:preset-workspace')).moduleOptions['script-id'].skipRuntime===true);
   await ensureRequest(); await frame.getByRole('button',{name:'전송 내용',exact:true}).click();await frame.getByText('조립 검사 통과',{exact:false}).waitFor();
   await ensureRequest(); await frame.locator('[data-action="send-request"]').click();
   await frame.waitForFunction(()=>window.__calls.length===6&&!document.querySelector('[data-action="send-request"]').disabled);
@@ -371,7 +380,7 @@ try {
   });
   assert.equal(scroll.after,scroll.before);assert.equal(scroll.checked,false);
   await toolbarAction('임시 저장');
-  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual'))?.session?.loreIncluded?.[10]===false);
+  await waitUntil(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual'))?.session?.loreIncluded?.[10]===false);
   await page.setViewportSize({width:390,height:850});
   await page.locator('#plugin').screenshot({path:'artifacts/bb-lore-mobile.png',animations:'disabled'});
   results.push({name:'75 lorebook rows remain distinct at five widths; checkbox preserves list scroll and persists selection',passed:true,layouts:loreLayouts});
@@ -395,7 +404,7 @@ try {
   await page.mouse.move(box.x+box.width/2,box.y+40);await page.mouse.down();await page.mouse.move(box.x+box.width/2+120,box.y+40,{steps:6});await page.mouse.up();
   const after=await frame.evaluate(()=>document.querySelector('.lore-request-list').getBoundingClientRect().width);
   assert.ok(after>before+100,`list column grew by drag: ${before} -> ${after}`);
-  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:settings'))?.listNavWidth>200);
+  await waitUntil(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:settings'))?.listNavWidth>200);
   await frame.getByRole('button',{name:'목록 접기',exact:true}).click();
   await frame.waitForFunction(()=>getComputedStyle(document.querySelector('.lore-request-list')).display==='none');
   await frame.getByRole('button',{name:'목록 펼치기',exact:true}).click();
@@ -542,7 +551,7 @@ try {
   await frame.waitForFunction(()=>document.querySelectorAll('.request-previews img').length===2);
   assert.equal(await frame.locator('.request-previews img').count(),2);
   await toolbarAction('임시 저장');
-  await frame.waitForFunction(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.requestImages?.description?.length===2);
+  await waitUntil(async()=>JSON.parse(await risuai.pluginStorage.getItem('risu-character-editor:v1:manual')).session.requestImages?.description?.length===2);
   results.push({name:'mobile file and clipboard image decoding, task isolation, multimodal dispatch, composer reset, explicit reattachment and storage persistence',passed:true});
   assert.deepEqual(errors, []);
   await writeFile('verification/browser-results.json', JSON.stringify({ scope: 'Actual distributable, Edge headless, initially hidden srcdoc iframe, transparent host body, sandbox+CSP and mocked API. No live RisuBard/LLM verification.', passed: results.length, results, layouts, errors }, null, 2) + '\n');

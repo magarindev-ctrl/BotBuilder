@@ -342,4 +342,39 @@ test('v1.2.4 regressions: no regex lookbehind, \\b/\\f repair guard, prose bare-
   );
 });
 
+test('v1.2.5 regressions: single-quoted/unquoted-key JSON is JsonSyntaxError, CBS {{getvar::...}} stays noJson, and regex in rejects control chars', () => {
+  const c = blankCharacter();
+  // Weak-model JS-style objects (single quotes, unquoted keys, or mixed with valid inner JSON) must classify as JsonSyntaxError.
+  assert.throws(
+    () => parseResponse("{'schemaVersion': 2, 'task': 'description', 'data': {'text': 'hi'}}", 'description', c, false, { salvage: true }),
+    e => e instanceof JsonSyntaxError && !e.noJson
+  );
+  assert.throws(
+    () => parseResponse("{schemaVersion: 2, task: 'description', data: {text: 'hi'}}", 'workshop', c, false, { salvage: true }),
+    e => e instanceof JsonSyntaxError && !e.noJson
+  );
+  assert.throws(
+    () => parseResponse('{schemaVersion: 2, task: "description", data: {"text": "hi"}}', 'description', c, false, { salvage: true }),
+    e => e instanceof JsonSyntaxError && !e.noJson
+  );
+
+  // Plain prose containing CBS macros with colons ({{getvar::...}}, {{equal::...}}, {{:else}}) must still classify as noJson.
+  assert.throws(
+    () => parseResponse('좋아요! {{user}}와 {{char}}의 {{getvar::love}}를 {{#if {{equal::{{getvar::scene}}::a}}}}장면{{:else}}기본{{/if}}으로 연결할까요?', 'workshop', c, false, { salvage: true }),
+    e => e.noJson === true && !(e instanceof JsonSyntaxError)
+  );
+
+  // Valid JSON whose regex "in" contains \b (BS) or \f (FF) is rejected by validateEntry.
+  const validJsonWithBs = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"체력","in":"\bHP\b","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  assert.throws(() => parseResponse(validJsonWithBs, 'regex', c, false, { salvage: true }), /정규식 패턴\(in\)에 제어문자/);
+  const validJsonWithFf = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"줄","in":"\fHP","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  assert.throws(() => parseResponse(validJsonWithFf, 'regex', c, false, { salvage: true }), /정규식 패턴\(in\)에 제어문자/);
+
+  // Properly double-escaped \\b and multiline \n/\t in regex "in" remain valid.
+  const validEscaped = String.raw`{"schemaVersion":2,"task":"regex","data":{"upsert":[{"ref":null,"rule":{"comment":"체력","in":"\\bHP\\b\n\t(\\d+)","out":"$1","type":"editdisplay","flag":"g","ableFlag":true}}],"remove":[]}}`;
+  const ok = parseResponse(validEscaped, 'regex', c, false, { salvage: true });
+  assert.equal(ok.data.upsert[0].rule.in, '\\bHP\\b\n\t(\\d+)');
+});
+
+
 
