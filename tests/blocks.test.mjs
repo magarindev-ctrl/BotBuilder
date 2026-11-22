@@ -376,5 +376,26 @@ test('v1.2.5 regressions: single-quoted/unquoted-key JSON is JsonSyntaxError, CB
   assert.equal(ok.data.upsert[0].rule.in, '\\bHP\\b\n\t(\\d+)');
 });
 
+test('v1.2.6 regressions: CSS blocks, {hp: 10}, and Lua tables in prose stay noJson while protocol-key JS-style objects stay JsonSyntaxError', () => {
+  const c = blankCharacter();
+  // Plain prose containing CSS rules, variable sketches, or Lua tables must classify as noJson.
+  for (const prose of [
+    '상태창 스타일은 .status { color: red; background: #111; text-align: center; } 처럼 주면 깔끔합니다.',
+    '초기 변수는 {hp: 10, mp: 5}처럼 잡고 시작하는 걸 추천합니다.',
+    "Lua에서는 {'사과', '배'} 같은 테이블로 목록을 표현할 수 있습니다.",
+  ]) {
+    assert.throws(() => parseResponse(prose, 'workshop', c, false, { salvage: true }), e => e.noJson === true && !(e instanceof JsonSyntaxError), prose);
+  }
+  // Protocol-key single-quoted or unquoted-key objects still classify as JsonSyntaxError.
+  for (const broken of [
+    "{'reply': '안녕', 'changes': []}",
+    "{reply: '안녕', changes: []}",
+    "{text: '본문'}",
+  ]) {
+    assert.throws(() => parseResponse(broken, 'workshop', c, false, { salvage: true }), e => e instanceof JsonSyntaxError && !e.noJson, broken);
+  }
+});
+
+
 
 

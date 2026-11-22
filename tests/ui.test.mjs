@@ -960,5 +960,23 @@ test('v1.2.5 UI regressions: JS-style JSON prompts syntax retry instead of plain
   } finally { x.close(); }
 });
 
+test('v1.2.6 UI regressions: workshop plain prose containing CSS rules or {hp: 10} opens confirmPlainReply instead of syntax retry', async () => {
+  const x = await make();
+  try {
+    const replyText = '상태창은 .status { color: red; text-align: center; }로 꾸미고 변수는 {hp: 10, mp: 5}처럼 잡으면 좋습니다.';
+    x.app.task = 'workshop'; x.app.s.requests.workshop = '상태창 디자인 방향 추천해 줘';
+    x.app.api.runLLMModel = async (opts) => { x.calls.push(opts); return { type: 'success', result: replyText }; };
+    let seenPlain = null, retryOpened = false;
+    x.app.confirmPlainReply = async (text) => { seenPlain = text; return 'reply'; };
+    x.app.confirmRetry = async () => { retryOpened = true; return false; };
+    await x.app.sendRequest();
+    assert.equal(retryOpened, false);
+    assert.equal(seenPlain, replyText);
+    assert.equal(x.app.s.thread.at(-1).error, undefined);
+    assert.match(x.app.s.thread.at(-1).content, /대화 답변\(원고 변경 없음\)으로 반영/);
+  } finally { x.close(); }
+});
+
+
 
 

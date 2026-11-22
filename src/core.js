@@ -1,7 +1,7 @@
 import { RE2JS } from 're2js';
 import { isTextEdit, resolveTextValue, textEditPreview, reviewTextValue } from './text-edits.js';
 
-export const VERSION = '1.2.5';
+export const VERSION = '1.2.6';
 export const PREFIX = 'risu-character-editor:v1:';
 export const FIELDS = ['name', 'image', 'desc', 'personality', 'scenario', 'systemPrompt', 'postHistoryInstructions', 'replaceGlobalNote', 'exampleMessage', 'creatorNotes', 'creator', 'characterVersion', 'tags', 'firstMessage', 'alternateGreetings', 'globalLore', 'customscript', 'triggerscript', 'defaultVariables', 'additionalAssets', 'ccAssets'];
 const ARRAY_FIELDS = ['globalLore', 'customscript', 'triggerscript', 'additionalAssets', 'ccAssets'];
@@ -830,6 +830,7 @@ function normalizeEnvelope(candidate, task, lenient, fixes, allowBare = lenient)
   }
   return candidate;
 }
+const CONTRACT_KEY_START = /^(?:'(?:schemaVersion|task|data|plan|reply|changes|text|upsert|remove|scripts|removeScripts|variables|removeVariables|choices|regex)'|(?:schemaVersion|task|data|plan|reply|changes|text|upsert|remove|scripts|removeScripts|variables|removeVariables|choices|regex))\s*:(?!:)/;
 function findJsonObjectStart(text, skipSpans = []) {
   for (let i = 0; i < text.length; i++) {
     const skip = skipSpans.find((s) => i >= s.start && i < s.end);
@@ -838,8 +839,8 @@ function findJsonObjectStart(text, skipSpans = []) {
     let next = i + 1;
     while (next < text.length && /\s/.test(text[next])) next++;
     const ch = text[next];
-    if (ch === '"' || ch === '}' || ch === "'") return i;
-    if (/^[A-Za-z_$][A-Za-z0-9_$-]*\s*:(?!:)/.test(text.slice(next, next + 80))) return i;
+    if (ch === '"' || ch === '}') return i;
+    if (CONTRACT_KEY_START.test(text.slice(next, next + 40))) return i;
   }
   return -1;
 }

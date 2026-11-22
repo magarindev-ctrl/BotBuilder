@@ -1,10 +1,11 @@
 //@name risu_story_workshop
 //@display-name 봇빌더
 //@api 3.0
-//@version 1.2.5
+//@version 1.2.6
 //@update-url https://raw.githubusercontent.com/magarindev-ctrl/BotBuilder/main/dist/risu_story_workshop.js
 
 /*
+Modified 2026-11-22: v1.2.6 refinement: findJsonObjectStart now restricts single-quoted and unquoted-key object detection to top-level protocol keys (schemaVersion, task, data, plan, reply, changes, text, upsert, remove, scripts, removeScripts, variables, removeVariables, choices, regex) so plain prose containing CSS rules, {hp: 10} variable sketches, or Lua tables triggers workshop confirmPlainReply instead of JsonSyntaxError.
 Modified 2026-11-22: v1.2.5 follow-up fixes: findJsonObjectStart and jsonSyntaxError now detect single-quoted and unquoted-key JS-style objects (including outer non-standard objects wrapping valid inner JSON) as JsonSyntaxError while still ignoring CBS {{...}} macros (including {{getvar::...}}) and valid prose example spans; validateEntry rejects C0 control characters (except tab/CR/LF) inside regex "in" patterns so valid JSON like "\bHP\b" can never slip through as backspace/form-feed; file() adds a 3-second focus cancel fallback strictly when !('oncancel' in input) so legacy browsers unlock cancelled buttons without risking dropped selections on modern browsers.
 Modified 2026-11-22: v1.2.4 post-review hardening fixes: removed the sole regex lookbehind literal from extractBlocks for Safari < 16.4 compatibility; repairJson now declines automatic backslash repair when \b or \f co-occurs with non-standard escapes so regex word boundaries never silently turn into backspace control characters; bare-envelope restoration in lenient/salvage mode is restricted to whole-response JSON or single fenced code blocks so inline prose examples are never adopted; jsonSyntaxError ignores non-JSON braces such as {{user}}/{{char}} so workshop confirmPlainReply triggers reliably; file() drops the 400ms focus-cancel timer in favor of change/cancel events with cleanup on next open or destroy; restored risu-btn/onButtonClick button syntax guidance in greeting and regex compatibility notes; stabilized list collapse/reset waits in tools/verify-browser.mjs.
 Modified 2026-11-21: v1.2.3 input token efficiency improvements: composeMessages deduplicates CURRENT_DRAFT fields from REFERENCE_CONTEXT.character across all tasks (description, greeting, lorebook, regex, lua, choiceGreeting, workshop) with zero information loss; jsonContract, formatFor allowed-field footers, compatibility notes and lorebookSelection notes are scoped per task to cut fixed overhead (~1,688 chars saved on lorebook, down to 6,523 chars; 5,431 chars on description); non-workshop tasks gain an opt-in referenceSummary toggle ("다른 영역 참고자료는 요약만 보내기", default off) that keeps CURRENT_DRAFT full while summarizing untouched reference sections as lengths/indexes (persisted in session snapshots and indicated in mode-strip).
@@ -9934,7 +9935,7 @@ Public License instead of this License.  But first, please read
   }
 
   // src/core.js
-  var VERSION = "1.2.5";
+  var VERSION = "1.2.6";
   var PREFIX = "risu-character-editor:v1:";
   var FIELDS = ["name", "image", "desc", "personality", "scenario", "systemPrompt", "postHistoryInstructions", "replaceGlobalNote", "exampleMessage", "creatorNotes", "creator", "characterVersion", "tags", "firstMessage", "alternateGreetings", "globalLore", "customscript", "triggerscript", "defaultVariables", "additionalAssets", "ccAssets"];
   var ARRAY_FIELDS = ["globalLore", "customscript", "triggerscript", "additionalAssets", "ccAssets"];
@@ -11020,6 +11021,7 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
     }
     return candidate;
   }
+  var CONTRACT_KEY_START = /^(?:'(?:schemaVersion|task|data|plan|reply|changes|text|upsert|remove|scripts|removeScripts|variables|removeVariables|choices|regex)'|(?:schemaVersion|task|data|plan|reply|changes|text|upsert|remove|scripts|removeScripts|variables|removeVariables|choices|regex))\s*:(?!:)/;
   function findJsonObjectStart(text, skipSpans = []) {
     for (let i = 0; i < text.length; i++) {
       const skip = skipSpans.find((s) => i >= s.start && i < s.end);
@@ -11031,8 +11033,8 @@ CBS \uBB38\uBC95: \uCCAB \uBA54\uC2DC\uC9C0\xB7\uC815\uADDC\uC2DD OUT\uC758 \uC8
       let next = i + 1;
       while (next < text.length && /\s/.test(text[next])) next++;
       const ch = text[next];
-      if (ch === '"' || ch === "}" || ch === "'") return i;
-      if (/^[A-Za-z_$][A-Za-z0-9_$-]*\s*:(?!:)/.test(text.slice(next, next + 80))) return i;
+      if (ch === '"' || ch === "}") return i;
+      if (CONTRACT_KEY_START.test(text.slice(next, next + 40))) return i;
     }
     return -1;
   }

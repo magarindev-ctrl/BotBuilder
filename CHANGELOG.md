@@ -2,6 +2,11 @@
 
 버전은 플러그인 헤더(`//@version`)와 같습니다. 리스의 플러그인 업데이트 알림은 이 버전이 올라갈 때만 표시됩니다. 자세한 검증 수치와 미검증 항목은 각 항목과 [docs/verification.md](docs/verification.md)를 보세요.
 
+## 1.2.6 · 2026-11-22
+
+- **CSS·`{hp: 10}`·Lua 테이블 포함 일반 문장의 확인 창 표시 보완.** `findJsonObjectStart`에서 작은따옴표 키(`'...'`)와 비인용 키(`이름:`)를 응답 최상위 규약 키(`schemaVersion`, `task`, `data`, `plan`, `reply`, `changes`, `text`, `upsert`, `remove`, `scripts`, `removeScripts`, `variables`, `removeVariables`, `choices`, `regex`)로 좁혔습니다. 설계 대화에서 CSS(`.status { color: red; text-align: center; }`), 변수 스케치(`{hp: 10}`), Lua 테이블(`{'사과', '배'}`)을 설명하는 일반 대화문이 문법 오류 대신 "대화 답변으로 받기" 확인 창으로 열리며, 규약 키를 쓴 비표준 JSON(`{'schemaVersion': 2, ...}`, `{reply: '...', ...}`)은 계속 문법 오류 재요청 대상으로 분류됩니다.
+- 자동 검증 235개, 브라우저 검증 27개 통과.
+
 ## 1.2.5 · 2026-11-22
 
 - **작은따옴표·따옴표 없는 키 JSON의 문법 오류 분류 복구.** `findJsonObjectStart`가 `{` 뒤의 `"`·`}`뿐 아니라 `'` 또는 `식별자:`(`::` 및 `{{` CBS 매크로 제외)도 JSON 객체 시작으로 인식하고, `jsonSyntaxError`가 유효한 JSON 조각 범위 밖에서 발견된 비표준 객체 시작(`{'schemaVersion': 2, ...}`, `{schemaVersion: 2, data: {"text":"..."}}` 등)도 `JsonSyntaxError`로 분류하도록 고쳤습니다. 이제 약한 모델의 비표준 JSON 응답에서도 설계 대화 "일반 문장" 창 대신 문법 오류 재요청 확인 창이 정상 표시되며, `{{user}}`·`{{char}}`·`{{getvar::...}}` 일반 문장과 산문 속 예시 객체는 계속 `noJson`으로 유지됩니다.
